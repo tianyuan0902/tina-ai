@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tina - Hiring Intelligence</title>
+    <link rel="stylesheet" href="./prototype.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <a class="brand" href="#home" data-route="home">
+        <span class="brand-mark">T</span>
+        <span>
+          <strong>Tina</strong>
+          <small>Recent conversations</small>
+        </span>
+      </a>
+      <div class="section-heading compact">
+        <p>Previous hiring conversations</p>
+      </div>
+      <div id="sessionCards" class="session-grid"></div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button class="text-button" data-route="home">Tina</button>
+        <button class="secondary small" data-route="kickoff">New kickoff</button>
+      </header>
+
+      <section id="home" class="screen active">
+        <div class="hero">
+          <p class="home-logo">Tina</p>
+          <h1>Hiring intelligence before the search begins.</h1>
+          <p>
+            Think through an ambiguous hire with a calm talent partner. Tina helps the market
+            shape the role without forcing false precision.
+          </p>
+          <button class="home-prompt" data-route="kickoff">
+            <span>We need a founding AI engineer...</span>
+            <strong>Begin</strong>
+          </button>
+          <div class="suggested-prompts">
+            <button data-route="kickoff">We’re hiring our first Head of Product...</button>
+            <button data-route="kickoff">We need to scale our recruiting team...</button>
+            <button data-route="kickoff">This is mostly a growth need...</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="kickoff" class="screen">
+        <div class="page-heading">
+          <p class="eyebrow">New Hiring Kickoff</p>
+          <h1>Think through the hire with Tina.</h1>
+          <p>Start messy. Tina helps turn ambiguity into a working hiring direction while keeping future calibration points visible.</p>
+        </div>
+
+        <div class="kickoff-layout">
+          <section class="chat-side">
+            <div id="progressTracker" class="tracker"></div>
+            <div class="chat-card">
+              <div id="messages" class="messages"></div>
+              <div class="composer">
+                <textarea id="answerInput" rows="3" placeholder="Type your answer..."></textarea>
+                <div class="composer-actions">
+                  <span>Cmd/Ctrl + Enter to send</span>
+                  <div>
+                    <button class="secondary" id="sendBtn">Send</button>
+                    <button class="primary" id="generateBtn">Generate Brief</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <aside id="livePanel" class="live-panel"></aside>
+        </div>
+      </section>
+
+      <section id="brief" class="screen">
+        <div id="briefView"></div>
+      </section>
+    </main>
+
+    <script src="./prototype.js"></script>
+  </body>
+</html>
