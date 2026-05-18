@@ -3,14 +3,8 @@
 import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 import { ArrowUp } from "lucide-react";
 
-import { CandidateArchetypeCards } from "@/components/tina-mvp/candidate-archetype-cards";
-import { createOpeningMessage, reasonAboutHiringConversation } from "@/lib/tina-mvp/reasoning";
-import type { TinaCandidateArchetype, TinaChatApiResponse, TinaMvpMessage } from "@/lib/tina-mvp/types";
-
-type ArchetypeSnapshot = {
-  afterMessageId: string;
-  cards: TinaCandidateArchetype[];
-};
+import { createOpeningMessage } from "@/lib/tina-mvp/reasoning";
+import type { TinaChatApiResponse, TinaMvpMessage } from "@/lib/tina-mvp/types";
 
 const STORAGE_KEY = "tina_mvp_messages";
 const USER_FACING_ERROR = "Tina lost context for a second. Try again.";
@@ -18,7 +12,6 @@ const USER_FACING_ERROR = "Tina lost context for a second. Try again.";
 export function TinaChatPage() {
   const [messages, setMessages] = useState<TinaMvpMessage[]>(() => [createOpeningMessage()]);
   const [draft, setDraft] = useState("");
-  const [archetypeSnapshot, setArchetypeSnapshot] = useState<ArchetypeSnapshot | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
   const isSendingRef = useRef(false);
@@ -74,12 +67,9 @@ export function TinaChatPage() {
       content
     };
     const nextMessages = [...messagesRef.current, founderMessage];
-    const localRead = reasonAboutHiringConversation(messagesRef.current, content);
-    const shouldShowCards = shouldShowArchetypeCards(content);
 
     messagesRef.current = nextMessages;
     setMessages(nextMessages);
-    setArchetypeSnapshot(null);
     setDraft("");
     setIsSending(true);
 
@@ -106,14 +96,6 @@ export function TinaChatPage() {
       console.info("[Tina MVP] assistant response source:", data.source, data.responseId);
       messagesRef.current = [...nextMessages, data.message];
       setMessages(messagesRef.current);
-      setArchetypeSnapshot(
-        shouldShowCards
-          ? {
-              afterMessageId: data.message.id,
-              cards: localRead.archetypes
-            }
-          : null
-      );
     } catch (error) {
       console.warn("[Tina MVP] chat request threw:", error);
       const errorMessage = USER_FACING_ERROR;
@@ -160,11 +142,7 @@ export function TinaChatPage() {
             <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-5 md:px-6">
               <div className="mx-auto grid max-w-3xl gap-5">
                 {messages.map((message) => (
-                  <MessageGroup
-                    key={message.id}
-                    message={message}
-                    archetypes={archetypeSnapshot?.afterMessageId === message.id ? archetypeSnapshot.cards : []}
-                  />
+                  <MessageGroup key={message.id} message={message} />
                 ))}
                 {isSending ? <ThinkingBubble /> : null}
               </div>
@@ -199,23 +177,10 @@ export function TinaChatPage() {
   );
 }
 
-function shouldShowArchetypeCards(text: string) {
-  return /\b(archetype|candidate|profile|who should|what type|type of|hire|hiring|role|engineer|designer|product|sales|gtm|recruiter|founder|manager|lead)\b/i.test(
-    text
-  );
-}
-
-function MessageGroup({
-  message,
-  archetypes
-}: {
-  message: TinaMvpMessage;
-  archetypes: TinaCandidateArchetype[];
-}) {
+function MessageGroup({ message }: { message: TinaMvpMessage }) {
   return (
     <div className="grid gap-4">
       <MessageBubble message={message} />
-      {message.role === "tina" ? <CandidateArchetypeCards archetypes={archetypes} /> : null}
     </div>
   );
 }
