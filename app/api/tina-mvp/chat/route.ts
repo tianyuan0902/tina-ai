@@ -22,6 +22,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "No founder message was provided." }, { status: 400 });
   }
 
+  if (isClearlyOffTopic(latestUserMessage.content)) {
+    return NextResponse.json({
+      message: {
+        id: `tina-scope-${Date.now()}`,
+        role: "tina",
+        content: "I’m going to keep this tied to hiring and talent. How is that relevant to the role, team, candidate, or founder question you’re working through?"
+      },
+      source: "local_scope_guard"
+    });
+  }
+
   const brainContext = retrieveBrainContext(latestUserMessage.content);
   const instructions = [
     TINA_SYSTEM_PROMPT,
@@ -190,6 +201,16 @@ function toOpenAIInputMessage(message: TinaMvpMessage): OpenAIInputMessage {
     role: message.role === "founder" ? "user" : "assistant",
     content: message.content.trim()
   };
+}
+
+function isClearlyOffTopic(message: string) {
+  const text = message.toLowerCase();
+  const hiringSignal =
+    /\b(hire|hiring|recruit|recruiting|candidate|talent|people|team|founder|startup|role|job|interview|sourcing|comp|compensation|salary|equity|offer|operator|engineer|designer|pm|product manager|sales|gtm|exec|executive|manager|leadership|org|organization|culture|market map|calibration|profile|archetype|resume|background)\b/.test(text);
+
+  if (hiringSignal) return false;
+
+  return /\b(hotel|flight|restaurant|travel|vacation|trip|visa|weather|recipe|cook|game|movie|song|shopping|buy|book me|find me a|design me a game|build me a game|homework|math problem|workout|dating|medical|doctor|lawyer|legal|tax)\b/.test(text);
 }
 
 function getOpenAIText(data: unknown) {

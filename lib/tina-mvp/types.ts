@@ -21,6 +21,6 @@ export type TinaReasoningResult = {
 
 export type TinaChatApiResponse = {
   message: TinaMvpMessage;
-  source: "openai";
+  source: "openai" | "local_scope_guard";
   responseId?: string;
 };

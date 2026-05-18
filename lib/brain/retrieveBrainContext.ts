@@ -21,6 +21,8 @@ const IMPORTANT_TERMS = new Set([
   "candidate",
   "chaos",
   "clarity",
+  "comp",
+  "compensation",
   "compatibility",
   "contract",
   "corporate",
@@ -38,9 +40,11 @@ const IMPORTANT_TERMS = new Set([
   "founder",
   "founding",
   "gtm",
+  "india",
   "hire",
   "hiring",
   "infra",
+  "inr",
   "interview",
   "interviewer",
   "judgment",
@@ -48,12 +52,15 @@ const IMPORTANT_TERMS = new Set([
   "matching",
   "ownership",
   "operator",
+  "pay",
   "pedigree",
   "pm",
   "product",
   "protocol",
   "recruiting",
+  "remote",
   "roadmap",
+  "salary",
   "security",
   "senior",
   "signal",
@@ -64,6 +71,7 @@ const IMPORTANT_TERMS = new Set([
   "stress",
   "smart",
   "smartcontract",
+  "tc",
   "taste",
   "technical",
   "trust",
@@ -95,6 +103,11 @@ const DOMAIN_GUARDS = [
     name: "operator",
     query: /\b(operator|operations|chaos|process|cross-functional|execution)\b/i,
     chunk: /\b(operator|operations|chaos|process|cross-functional|execution)\b/i
+  },
+  {
+    name: "compensation",
+    query: /\b(comp|compensation|salary|pay|paid|offer|equity|bonus|total comp|tc|levels?\.?fyi|lpa|inr|remote pay|location-adjusted|same pay)\b/i,
+    chunk: /\b(comp|compensation|salary|pay|paid|offer|equity|bonus|total comp|tc|levels?\.?fyi|lpa|inr|remote pay|location-adjusted|same pay)\b/i
   }
 ];
 
@@ -222,6 +235,21 @@ function scoreChunk(content: string, query: string, queryTerms: string[]) {
 
   if (/\b(candidates|pipeline|exceptional|few people actually feel)\b/i.test(query) &&
       /\b(talent bar calibration|founder signal clarity|market positioning|role definition quality|exceptional)\b/i.test(content)) {
+    score += 12;
+  }
+
+  if (/\b(comp|compensation|salary|pay|paid|offer|equity|bonus|total comp|tc|levels?\.?fyi|lpa|inr|remote pay|location adjusted|same pay|location agnostic)\b/i.test(query) &&
+      /\b(compensation|salary|pay|total compensation|levels\.fyi|leetcode compensation|equal pay|location-agnostic|location-adjusted|equity|bonus|market benchmarking)\b/i.test(content)) {
+    score += 16;
+  }
+
+  if (/\b(india|bangalore|bengaluru|hyderabad|delhi|mumbai|pune|chennai|inr|lpa)\b/i.test(query) &&
+      /\b(india|indian|inr|lpa|leetcode compensation|bangalore|bengaluru|hyderabad|pune|chennai)\b/i.test(content)) {
+    score += 12;
+  }
+
+  if (/\b(remote|global|distributed|location|same pay|equal pay|location agnostic|location adjusted)\b/i.test(query) &&
+      /\b(equal pay|remote workers|location-agnostic|location-adjusted|same pay everywhere|distributed|geography)\b/i.test(content)) {
     score += 12;
   }
 
