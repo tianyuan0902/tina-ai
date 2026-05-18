@@ -6,6 +6,8 @@ import type { TinaMvpMessage } from "@/lib/tina-mvp/types";
 
 export const dynamic = "force-dynamic";
 
+const USER_FACING_ERROR = "Tina lost context for a second. Try again.";
+
 type OpenAIInputMessage = {
   role: "user" | "assistant";
   content: string;
@@ -27,6 +29,10 @@ export async function POST(request: Request) {
     brainContext.context
   ].join("\n\n");
   const openaiMessages = cleanMessages.map(toOpenAIInputMessage);
+  const finalMessagesForLog = [
+    { role: "system", content: instructions },
+    ...openaiMessages
+  ];
   const openaiPayload = {
     model: process.env.TINA_OPENAI_MODEL || "gpt-4.1-mini",
     instructions,
@@ -52,39 +58,60 @@ export async function POST(request: Request) {
     );
     console.log("[Tina MVP] final OpenAI payload:");
     console.log(JSON.stringify(openaiPayload, null, 2));
+    console.log("[Tina MVP] final messages array sent to OpenAI:");
+    console.log(JSON.stringify(finalMessagesForLog, null, 2));
   }
 
   if (!process.env.OPENAI_API_KEY) {
+    console.error("[Tina MVP] OPENAI_API_KEY is missing.");
     return NextResponse.json(
       {
-        error: "OPENAI_API_KEY is missing. Tina did not generate a local fallback response."
+        error: USER_FACING_ERROR,
+        debugCode: "missing_api_key"
       },
       { status: 500 }
     );
   }
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
-    },
-    body: JSON.stringify(openaiPayload),
-    cache: "no-store"
-  });
+  const { response, data, networkError } = await callOpenAI(openaiPayload);
 
-  const data = await response.json();
+  if (networkError || !response) {
+    console.error("[Tina MVP] OpenAI network request failed:", networkError);
+    return NextResponse.json(
+      {
+        error: USER_FACING_ERROR,
+        debugCode: "network_error"
+      },
+      { status: 502 }
+    );
+  }
+
+  if (process.env.NODE_ENV !== "production") {
+    console.log("[Tina MVP] OpenAI response status:", response.status);
+  }
 
   if (!response.ok) {
     console.error("[Tina MVP] OpenAI request failed:", data);
-    return NextResponse.json({ error: getOpenAIErrorMessage(data), details: data }, { status: response.status });
+    return NextResponse.json(
+      {
+        error: USER_FACING_ERROR,
+        debugCode: getOpenAIDebugCode(data)
+      },
+      { status: response.status }
+    );
   }
 
   const text = getOpenAIText(data);
 
   if (!text) {
     console.error("[Tina MVP] OpenAI response had no text:", data);
-    return NextResponse.json({ error: "OpenAI returned no assistant text.", details: data }, { status: 502 });
+    return NextResponse.json(
+      {
+        error: USER_FACING_ERROR,
+        debugCode: "empty_response"
+      },
+      { status: 502 }
+    );
   }
 
   console.log("[Tina MVP] OpenAI response id:", data.id);
@@ -98,6 +125,54 @@ export async function POST(request: Request) {
     source: "openai",
     responseId: data.id
   });
+}
+
+async function callOpenAI(openaiPayload: object) {
+  try {
+    const first = await fetchOpenAI(openaiPayload);
+    const firstData = await first.json();
+
+    if (first.ok || !shouldRetry(first.status)) {
+      return { response: first, data: firstData };
+    }
+
+    console.warn("[Tina MVP] OpenAI transient failure, retrying once:", first.status);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    const second = await fetchOpenAI(openaiPayload);
+    return { response: second, data: await second.json() };
+  } catch (error) {
+    return { networkError: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+function fetchOpenAI(openaiPayload: object) {
+  return fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
+    },
+    body: JSON.stringify(openaiPayload),
+    cache: "no-store"
+  });
+}
+
+function shouldRetry(status: number) {
+  return status === 408 || status === 409 || status === 429 || status >= 500;
+}
+
+function getOpenAIDebugCode(data: unknown) {
+  if (!data || typeof data !== "object") return "openai_error";
+  const error = (data as { error?: { code?: string; type?: string; message?: string } }).error;
+  const text = `${error?.code || ""} ${error?.type || ""} ${error?.message || ""}`.toLowerCase();
+
+  if (text.includes("insufficient_quota") || text.includes("quota") || text.includes("billing")) return "billing_or_quota";
+  if (text.includes("invalid_api_key") || text.includes("incorrect api key") || text.includes("unauthorized")) return "invalid_api_key";
+  if (text.includes("model") && (text.includes("does not exist") || text.includes("access"))) return "model_access";
+  if (text.includes("rate_limit")) return "rate_limit";
+
+  return error?.code || error?.type || "openai_error";
 }
 
 function normalizeMessages(messages?: TinaMvpMessage[]) {
@@ -115,12 +190,6 @@ function toOpenAIInputMessage(message: TinaMvpMessage): OpenAIInputMessage {
     role: message.role === "founder" ? "user" : "assistant",
     content: message.content.trim()
   };
-}
-
-function getOpenAIErrorMessage(data: unknown) {
-  if (!data || typeof data !== "object") return "OpenAI request failed.";
-  const error = (data as { error?: { message?: string } }).error;
-  return error?.message ? `OpenAI request failed: ${error.message}` : "OpenAI request failed.";
 }
 
 function getOpenAIText(data: unknown) {

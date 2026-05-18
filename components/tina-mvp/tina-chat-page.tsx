@@ -13,6 +13,7 @@ type ArchetypeSnapshot = {
 };
 
 const STORAGE_KEY = "tina_mvp_messages";
+const USER_FACING_ERROR = "Tina lost context for a second. Try again.";
 
 export function TinaChatPage() {
   const [messages, setMessages] = useState<TinaMvpMessage[]>(() => [createOpeningMessage()]);
@@ -93,10 +94,13 @@ export function TinaChatPage() {
         },
         body: JSON.stringify({ messages: nextMessages })
       });
-      const data = (await response.json()) as TinaChatApiResponse | { error?: string };
+      const data = (await response.json()) as TinaChatApiResponse | { error?: string; debugCode?: string };
 
       if (!response.ok || !("message" in data)) {
-        throw new Error("error" in data && data.error ? data.error : "Tina could not get an OpenAI response.");
+        if ("debugCode" in data && data.debugCode) {
+          console.warn("[Tina MVP] chat request failed:", data.debugCode);
+        }
+        throw new Error("error" in data && data.error ? data.error : USER_FACING_ERROR);
       }
 
       console.info("[Tina MVP] assistant response source:", data.source, data.responseId);
@@ -111,7 +115,8 @@ export function TinaChatPage() {
           : null
       );
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Tina could not get an OpenAI response.";
+      console.warn("[Tina MVP] chat request threw:", error);
+      const errorMessage = USER_FACING_ERROR;
       const tinaMessage: TinaMvpMessage = {
         id: `tina-error-${timestamp}`,
         role: "tina",

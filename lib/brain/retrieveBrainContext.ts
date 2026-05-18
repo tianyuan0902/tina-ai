@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 
 export type RetrievedBrainChunk = {
@@ -8,13 +8,7 @@ export type RetrievedBrainChunk = {
   score: number;
 };
 
-const BRAIN_FILES = [
-  "hiring_principles.md",
-  "talent_archetypes.md",
-  "sourcing_failure_modes.md",
-  "founder_patterns.md",
-  "examples_good_bad.md"
-];
+const KNOWLEDGE_BASE_DIR = path.join(process.cwd(), "knowledge_base");
 
 const IMPORTANT_TERMS = new Set([
   "ai",
@@ -50,7 +44,7 @@ const IMPORTANT_TERMS = new Set([
 
 export function retrieveBrainContext(latestUserMessage: string, maxChunks = 4) {
   const queryTerms = tokenize(latestUserMessage);
-  const chunks = BRAIN_FILES.flatMap(readBrainChunks);
+  const chunks = getKnowledgeBaseFiles().flatMap(readBrainChunks);
   const scored = chunks
     .filter((chunk) => !normalize(chunk.content).startsWith("bad"))
     .map((chunk) => ({
@@ -69,18 +63,42 @@ export function retrieveBrainContext(latestUserMessage: string, maxChunks = 4) {
   };
 }
 
-function readBrainChunks(file: string): RetrievedBrainChunk[] {
-  const content = readFileSync(path.join(process.cwd(), "lib", "brain", file), "utf8").trim();
-  return content
-    .split(/\n\s*\n/)
+function getKnowledgeBaseFiles() {
+  return walkMarkdownFiles(KNOWLEDGE_BASE_DIR).sort();
+}
+
+function walkMarkdownFiles(dir: string): string[] {
+  return readdirSync(dir).flatMap((entry) => {
+    const fullPath = path.join(dir, entry);
+    const stat = statSync(fullPath);
+
+    if (stat.isDirectory()) return walkMarkdownFiles(fullPath);
+    if (stat.isFile() && entry.endsWith(".md")) return [fullPath];
+
+    return [];
+  });
+}
+
+function readBrainChunks(filePath: string): RetrievedBrainChunk[] {
+  const content = readFileSync(filePath, "utf8").trim();
+  const file = path.relative(KNOWLEDGE_BASE_DIR, filePath);
+  const shouldKeepWholeFile = file.startsWith("live_qa/") || file.startsWith("examples/");
+  const chunks = shouldKeepWholeFile ? [content] : splitIntoChunks(content);
+
+  return chunks
     .map((chunk) => chunk.trim())
     .filter(Boolean)
+    .filter((chunk) => !/^#+\s.+$/.test(chunk))
     .map((chunk, index) => ({
       id: `${file}:${index + 1}`,
       file,
       content: chunk,
       score: 0
     }));
+}
+
+function splitIntoChunks(content: string) {
+  return content.split(/\n\s*\n(?=#+\s|Question:|Tina Answer:|Key Pattern:|Why It Matters:|- |\w)/);
 }
 
 function scoreChunk(content: string, queryTerms: string[]) {
