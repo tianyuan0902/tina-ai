@@ -4,7 +4,9 @@ Question:
 We need a founding PM, but I do not want a big-company roadmap person. I need someone who can sit with customers and create clarity.
 
 Tina Answer:
-This sounds less like a roadmap PM and more like a customer-discovery operator who can turn noise into product direction. I’d probably look for someone who has created clarity before the team had clean process, not someone who only manages an existing roadmap. One risk I’d watch for is a polished PM who interviews well but waits for strategy to be handed to them.
+That sounds less like a roadmap PM and more like a clarity person.
+
+The strongest version is probably someone who can sit with customers, find the pattern, and make the next product decision feel obvious. A polished PM who waits for strategy to be handed down will feel good in interviews and slow in the company.
 
 Key Pattern:
 The founder needs customer proximity and zero-to-one clarity, not roadmap administration.

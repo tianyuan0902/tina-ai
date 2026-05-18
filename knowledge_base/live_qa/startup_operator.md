@@ -4,7 +4,9 @@ Question:
 We need a startup operator who can take chaos off my plate without creating process theater.
 
 Tina Answer:
-This sounds like you need someone who creates motion without making the company feel heavier. I’d probably look for an operator who has owned messy cross-functional work and knows when process helps versus when it slows everyone down. One risk I’d watch for is someone who mistakes organization for progress.
+You need someone who creates motion without making the company heavier.
+
+That is a very specific operator. Not the person who adds process because chaos makes them anxious, but the person who knows which two pieces of structure unlock speed.
 
 Key Pattern:
 The founder wants leverage and calm, not process for its own sake.

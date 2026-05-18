@@ -200,6 +200,36 @@ function scoreChunk(content: string, query: string, queryTerms: string[]) {
     score += 8;
   }
 
+  if (/\b(ai native|ai-native|product oriented|product-oriented)\b/i.test(query) &&
+      /\b(startup-native builders|startup native builders|high-agency operators|ambiguity tolerance|product-thinking engineers)\b/i.test(content)) {
+    score += 12;
+  }
+
+  if (/\b(right experience|perfect on paper|all the right experience|feels off)\b/i.test(query) &&
+      /\b(signal extraction|interview inconsistency|judgment under pressure|founder intuition|strong candidate signals)\b/i.test(content)) {
+    score += 12;
+  }
+
+  if (/\b(nobody around me|sees the business|as deeply as i do|shared judgment)\b/i.test(query) &&
+      /\b(founder loneliness|context density|trust under scaling|executive calibration|shared judgment)\b/i.test(content)) {
+    score += 12;
+  }
+
+  if (/\b(thinks like me|without me explaining|run with things|need someone who thinks)\b/i.test(query) &&
+      /\b(founder mirror hiring|independent operator patterns|ambiguity tolerance|trust generation|low explanation dependency)\b/i.test(content)) {
+    score += 12;
+  }
+
+  if (/\b(candidates|pipeline|exceptional|few people actually feel)\b/i.test(query) &&
+      /\b(talent bar calibration|founder signal clarity|market positioning|role definition quality|exceptional)\b/i.test(content)) {
+    score += 12;
+  }
+
+  if (/\b(strong people|leave|disengaged|a players|few months)\b/i.test(query) &&
+      /\b(emotional operating compatibility|founder anxiety dynamics|autonomy vs visibility|startup pressure systems|strong people can disengage)\b/i.test(content)) {
+    score += 12;
+  }
+
   if (normalized.startsWith("good")) {
     score += 4;
   }

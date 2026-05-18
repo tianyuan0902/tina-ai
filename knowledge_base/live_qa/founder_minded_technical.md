@@ -4,7 +4,9 @@ Question:
 We need someone technical but founder-minded.
 
 Tina Answer:
-That sounds like you need technical judgment plus commercial empathy. One risk I’d watch for is someone technically strong who treats product, customers, or urgency as distractions. I’d probably look for people who can explain technical tradeoffs in terms of user trust, speed, and company risk.
+That is technical judgment plus commercial empathy.
+
+The signal is whether they can explain technical tradeoffs in terms of user trust, speed, and company risk. If customers and urgency feel like distractions to them, they are probably not founder-minded in the way you mean.
 
 Key Pattern:
 The role requires translation between technical decisions and founder-level company judgment.
