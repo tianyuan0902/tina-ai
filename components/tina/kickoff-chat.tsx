@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import Link from "next/link";
 import { ArrowUp, Bookmark, Bot, MessageCircle, Paperclip, Plus, Send, ThumbsDown, ThumbsUp } from "lucide-react";
 
@@ -85,6 +85,15 @@ export function KickoffChat({ initialNeed }: { initialNeed?: string }) {
     setHasAsked(true);
     setContextDepth((current) => current + getContextDepth(value));
     setDraft("");
+  }
+
+  function sendOnEnter(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if ((event.nativeEvent as KeyboardEvent["nativeEvent"]).isComposing) return;
+    if (event.key !== "Enter" && event.code !== "Enter" && event.code !== "NumpadEnter") return;
+    if (event.shiftKey) return;
+
+    event.preventDefault();
+    sendMessage();
   }
 
   function handleFeedback(profileId: string, direction: FeedbackDirection, reason: string) {
@@ -205,6 +214,7 @@ export function KickoffChat({ initialNeed }: { initialNeed?: string }) {
               <textarea
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
+                onKeyDown={sendOnEnter}
                 placeholder="Reply to Tina..."
                 className="min-h-20 w-full resize-none border-0 bg-transparent text-base leading-7 text-[#191714] outline-none placeholder:text-[#8d857c]"
               />

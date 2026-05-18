@@ -1,8 +1,14 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight } from "lucide-react";
+
+import { TinaChatPage } from "@/components/tina-mvp/tina-chat-page";
+
+export default function TinaMvpHomePage() {
+  return <TinaChatPage />;
+}
 
 const chips = [
   "We keep meeting smart people but none feel right",
@@ -23,7 +29,7 @@ const rotatingPlaceholders = [
 const tinaIntro = "Most teams do not actually have a sourcing problem. They have a calibration problem.";
 const firstSentence = "Most teams do not actually have a sourcing problem.";
 
-export default function TinaHomepageConcept() {
+function TinaHomepageConceptLegacy() {
   const router = useRouter();
   const [need, setNeed] = useState("");
   const [placeholderIndex, setPlaceholderIndex] = useState(0);
@@ -71,6 +77,15 @@ export default function TinaHomepageConcept() {
   }
 
   function startKickoff(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    goToKickoff(need);
+  }
+
+  function submitOnEnter(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if ((event.nativeEvent as KeyboardEvent["nativeEvent"]).isComposing) return;
+    if (event.key !== "Enter" && event.code !== "Enter" && event.code !== "NumpadEnter") return;
+    if (event.shiftKey) return;
+
     event.preventDefault();
     goToKickoff(need);
   }
@@ -146,6 +161,7 @@ export default function TinaHomepageConcept() {
                   }}
                   onFocus={() => setIsFocused(true)}
                   onBlur={() => setIsFocused(false)}
+                  onKeyDown={submitOnEnter}
                 />
               </div>
 
