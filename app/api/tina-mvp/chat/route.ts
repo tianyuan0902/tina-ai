@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { retrieveBrainContext } from "@/lib/brain/retrieveBrainContext";
+import { formatCompanyContext, isCompanyContextMessage, retrieveCompanyContext } from "@/lib/tina/company-context";
+import { getRequestedProfileCount, searchPublicProfileLeads } from "@/lib/tina/public-search";
 import { TINA_SYSTEM_PROMPT } from "@/lib/tina-mvp/system-prompt";
 import type { TinaMvpMessage } from "@/lib/tina-mvp/types";
 
@@ -33,11 +35,42 @@ export async function POST(request: Request) {
     });
   }
 
+  if (isProfileSearchFeedback(latestUserMessage.content)) {
+    return NextResponse.json({
+      message: {
+        id: `tina-profile-feedback-${Date.now()}`,
+        role: "tina",
+        content: "Got it. I’ll treat those as the wrong lane. What should I bias toward instead: PM, operator, GTM, designer, founder-adjacent generalist, or something more specific?"
+      },
+      source: "local_profile_feedback"
+    });
+  }
+
+  if (isPublicProfileSearchRequest(latestUserMessage.content)) {
+    const hiringContext = cleanMessages.map((message) => message.content).join("\n");
+    const requestedCount = getRequestedProfileCount(latestUserMessage.content);
+    const profileLeads = await searchPublicProfileLeads(hiringContext, requestedCount);
+
+    return NextResponse.json({
+      message: {
+        id: `tina-public-search-${Date.now()}`,
+        role: "tina",
+        content: `I found ${profileLeads.length} public profile ${profileLeads.length === 1 ? "lead" : "leads"} to review. I’d treat ${profileLeads.length === 1 ? "this as a person" : "these as people"} to inspect, not qualified candidates yet.`,
+        profileLeads
+      },
+      source: "public_search"
+    });
+  }
+
   const brainContext = retrieveBrainContext(latestUserMessage.content);
+  const companyContext = await retrieveCompanyContext(latestUserMessage.content);
+  const formattedCompanyContext = formatCompanyContext(companyContext);
   const instructions = [
     TINA_SYSTEM_PROMPT,
+    "If the founder gives company or product context, treat it as hiring calibration input. Infer what kinds of candidates may fit the company, product surface, customer environment, and operating stage. Do not ask why the company context matters.",
     "Relevant Tina Brain context follows. Use it as judgment, not as a script. Do not quote file names.",
-    brainContext.context
+    brainContext.context,
+    formattedCompanyContext
   ].join("\n\n");
   const openaiMessages = cleanMessages.map(toOpenAIInputMessage);
   const finalMessagesForLog = [
@@ -54,6 +87,7 @@ export async function POST(request: Request) {
 
   if (process.env.NODE_ENV !== "production") {
     console.log("[Tina MVP] latest user message:", latestUserMessage.content);
+    console.log("[Tina MVP] company context:", JSON.stringify(companyContext, null, 2));
     console.log(
       "[Tina MVP] retrieved brain chunks:",
       JSON.stringify(
@@ -205,12 +239,26 @@ function toOpenAIInputMessage(message: TinaMvpMessage): OpenAIInputMessage {
 
 function isClearlyOffTopic(message: string) {
   const text = message.toLowerCase();
+  if (isCompanyContextMessage(message)) return false;
+
   const hiringSignal =
-    /\b(hire|hiring|recruit|recruiting|candidate|talent|people|team|founder|startup|role|job|interview|sourcing|comp|compensation|salary|equity|offer|operator|engineer|designer|pm|product manager|sales|gtm|exec|executive|manager|leadership|org|organization|culture|market map|calibration|profile|archetype|resume|background)\b/.test(text);
+    /\b(hire|hiring|recruit|recruiting|candidate|talent|people|team|founder|startup|role|job|interview|sourcing|comp|compensation|salary|equity|offer|operator|engineer|designer|pm|product manager|sales|gtm|exec|executive|manager|leadership|org|organization|culture|market map|calibration|profile|archetype|resume|background|company|customer|market|industry)\b/.test(text);
 
   if (hiringSignal) return false;
 
   return /\b(hotel|flight|restaurant|travel|vacation|trip|visa|weather|recipe|cook|game|movie|song|shopping|buy|book me|find me a|design me a game|build me a game|homework|math problem|workout|dating|medical|doctor|lawyer|legal|tax)\b/.test(text);
+}
+
+function isPublicProfileSearchRequest(message: string) {
+  if (isProfileSearchFeedback(message)) return false;
+
+  return /\b(find|show|search|source|look for|who should|reach out|profiles?|people|candidates?|linkedin|github|public web|prospects?|targets?)\b/i.test(message) &&
+    /\b(people|profiles?|candidates?|linkedin|github|reach out|outreach|prospects?|targets?|engineers?|operators?|designers?|pms?|founders?)\b/i.test(message);
+}
+
+function isProfileSearchFeedback(message: string) {
+  return /\b(wrong|not right|not the right|not relevant|irrelevant|bad profiles|bad leads|these are all|all engineers|too broad|too senior|too junior|delete|remove)\b/i.test(message) &&
+    /\b(profiles?|leads?|people|candidates?|engineers?|operators?|designers?|pms?)\b/i.test(message);
 }
 
 function getOpenAIText(data: unknown) {

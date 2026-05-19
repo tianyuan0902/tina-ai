@@ -5,7 +5,6 @@ import {
   ArrowRight,
   BadgeCheck,
   Brain,
-  Clock3,
   Gem,
   LineChart,
   MessageSquareText,
@@ -16,6 +15,9 @@ import {
   UsersRound
 } from "lucide-react";
 
+import { ProfileLeadCard } from "@/components/ProfileLeadCard";
+import { ProfileLeadsPanel } from "@/components/ProfileLeadsPanel";
+import type { ProfileLead } from "@/lib/tina/profile-lead-types";
 import type { TinaChatApiResponse, TinaMvpMessage } from "@/lib/tina-mvp/types";
 
 type View = "home" | "role";
@@ -195,8 +197,37 @@ function HomeCommandCenter({
 }) {
   const [messages, setMessages] = useState<TinaMvpMessage[]>([openingMessage]);
   const [isThinking, setIsThinking] = useState(false);
+  const [savedLeads, setSavedLeads] = useState<ProfileLead[]>([]);
+  const [rejectedLeadIds, setRejectedLeadIds] = useState<string[]>([]);
   const hasConversation = messages.some((message) => message.role === "founder");
   const profiles = useMemo(() => deriveCalibrationProfiles(messages), [messages]);
+  const profileLeads = useMemo(
+    () => dedupeProfileLeads(messages.flatMap((message) => message.profileLeads || []).filter((lead) => !rejectedLeadIds.includes(lead.id))),
+    [messages, rejectedLeadIds]
+  );
+
+  function saveLead(lead: ProfileLead) {
+    setSavedLeads((current) =>
+      current.some((item) => item.id === lead.id)
+        ? current
+        : [...current, { ...lead, saved: true }]
+    );
+  }
+
+  function rejectLead(lead: ProfileLead) {
+    setRejectedLeadIds((current) => (current.includes(lead.id) ? current : [...current, lead.id]));
+    setSavedLeads((current) => current.filter((item) => item.id !== lead.id && item.url !== lead.url));
+    setMessages((current) =>
+      current.map((message) =>
+        message.profileLeads?.length
+          ? {
+              ...message,
+              profileLeads: message.profileLeads.filter((item) => item.id !== lead.id && item.url !== lead.url)
+            }
+          : message
+      )
+    );
+  }
 
   async function sendMessage(content: string) {
     if (!content.trim() || isThinking) return;
@@ -262,7 +293,7 @@ function HomeCommandCenter({
           <div className="flex-1 overflow-y-auto px-5 py-5">
             <div className="mx-auto grid max-w-3xl gap-5">
               {messages.map((message) => (
-                <ChatMessage key={message.id} message={message} />
+                <ChatMessage key={message.id} message={message} savedLeads={savedLeads} onSaveLead={saveLead} onRejectLead={rejectLead} />
               ))}
               {isThinking ? (
                 <div className="flex gap-3">
@@ -282,7 +313,14 @@ function HomeCommandCenter({
         </div>
 
         {hasConversation ? (
-          <CalibrationProfiles profiles={profiles} latestSynthesis={latestSynthesis} />
+          <CalibrationProfiles
+            profiles={profiles}
+            latestSynthesis={latestSynthesis}
+            profileLeads={profileLeads}
+            savedLeads={savedLeads}
+            onSaveLead={saveLead}
+            onRejectLead={rejectLead}
+          />
         ) : (
           <EmptyCalibrationPanel />
         )}
@@ -337,7 +375,17 @@ function CommandInput({ onSubmit, isThinking }: { onSubmit: (value: string) => v
   );
 }
 
-function ChatMessage({ message }: { message: TinaMvpMessage }) {
+function ChatMessage({
+  message,
+  savedLeads,
+  onSaveLead,
+  onRejectLead
+}: {
+  message: TinaMvpMessage;
+  savedLeads: ProfileLead[];
+  onSaveLead: (lead: ProfileLead) => void;
+  onRejectLead: (lead: ProfileLead) => void;
+}) {
   if (message.role === "founder") {
     return (
       <div className="flex justify-end">
@@ -354,9 +402,33 @@ function ChatMessage({ message }: { message: TinaMvpMessage }) {
       <div className="min-w-0">
         <p className="text-sm font-semibold">Tina</p>
         <p className="mt-2 max-w-2xl whitespace-pre-line text-[15px] leading-7 text-[#262626]">{message.content}</p>
+        {message.profileLeads?.length ? (
+          <div className="mt-4 grid max-w-2xl gap-3">
+            {dedupeProfileLeads(message.profileLeads).map((lead, index) => (
+              <ProfileLeadCard
+                key={`${lead.id}-${index}`}
+                lead={lead}
+                isSaved={savedLeads.some((savedLead) => savedLead.id === lead.id)}
+                onSave={onSaveLead}
+                onReject={onRejectLead}
+              />
+            ))}
+          </div>
+        ) : null}
       </div>
     </div>
   );
+}
+
+function dedupeProfileLeads(leads: ProfileLead[]) {
+  const seen = new Set<string>();
+
+  return leads.filter((lead) => {
+    const key = lead.url || lead.id;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function TinaMark() {
@@ -392,13 +464,19 @@ function GhostProfileLine() {
 
 function CalibrationProfiles({
   profiles,
-  latestSynthesis
+  latestSynthesis,
+  profileLeads,
+  savedLeads,
+  onSaveLead,
+  onRejectLead
 }: {
   profiles: ReturnType<typeof deriveCalibrationProfiles>;
   latestSynthesis: string;
+  profileLeads: ProfileLead[];
+  savedLeads: ProfileLead[];
+  onSaveLead: (lead: ProfileLead) => void;
+  onRejectLead: (lead: ProfileLead) => void;
 }) {
-  const candidates = deriveCandidateExamples(profiles);
-
   return (
     <aside className="max-h-[calc(100vh-56px)] overflow-y-auto rounded-lg border border-[#DDD2C5] bg-[#FFFCF7]/90 p-4 shadow-[0_20px_60px_rgba(23,23,23,0.075)] backdrop-blur">
       <div className="mb-4 flex items-start justify-between gap-3">
@@ -431,18 +509,7 @@ function CalibrationProfiles({
         ))}
       </div>
 
-      <div className="mt-6">
-        <div className="mb-3">
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[#8A8178]">Candidate perspectives</p>
-          <h3 className="mt-1 text-base font-semibold">Examples worth reacting to</h3>
-          <p className="mt-1 text-xs leading-5 text-[#6F675E]">Illustrative profiles for calibration, not sourced candidates.</p>
-        </div>
-        <div className="grid gap-3">
-          {candidates.map((candidate) => (
-            <CandidatePerspectiveCard key={candidate.name} candidate={candidate} />
-          ))}
-        </div>
-      </div>
+      <ProfileLeadsPanel leads={profileLeads} savedLeads={savedLeads} onSave={onSaveLead} onReject={onRejectLead} />
     </aside>
   );
 }
@@ -476,35 +543,6 @@ function CalibrationProfileCard({ profile }: { profile: ReturnType<typeof derive
       <div className="mt-4">
         <p className="mb-2 text-xs font-medium uppercase tracking-[0.12em] text-[#8A8178]">Talent distribution</p>
         <DistributionBar values={profile.distribution} />
-      </div>
-    </article>
-  );
-}
-
-function CandidatePerspectiveCard({ candidate }: { candidate: ReturnType<typeof deriveCandidateExamples>[number] }) {
-  return (
-    <article className="rounded-lg border border-[#E2D7CB] bg-[#FFFCF7]/76 p-3 shadow-[0_10px_26px_rgba(23,23,23,0.035)]">
-      <div className="flex gap-3">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-[#EEF1E8] text-sm font-semibold text-[#5F6D4E]">
-          {candidate.initials}
-        </div>
-        <div className="min-w-0">
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <h4 className="text-sm font-semibold">{candidate.name}</h4>
-              <p className="mt-0.5 text-xs text-[#6F675E]">{candidate.role}</p>
-            </div>
-            <span className="rounded-full bg-[#EEF1E8] px-2 py-0.5 text-[11px] text-[#5F6D4E]">{candidate.read}</span>
-          </div>
-          <p className="mt-2 text-xs leading-5 text-[#5A524A]">{candidate.signal}</p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {candidate.tags.map((tag) => (
-              <span key={tag} className="rounded-full bg-[#F1ECE4] px-2 py-0.5 text-[11px] text-[#625A52]">
-                {tag}
-              </span>
-            ))}
-          </div>
-        </div>
       </div>
     </article>
   );
@@ -626,71 +664,6 @@ function deriveCalibrationProfiles(messages: TinaMvpMessage[]) {
       timeToFill: "7-11 wks",
       locations: "NYC, SF, LA",
       distribution: [37, 36, 27]
-    }
-  ];
-}
-
-function deriveCandidateExamples(profiles: ReturnType<typeof deriveCalibrationProfiles>) {
-  const top = profiles[0]?.title || "";
-
-  if (/ai|systems|product/i.test(top)) {
-    return [
-      {
-        initials: "DK",
-        name: "Daniel Kim",
-        role: "Staff Engineer, Scale AI",
-        read: "strong fit",
-        signal: "Balanced product judgment with enough AI systems exposure to avoid demo-only thinking.",
-        tags: ["AI workflows", "scale-up", "high ownership"]
-      },
-      {
-        initials: "MC",
-        name: "Maya Chen",
-        role: "AI Engineer, OpenAI",
-        read: "depth",
-        signal: "Very strong technical signal; worth testing whether she wants customer-facing product ambiguity.",
-        tags: ["frontier AI", "evals", "research-adjacent"]
-      },
-      {
-        initials: "AP",
-        name: "Arjun Patel",
-        role: "ML Engineer, Anthropic",
-        read: "tradeoff",
-        signal: "Deep model instincts, but may skew too research-heavy for a fast product loop.",
-        tags: ["model depth", "quality bar", "slower loop"]
-      }
-    ];
-  }
-
-  if (/operator|generalist|founder/i.test(top)) {
-    return [
-      {
-        initials: "SM",
-        name: "Sofia Martinez",
-        role: "BizOps Lead, Stripe",
-        read: "operator",
-        signal: "Strong at turning founder context into operating motion without adding too much process.",
-        tags: ["calm urgency", "cross-functional", "founder-facing"]
-      },
-      {
-        initials: "EP",
-        name: "Ethan Park",
-        role: "Chief of Staff, Series B AI",
-        read: "leverage",
-        signal: "Useful if the bottleneck is context transfer and decision follow-through.",
-        tags: ["trust", "execution", "low ego"]
-      }
-    ];
-  }
-
-  return [
-    {
-      initials: "LC",
-      name: "Leah Chen",
-      role: "Founding PM, Ramp",
-      read: "clarity",
-      signal: "Turns messy customer input into direction quickly; useful profile for early calibration.",
-      tags: ["customer signal", "product taste", "zero-to-one"]
     }
   ];
 }

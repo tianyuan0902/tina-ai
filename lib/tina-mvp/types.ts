@@ -1,9 +1,12 @@
+import type { ProfileLead } from "@/lib/tina/profile-lead-types";
+
 export type TinaMvpRole = "founder" | "tina";
 
 export type TinaMvpMessage = {
   id: string;
   role: TinaMvpRole;
   content: string;
+  profileLeads?: ProfileLead[];
 };
 
 export type TinaCandidateArchetype = {
@@ -21,6 +24,6 @@ export type TinaReasoningResult = {
 
 export type TinaChatApiResponse = {
   message: TinaMvpMessage;
-  source: "openai" | "local_scope_guard";
+  source: "openai" | "local_scope_guard" | "public_search";
   responseId?: string;
 };
