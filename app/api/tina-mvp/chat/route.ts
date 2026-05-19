@@ -68,6 +68,7 @@ export async function POST(request: Request) {
   const instructions = [
     TINA_SYSTEM_PROMPT,
     "If the founder gives company or product context, treat it as hiring calibration input. Infer what kinds of candidates may fit the company, product surface, customer environment, and operating stage. Do not ask why the company context matters.",
+    "For normal chat, keep the answer compact and complete. Do not write long numbered memos. If the user asks for a sourcing strategy, give 2-3 sharp moves and one next question. If the answer needs more detail, invite expansion instead of dumping everything.",
     "Relevant Tina Brain context follows. Use it as judgment, not as a script. Do not quote file names.",
     brainContext.context,
     formattedCompanyContext
@@ -81,8 +82,8 @@ export async function POST(request: Request) {
     model: process.env.TINA_OPENAI_MODEL || "gpt-4.1-mini",
     instructions,
     input: openaiMessages,
-    max_output_tokens: 220,
-    temperature: 0.7
+    max_output_tokens: 360,
+    temperature: 0.65
   };
 
   if (process.env.NODE_ENV !== "production") {
@@ -252,8 +253,18 @@ function isClearlyOffTopic(message: string) {
 function isPublicProfileSearchRequest(message: string) {
   if (isProfileSearchFeedback(message)) return false;
 
-  return /\b(find|show|search|source|look for|who should|reach out|profiles?|people|candidates?|linkedin|github|public web|prospects?|targets?)\b/i.test(message) &&
-    /\b(people|profiles?|candidates?|linkedin|github|reach out|outreach|prospects?|targets?|engineers?|operators?|designers?|pms?|founders?)\b/i.test(message);
+  const text = message.toLowerCase();
+  const asksForApproach =
+    /\b(how should i|how do i|approach|strategy|plan|calibrate|where should i start|what should i do|advice)\b/.test(text);
+  const asksForSearchHelpOnly =
+    /\b(create|write|build|draft|make|generate|give me)\b.*\b(linkedin search|search string|boolean|query|queries|company list|list of companies|companies)\b/.test(text) ||
+    /\b(so i can|myself|on my own)\b/.test(text);
+  const explicitProfileSearch =
+    /\b(show|send|source|sourcing|look up|pull)\b.*\b(profiles?|people|candidates?|leads?|prospects?|targets?|linkedin|github)\b/.test(text) ||
+    /\b(find|look for)\b.*\b(profiles?|linkedin profiles?|github profiles?|public profiles?|people to review|outreach targets|prospects?|leads?)\b/.test(text) ||
+    /\b(who should we reach out to|who should i reach out to|source candidates|source people|find linkedin profiles|show linkedin profiles|public profile leads)\b/.test(text);
+
+  return explicitProfileSearch && !asksForApproach && !asksForSearchHelpOnly;
 }
 
 function isProfileSearchFeedback(message: string) {

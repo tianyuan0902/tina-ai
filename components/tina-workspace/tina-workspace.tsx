@@ -134,10 +134,10 @@ export function TinaWorkspace() {
 
 function Sidebar({ view, onChange }: { view: View; onChange: (view: View) => void }) {
   return (
-    <aside className="hidden w-64 shrink-0 border-r border-[#DED5C9] bg-[#EFE7DC]/88 px-3 py-4 shadow-[18px_0_60px_rgba(23,23,23,0.035)] backdrop-blur lg:flex lg:flex-col">
-      <div className="mb-5 flex items-center justify-between px-2">
+    <aside className="hidden w-56 shrink-0 border-r border-[#DED5C9] bg-[#EFE7DC]/88 px-3 py-4 shadow-[18px_0_60px_rgba(23,23,23,0.035)] backdrop-blur lg:flex lg:flex-col">
+      <div className="mb-4 flex items-center justify-between px-2">
         <div>
-          <p className="font-serif text-3xl font-semibold tracking-normal">Tina</p>
+          <p className="font-serif text-2xl font-semibold tracking-normal">Tina</p>
           <p className="mt-1 text-xs text-[#6F675E]">Hiring intelligence</p>
         </div>
         <button type="button" onClick={() => onChange("home")} className="rounded-md border border-[#D8CEC2] bg-[#F8F5EF]/70 px-2 py-1 text-xs text-[#5F574F] transition hover:border-[#9A927E] hover:text-[#262626]">
@@ -167,7 +167,7 @@ function Sidebar({ view, onChange }: { view: View; onChange: (view: View) => voi
             key={title}
             type="button"
             onClick={() => onChange(index === 0 ? "home" : "role")}
-            className="rounded-md px-3 py-2 text-left transition hover:bg-[#F1ECE4]/70"
+            className="rounded-md px-3 py-1.5 text-left transition hover:bg-[#F1ECE4]/70"
           >
             <p className="text-sm font-medium text-[#262626]">{title}</p>
             <p className="mt-0.5 text-xs text-[#777068]">{time}</p>
@@ -269,29 +269,29 @@ function HomeCommandCenter({
   }
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-5 py-5 md:px-8 md:py-7">
-      <header className="mb-6 text-center">
+    <div className="mx-auto flex min-h-screen max-w-[1180px] flex-col px-4 py-4 md:px-6 md:py-5">
+      <header className="mb-4 text-center">
         <div className="mx-auto max-w-2xl">
-          <p className="mb-3 flex items-center justify-center gap-2 text-sm text-[#6B6259]">
+          <p className="mb-2 flex items-center justify-center gap-2 text-xs text-[#6B6259]">
             <Sparkles className="h-4 w-4 text-[#6F7B5B]" />
             Hiring intelligence before the search begins
           </p>
-          <h1 className="font-serif text-3xl font-semibold tracking-normal text-[#171717] md:text-4xl">
+          <h1 className="font-serif text-2xl font-semibold tracking-normal text-[#171717] md:text-3xl">
             Tell Tina what you’re hiring for.
           </h1>
-          <p className="mt-3 text-sm leading-6 text-[#625A52]">She’ll calibrate the role, pressure-test the market, and show candidate perspectives as the conversation sharpens.</p>
+          <p className="mt-2 text-sm leading-6 text-[#625A52]">She’ll calibrate the role, pressure-test the market, and show candidate perspectives as the conversation sharpens.</p>
         </div>
       </header>
 
-      <section className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[minmax(0,1fr)_390px]">
-        <div className="flex min-h-[680px] flex-col overflow-hidden rounded-lg border border-[#DDD2C5] bg-[#FFFCF7]/92 shadow-[0_24px_80px_rgba(23,23,23,0.08)] backdrop-blur">
-          <div className="border-b border-[#E7DDD1] bg-[linear-gradient(180deg,rgba(255,255,255,0.52),rgba(255,252,247,0))] px-5 py-4">
+      <section className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="flex min-h-[calc(100vh-170px)] flex-col overflow-hidden rounded-lg border border-[#DDD2C5] bg-[#FFFCF7]/92 shadow-[0_18px_56px_rgba(23,23,23,0.065)] backdrop-blur">
+          <div className="border-b border-[#E7DDD1] bg-[linear-gradient(180deg,rgba(255,255,255,0.52),rgba(255,252,247,0))] px-4 py-3">
             <p className="text-sm font-semibold">Tina</p>
-            <p className="mt-1 text-sm text-[#6F675E]">Conversation first. Calibration forms alongside it.</p>
+            <p className="mt-0.5 text-xs text-[#6F675E]">Conversation first. Calibration forms alongside it.</p>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-5 py-5">
-            <div className="mx-auto grid max-w-3xl gap-5">
+          <div className="flex-1 overflow-y-auto px-4 py-4">
+            <div className="mx-auto grid max-w-2xl gap-4">
               {messages.map((message) => (
                 <ChatMessage key={message.id} message={message} savedLeads={savedLeads} onSaveLead={saveLead} onRejectLead={rejectLead} />
               ))}
@@ -307,7 +307,7 @@ function HomeCommandCenter({
             </div>
           </div>
 
-          <div className="border-t border-[#E7DDD1] bg-[#F8F4ED]/70 p-4">
+          <div className="border-t border-[#E7DDD1] bg-[#F8F4ED]/70 p-3">
             <CommandInput onSubmit={sendMessage} isThinking={isThinking} />
           </div>
         </div>
@@ -347,9 +347,9 @@ function CommandInput({ onSubmit, isThinking }: { onSubmit: (value: string) => v
         value={value}
         onChange={(event) => setValue(event.target.value)}
         placeholder={placeholder}
-        className="min-h-24 w-full resize-none bg-transparent text-base leading-7 text-[#171717] outline-none placeholder:text-[#9B9289]"
+        className="min-h-20 w-full resize-none bg-transparent text-sm leading-6 text-[#171717] outline-none placeholder:text-[#9B9289]"
       />
-      <div className="mt-4 flex flex-col gap-3 border-t border-[#E7DDD1] pt-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mt-3 flex flex-col gap-3 border-t border-[#E7DDD1] pt-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap gap-2">
           {["Need an AI product engineer", "Founder is still the bottleneck", "Strong people keep hesitating"].map((chip) => (
             <button
@@ -364,7 +364,7 @@ function CommandInput({ onSubmit, isThinking }: { onSubmit: (value: string) => v
         </div>
         <button
           type="submit"
-          className="inline-flex items-center justify-center gap-2 rounded-md bg-[#1E1E1E] px-4 py-2.5 text-sm font-medium text-white shadow-[0_10px_28px_rgba(23,23,23,0.18)] transition hover:bg-[#262626] disabled:opacity-60"
+          className="inline-flex items-center justify-center gap-2 rounded-md bg-[#1E1E1E] px-3.5 py-2 text-sm font-medium text-white shadow-[0_10px_28px_rgba(23,23,23,0.18)] transition hover:bg-[#262626] disabled:opacity-60"
           disabled={isThinking}
         >
           Send
@@ -432,18 +432,18 @@ function dedupeProfileLeads(leads: ProfileLead[]) {
 }
 
 function TinaMark() {
-  return <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#1E1E1E] text-sm font-semibold text-white">T</div>;
+  return <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[#1E1E1E] text-xs font-semibold text-white">T</div>;
 }
 
 function EmptyCalibrationPanel() {
   return (
-    <aside className="hidden rounded-lg border border-dashed border-[#D8CEC2] bg-[#FFFCF7]/72 p-5 shadow-[0_18px_50px_rgba(23,23,23,0.045)] backdrop-blur xl:block">
-      <p className="text-xs font-medium uppercase tracking-[0.14em] text-[#8A8178]">Calibration profiles</p>
-      <h2 className="mt-2 text-xl font-semibold">Profiles appear once the conversation starts.</h2>
-      <p className="mt-3 text-sm leading-6 text-[#625A52]">
+    <aside className="hidden rounded-lg border border-dashed border-[#D8CEC2] bg-[#FFFCF7]/72 p-4 shadow-[0_14px_40px_rgba(23,23,23,0.04)] backdrop-blur xl:block">
+      <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#8A8178]">Calibration profiles</p>
+      <h2 className="mt-2 text-lg font-semibold leading-6">Profiles appear once the conversation starts.</h2>
+      <p className="mt-2 text-sm leading-6 text-[#625A52]">
         Tina will translate the conversation into potential candidate lanes, market size, comp, time to fill, and talent location signals.
       </p>
-      <div className="mt-5 grid gap-3">
+      <div className="mt-4 grid gap-3">
         <GhostProfileLine />
         <GhostProfileLine />
         <GhostProfileLine />
@@ -478,18 +478,18 @@ function CalibrationProfiles({
   onRejectLead: (lead: ProfileLead) => void;
 }) {
   return (
-    <aside className="max-h-[calc(100vh-56px)] overflow-y-auto rounded-lg border border-[#DDD2C5] bg-[#FFFCF7]/90 p-4 shadow-[0_20px_60px_rgba(23,23,23,0.075)] backdrop-blur">
-      <div className="mb-4 flex items-start justify-between gap-3">
+    <aside className="max-h-[calc(100vh-120px)] overflow-y-auto rounded-lg border border-[#DDD2C5] bg-[#FFFCF7]/90 p-3 shadow-[0_16px_48px_rgba(23,23,23,0.06)] backdrop-blur">
+      <div className="mb-3 flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[#8A8178]">Market shift</p>
-          <h2 className="mt-1 text-lg font-semibold">Calibration is moving</h2>
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#8A8178]">Market shift</p>
+          <h2 className="mt-1 text-base font-semibold">Calibration is moving</h2>
         </div>
-        <Brain className="h-5 w-5 text-[#6F7B5B]" />
+        <Brain className="h-4 w-4 text-[#6F7B5B]" />
       </div>
 
-      <p className="mb-3 rounded-md border border-[#E7DDD1] bg-[#F8F4ED] p-3 text-sm leading-6 text-[#4B453F] shadow-[0_10px_28px_rgba(62,52,42,0.045)]">{latestSynthesis}</p>
+      <p className="mb-3 rounded-md border border-[#E7DDD1] bg-[#F8F4ED] p-2.5 text-xs leading-5 text-[#4B453F] shadow-[0_10px_28px_rgba(62,52,42,0.04)]">{latestSynthesis}</p>
 
-      <div className="mb-5 grid grid-cols-3 gap-2">
+      <div className="mb-4 grid grid-cols-3 gap-2">
         <ProfileMetric label="Pool" value={profiles[0]?.marketSize || "TBD"} />
         <ProfileMetric label="Timeline" value={profiles[0]?.timeToFill || "TBD"} />
         <ProfileMetric label="Comp" value={profiles[0]?.comp || "TBD"} />
@@ -497,13 +497,13 @@ function CalibrationProfiles({
 
       <div className="mb-3 flex items-center justify-between">
         <div>
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[#8A8178]">Profile lanes</p>
-          <h3 className="mt-1 text-base font-semibold">What to test first</h3>
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#8A8178]">Profile lanes</p>
+          <h3 className="mt-1 text-sm font-semibold">What to test first</h3>
         </div>
         <UsersRound className="h-4 w-4 text-[#6F7B5B]" />
       </div>
 
-      <div className="grid gap-3">
+      <div className="grid gap-2.5">
         {profiles.map((profile) => (
           <CalibrationProfileCard key={profile.title} profile={profile} />
         ))}
@@ -516,16 +516,16 @@ function CalibrationProfiles({
 
 function CalibrationProfileCard({ profile }: { profile: ReturnType<typeof deriveCalibrationProfiles>[number] }) {
   return (
-    <article className="rounded-lg border border-[#E2D7CB] bg-[linear-gradient(180deg,rgba(255,255,255,0.72),rgba(255,252,247,0.72))] p-4 shadow-[0_12px_32px_rgba(23,23,23,0.04)]">
+    <article className="rounded-lg border border-[#E2D7CB] bg-[linear-gradient(180deg,rgba(255,255,255,0.72),rgba(255,252,247,0.72))] p-3 shadow-[0_10px_28px_rgba(23,23,23,0.035)]">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-base font-semibold">{profile.title}</h3>
-          <p className="mt-2 text-sm leading-6 text-[#5A524A]">{profile.why}</p>
+          <h3 className="text-sm font-semibold">{profile.title}</h3>
+          <p className="mt-1.5 text-xs leading-5 text-[#5A524A]">{profile.why}</p>
         </div>
         <span className="shrink-0 rounded-full bg-[#EEF1E8] px-2.5 py-1 text-xs text-[#5F6D4E]">{profile.match}%</span>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-1.5">
+      <div className="mt-2.5 flex flex-wrap gap-1.5">
         {profile.keywords.map((keyword) => (
           <span key={keyword} className="rounded-full bg-[#F1ECE4] px-2.5 py-1 text-xs text-[#625A52]">
             {keyword}
@@ -551,8 +551,8 @@ function CalibrationProfileCard({ profile }: { profile: ReturnType<typeof derive
 function ProfileMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md border border-[#E7DDD1] bg-[#F8F4ED] p-2">
-      <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-[#8A8178]">{label}</p>
-      <p className="mt-1 text-sm font-medium text-[#262626]">{value}</p>
+      <p className="text-[10px] font-medium uppercase tracking-[0.1em] text-[#8A8178]">{label}</p>
+      <p className="mt-1 text-xs font-medium text-[#262626]">{value}</p>
     </div>
   );
 }
