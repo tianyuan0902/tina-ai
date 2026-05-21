@@ -9,6 +9,7 @@ import type { TinaMvpMessage } from "@/lib/tina-mvp/types";
 export const dynamic = "force-dynamic";
 
 const USER_FACING_ERROR = "Tina lost context for a second. Try again.";
+const FALLBACK_MODEL = "gpt-4.1-mini";
 
 type OpenAIInputMessage = {
   role: "user" | "assistant";
@@ -65,10 +66,14 @@ export async function POST(request: Request) {
   const brainContext = retrieveBrainContext(latestUserMessage.content);
   const companyContext = await retrieveCompanyContext(latestUserMessage.content);
   const formattedCompanyContext = formatCompanyContext(companyContext);
+  const liveJdRequest = isLiveJdRequest(latestUserMessage.content);
   const instructions = [
     TINA_SYSTEM_PROMPT,
     "If the founder gives company or product context, treat it as hiring calibration input. Infer what kinds of candidates may fit the company, product surface, customer environment, and operating stage. Do not ask why the company context matters.",
-    "For normal chat, keep the answer compact and complete. Do not write long numbered memos. If the user asks for a sourcing strategy, give 2-3 sharp moves and one next question. If the answer needs more detail, invite expansion instead of dumping everything.",
+    "For normal chat, keep the answer compact, complete, and human. Sound like you are thinking with the founder in real time. Use contractions. Avoid stiff phrases like 'there are three key dimensions' or 'the optimal approach'. If the user asks for a sourcing strategy, give 2-3 sharp moves and one next question. If the answer needs more detail, invite expansion instead of dumping everything.",
+    liveJdRequest
+      ? "The founder is asking for a JD or role description. Generate a complete draft with compact sections. Do not stop mid-bullet or end with an unfinished sentence."
+      : "",
     "Relevant Tina Brain context follows. Use it as judgment, not as a script. Do not quote file names.",
     brainContext.context,
     formattedCompanyContext
@@ -79,11 +84,11 @@ export async function POST(request: Request) {
     ...openaiMessages
   ];
   const openaiPayload = {
-    model: process.env.TINA_OPENAI_MODEL || "gpt-4.1-mini",
+    model: process.env.TINA_OPENAI_MODEL || FALLBACK_MODEL,
     instructions,
     input: openaiMessages,
-    max_output_tokens: 360,
-    temperature: 0.65
+    max_output_tokens: liveJdRequest ? 1100 : 420,
+    temperature: 0.72
   };
 
   if (process.env.NODE_ENV !== "production") {
@@ -110,26 +115,22 @@ export async function POST(request: Request) {
 
   if (!process.env.OPENAI_API_KEY) {
     console.error("[Tina MVP] OPENAI_API_KEY is missing.");
-    return NextResponse.json(
-      {
-        error: USER_FACING_ERROR,
-        debugCode: "missing_api_key"
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({
+      message: buildLocalFallbackMessage(cleanMessages, "missing_api_key"),
+      source: "local_fallback",
+      debugCode: "missing_api_key"
+    });
   }
 
   const { response, data, networkError } = await callOpenAI(openaiPayload);
 
   if (networkError || !response) {
     console.error("[Tina MVP] OpenAI network request failed:", networkError);
-    return NextResponse.json(
-      {
-        error: USER_FACING_ERROR,
-        debugCode: "network_error"
-      },
-      { status: 502 }
-    );
+    return NextResponse.json({
+      message: buildLocalFallbackMessage(cleanMessages, "network_error"),
+      source: "local_fallback",
+      debugCode: "network_error"
+    });
   }
 
   if (process.env.NODE_ENV !== "production") {
@@ -138,26 +139,23 @@ export async function POST(request: Request) {
 
   if (!response.ok) {
     console.error("[Tina MVP] OpenAI request failed:", data);
-    return NextResponse.json(
-      {
-        error: USER_FACING_ERROR,
-        debugCode: getOpenAIDebugCode(data)
-      },
-      { status: response.status }
-    );
+    const debugCode = getOpenAIDebugCode(data);
+    return NextResponse.json({
+      message: buildLocalFallbackMessage(cleanMessages, debugCode),
+      source: "local_fallback",
+      debugCode
+    });
   }
 
   const text = getOpenAIText(data);
 
   if (!text) {
     console.error("[Tina MVP] OpenAI response had no text:", data);
-    return NextResponse.json(
-      {
-        error: USER_FACING_ERROR,
-        debugCode: "empty_response"
-      },
-      { status: 502 }
-    );
+    return NextResponse.json({
+      message: buildLocalFallbackMessage(cleanMessages, "empty_response"),
+      source: "local_fallback",
+      debugCode: "empty_response"
+    });
   }
 
   console.log("[Tina MVP] OpenAI response id:", data.id);
@@ -192,12 +190,86 @@ function inferRequestedScope(message: string) {
   return cleaned || "this hiring lane";
 }
 
+function buildLocalFallbackMessage(messages: TinaMvpMessage[], debugCode: string): TinaMvpMessage {
+  const founderMessages = messages.filter((message) => message.role === "founder");
+  const latest = founderMessages[founderMessages.length - 1]?.content || "";
+  const fullContext = founderMessages.map((message) => message.content).join(" ");
+
+  return {
+    id: `tina-local-${Date.now()}`,
+    role: "tina",
+    content: localHiringRead(fullContext || latest, debugCode)
+  };
+}
+
+function localHiringRead(context: string, debugCode: string) {
+  const text = context.toLowerCase();
+  const isAI = /\b(ai|llm|model|agent|machine learning|ml)\b/.test(text);
+  const isProduct = /\b(product|customer|workflow|pm|design|ux)\b/.test(text);
+  const isOperator = /\b(operator|ops|operations|founder|bottleneck|chief of staff)\b/.test(text);
+  const isPlant = /\b(plant|manufacturing|factory|operations manager|peoria|illinois)\b/.test(text);
+  const isSenior = /\b(senior|staff|principal|lead|head|founding)\b/.test(text);
+  const adapterNote = debugCode === "missing_api_key" || debugCode === "invalid_api_key"
+    ? "The reasoning engine is not connected, so here’s the lightweight read for now."
+    : "Tina’s deeper reasoning engine blinked, so here’s the lightweight read for now.";
+
+  if (isAI && isProduct) {
+    return [
+      `${adapterNote} This sounds like an AI product builder search, not a pure ML research lane.`,
+      "I’d screen for shipped AI workflows, product judgment under messy customer feedback, and enough systems taste to avoid demo magic.",
+      isSenior
+        ? "The market gets tight if you need seniority, AI depth, product instinct, and startup pace in one person. The market may have some opinions about that requirement set."
+        : "A good next question: does this person need to own model quality, product discovery, or both?"
+    ].join("\n\n");
+  }
+
+  if (isOperator) {
+    return [
+      `${adapterNote} This sounds like a founder-leverage hire more than a neat functional search.`,
+      "I’d look for someone who closes loops with low explanation, can absorb messy context, and does not add process just to feel useful.",
+      "What founder load should this person remove in the first 60 days?"
+    ].join("\n\n");
+  }
+
+  if (isPlant) {
+    return [
+      `${adapterNote} This sounds like an operations leadership hire where environment fit matters a lot.`,
+      "For a plant manager, I’d separate hands-on floor leadership from strategic scaling experience. Those can be very different people wearing the same title.",
+      "Is this person mainly fixing daily execution, raising quality, or building a scalable operating system?"
+    ].join("\n\n");
+  }
+
+  if (isProduct) {
+    return [
+      `${adapterNote} This looks like a product judgment search, not just a title search.`,
+      "I’d test whether candidates reduce ambiguity or just organize it nicely. Early product hires can accidentally create a very elegant fog machine.",
+      "What decision should this person make better than the team can today?"
+    ].join("\n\n");
+  }
+
+  return [
+    `${adapterNote} I’d start by turning this into one concrete outcome.`,
+    "The useful screen is not the title yet; it’s what kind of ambiguity this person needs to remove and what tradeoff you can live with.",
+    "What should be meaningfully better 90 days after this hire starts?"
+  ].join("\n\n");
+}
+
 async function callOpenAI(openaiPayload: object) {
   try {
     const first = await fetchOpenAI(openaiPayload);
     const firstData = await first.json();
 
-    if (first.ok || !shouldRetry(first.status)) {
+    if (first.ok) {
+      return { response: first, data: firstData };
+    }
+
+    if (shouldTryFallbackModel(firstData, openaiPayload)) {
+      console.warn("[Tina MVP] OpenAI model access failed, retrying with fallback model.");
+      const fallback = await fetchOpenAI({ ...openaiPayload, model: FALLBACK_MODEL });
+      return { response: fallback, data: await fallback.json() };
+    }
+
+    if (!shouldRetry(first.status)) {
       return { response: first, data: firstData };
     }
 
@@ -225,6 +297,11 @@ function fetchOpenAI(openaiPayload: object) {
 
 function shouldRetry(status: number) {
   return status === 408 || status === 409 || status === 429 || status >= 500;
+}
+
+function shouldTryFallbackModel(data: unknown, openaiPayload: object) {
+  const requestedModel = (openaiPayload as { model?: string }).model;
+  return requestedModel !== FALLBACK_MODEL && getOpenAIDebugCode(data) === "model_access";
 }
 
 function getOpenAIDebugCode(data: unknown) {
@@ -284,6 +361,10 @@ function isPublicProfileSearchRequest(message: string) {
     /\b(who should we reach out to|who should i reach out to|source candidates|source people|find linkedin profiles|show linkedin profiles|public profile leads)\b/.test(text);
 
   return explicitProfileSearch && !asksForApproach && !asksForSearchHelpOnly;
+}
+
+function isLiveJdRequest(message: string) {
+  return /\b(jd|job description|role description|draft the role|draft.*jd|create.*jd|write.*jd|generate.*jd|live jd|what you'll do|what you will do|responsibilities)\b/i.test(message);
 }
 
 function isProfileSearchFeedback(message: string) {

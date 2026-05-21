@@ -24,6 +24,7 @@ export type TinaReasoningResult = {
 
 export type TinaChatApiResponse = {
   message: TinaMvpMessage;
-  source: "openai" | "local_scope_guard" | "public_search";
+  source: "openai" | "local_scope_guard" | "local_profile_feedback" | "local_fallback" | "public_search";
   responseId?: string;
+  debugCode?: string;
 };

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, KeyboardEvent, useMemo, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -21,11 +21,32 @@ type ChatThread = {
   messages: TinaMvpMessage[];
 };
 
-const prompts = [
-  "What are you trying to solve with this hire?",
-  "What kind of person do you wish you already had?",
-  "Where does this hire feel unclear right now?"
+const THREAD_STORAGE_KEY = "tina:mvp:threads";
+const ACTIVE_THREAD_STORAGE_KEY = "tina:mvp:active-thread-id";
+
+const typingPhrases = ["Reading the signal", "Shaping the role", "Tightening the market read"];
+
+const tabPromptChips = [
+  { label: "Calibration", prompt: "Help me calibrate this role" },
+  { label: "Market Intel", prompt: "What is the market reality for this hire?" },
+  { label: "Archetypes", prompt: "What candidate archetypes should I consider?" },
+  { label: "Live JD", prompt: "Draft the live JD from what we know so far" }
 ];
+
+const leadingQuestions = [
+  { label: "Raise/lower the level", prompt: "Help me figure out whether this should be a senior, staff, or founding-level hire." },
+  { label: "Add/remove must-haves", prompt: "Help me separate must-haves from nice-to-haves for this role." },
+  { label: "What’s the market like?", prompt: "What is the market reality for this kind of hire?" }
+];
+
+const intelligenceTabs = [
+  { id: "calibration", label: "Calibration" },
+  { id: "market", label: "Market Intel" },
+  { id: "archetypes", label: "Archetypes" },
+  { id: "liveJd", label: "Live JD" }
+] as const;
+
+type IntelligenceTab = (typeof intelligenceTabs)[number]["id"];
 
 const openingMessage: TinaMvpMessage = {
   id: "tina-opening",
@@ -129,10 +150,31 @@ const initialThreads: ChatThread[] = [
 export function TinaWorkspace() {
   const [threads, setThreads] = useState<ChatThread[]>(initialThreads);
   const [activeThreadId, setActiveThreadId] = useState(initialThreads[0].id);
+  const [storageReady, setStorageReady] = useState(false);
   const [latestSynthesis, setLatestSynthesis] = useState(
     "Tina is watching for the difference between a strong title match and a person who actually reduces founder ambiguity."
   );
   const activeThread = threads.find((thread) => thread.id === activeThreadId) || threads[0];
+
+  useEffect(() => {
+    const storedThreads = readStoredThreads();
+    const storedActiveThreadId = window.localStorage.getItem(ACTIVE_THREAD_STORAGE_KEY);
+
+    if (storedThreads.length) {
+      const nextActiveThread = storedThreads.find((thread) => thread.id === storedActiveThreadId) || storedThreads[0];
+      setThreads(storedThreads);
+      setActiveThreadId(nextActiveThread.id);
+      setLatestSynthesis(latestThreadSynthesis(nextActiveThread.messages));
+    }
+
+    setStorageReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!storageReady) return;
+    window.localStorage.setItem(THREAD_STORAGE_KEY, JSON.stringify(threads));
+    window.localStorage.setItem(ACTIVE_THREAD_STORAGE_KEY, activeThreadId);
+  }, [activeThreadId, storageReady, threads]);
 
   function selectThread(threadId: string) {
     const nextThread = threads.find((thread) => thread.id === threadId);
@@ -176,15 +218,15 @@ export function TinaWorkspace() {
   }
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-white text-[#171717]">
-      <div className="relative z-10 flex min-h-screen">
+    <main className="relative h-screen overflow-hidden bg-white text-[#171717]">
+      <div className="relative z-10 flex h-screen min-h-0">
         <Sidebar
           threads={threads}
           activeThreadId={activeThreadId}
           onSelectThread={selectThread}
           onNewThread={startNewThread}
         />
-        <div className="min-w-0 flex-1">
+        <div className="min-h-0 min-w-0 flex-1">
           <HomeCommandCenter
             activeThread={activeThread}
             onMessagesChange={updateActiveThreadMessages}
@@ -209,27 +251,21 @@ function Sidebar({
   onNewThread: () => void;
 }) {
   return (
-    <aside className="hidden w-56 shrink-0 border-r border-[#DED5C9] bg-[#EFE7DC]/88 px-3 py-4 shadow-[18px_0_60px_rgba(23,23,23,0.035)] backdrop-blur lg:flex lg:flex-col">
-      <div className="mb-4 flex items-center justify-between px-2">
-        <div>
-          <p className="font-serif text-2xl font-semibold tracking-normal">Tina</p>
-          <p className="mt-1 text-xs text-[#6F675E]">Hiring intelligence</p>
-        </div>
-        <button type="button" onClick={onNewThread} className="rounded-md border border-[#D8CEC2] bg-[#F8F5EF]/70 px-2 py-1 text-xs text-[#5F574F] transition hover:border-[#9A927E] hover:text-[#262626]">
-          New
-        </button>
+    <aside className="hidden w-[clamp(220px,16vw,272px)] shrink-0 border-r border-[#E6E0D8] bg-white px-3 py-4 shadow-[14px_0_44px_rgba(23,23,23,0.025)] lg:flex lg:flex-col">
+      <div className="mb-6 px-2">
+        <p className="font-serif text-2xl font-semibold tracking-normal">Tina</p>
       </div>
 
       <button
         type="button"
         onClick={onNewThread}
-        className="mb-5 flex items-center justify-between rounded-md border border-[#D8CEC2] bg-[#F8F5EF]/55 px-3 py-2 text-sm transition hover:border-[#C8BDAE] hover:bg-[#F1ECE4]/70"
+        className="mb-6 flex items-center justify-between rounded-md border border-[#171717] bg-[#171717] px-3 py-2.5 text-sm font-medium text-white shadow-[0_12px_32px_rgba(23,23,23,0.16)] transition hover:bg-[#262626]"
       >
         <span>New role</span>
-        <ArrowRight className="h-4 w-4 text-[#6F7B5B]" />
+        <ArrowRight className="h-4 w-4" />
       </button>
 
-      <div className="px-2 text-xs font-medium uppercase tracking-[0.12em] text-[#8A8178]">Recent conversations</div>
+      <div className="px-2 text-xs font-medium text-[#6F675E]">Conversations</div>
       <div className="mt-3 grid gap-1.5">
         {threads.map((thread) => (
           <button
@@ -237,7 +273,7 @@ function Sidebar({
             type="button"
             onClick={() => onSelectThread(thread.id)}
             className={`rounded-md px-3 py-1.5 text-left transition ${
-              thread.id === activeThreadId ? "bg-[#F1ECE4] shadow-[0_10px_24px_rgba(62,52,42,0.05)]" : "hover:bg-[#F1ECE4]/70"
+              thread.id === activeThreadId ? "bg-[#F3EFE8] shadow-[0_10px_24px_rgba(62,52,42,0.05)]" : "hover:bg-[#F7F4EF]"
             }`}
           >
             <p className="text-sm font-medium text-[#262626]">{displayThreadTitle(thread)}</p>
@@ -246,15 +282,6 @@ function Sidebar({
         ))}
       </div>
 
-      <div className="mt-auto rounded-lg border border-[#D8CEC2] bg-[#F8F5EF]/70 p-3 shadow-[0_12px_30px_rgba(23,23,23,0.035)]">
-        <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-[#1E1E1E] text-xs font-semibold text-white">T</div>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium">Tina workspace</p>
-            <p className="text-xs text-[#6F675E]">Calibration mode</p>
-          </div>
-        </div>
-      </div>
     </aside>
   );
 }
@@ -271,11 +298,17 @@ function HomeCommandCenter({
   onSynthesis: (value: string) => void;
 }) {
   const [isThinking, setIsThinking] = useState(false);
+  const transcriptEndRef = useRef<HTMLDivElement | null>(null);
   const messages = activeThread.messages;
   const hasConversation = messages.some((message) => message.role === "founder");
   const profiles = useMemo(() => deriveCalibrationProfiles(messages), [messages]);
   const calibration = useMemo(() => deriveLiveCalibration(messages), [messages]);
   const pipeline = useMemo(() => derivePipelineIntelligence(messages), [messages]);
+  const latestTinaMessageId = useMemo(() => [...messages].reverse().find((message) => message.role === "tina")?.id, [messages]);
+
+  useEffect(() => {
+    transcriptEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages, isThinking, activeThread.id]);
 
   async function sendMessage(content: string) {
     if (!content.trim() || isThinking) return;
@@ -317,65 +350,70 @@ function HomeCommandCenter({
   }
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-[1180px] flex-col px-4 py-4 md:px-6 md:py-5">
-      <header className="mb-4 text-center">
-        <div className="mx-auto max-w-2xl">
-          <p className="mb-2 flex items-center justify-center gap-2 text-xs text-[#6B6259]">
-            <Sparkles className="h-4 w-4 text-[#6F7B5B]" />
-            Hiring intelligence before the search begins
-          </p>
-          <h1 className="font-serif text-2xl font-semibold tracking-normal text-[#171717] md:text-3xl">
-            Tell Tina what you’re hiring for.
-          </h1>
-          <p className="mt-2 text-sm leading-6 text-[#625A52]">She’ll calibrate the role, pressure-test the market, and turn the conversation into a live hiring read.</p>
-        </div>
-      </header>
+    <div className="grid h-screen min-h-0 w-full grid-cols-1 gap-[clamp(14px,1.25vw,22px)] overflow-hidden px-[clamp(14px,1.4vw,22px)] pb-4 pt-14 md:pb-5 md:pt-16 xl:grid-cols-[minmax(0,2fr)_minmax(300px,0.95fr)]">
+      <section className="flex min-h-0 flex-col overflow-hidden">
+        <header className="mb-5 shrink-0 pt-2 text-center">
+          <div className="mx-auto max-w-2xl">
+            <p className="mb-3 flex items-center justify-center gap-2 text-[11px] text-[#6B6259]">
+              <Sparkles className="h-3.5 w-3.5 text-[#178A52]" />
+              Hiring intelligence before the search begins
+            </p>
+            <h1 className="font-serif text-[clamp(1.75rem,2.15vw,2.35rem)] font-semibold leading-[1.05] tracking-normal text-[#171717]">
+              Tell Tina what you’re hiring for.
+            </h1>
+          </div>
+        </header>
 
-      <section className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <div className="flex min-h-[calc(100vh-170px)] flex-col overflow-hidden rounded-lg border border-[#DDD2C5] bg-[#FFFCF7]/92 shadow-[0_18px_56px_rgba(23,23,23,0.065)] backdrop-blur">
-          <div className="border-b border-[#E7DDD1] bg-[linear-gradient(180deg,rgba(255,255,255,0.52),rgba(255,252,247,0))] px-4 py-3">
-            <p className="text-sm font-semibold">Tina</p>
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[#E7E3DD] bg-white shadow-[0_22px_70px_rgba(23,23,23,0.055)]">
+          <div className="shrink-0 border-b border-[#ECE7E1] bg-white px-4 py-3">
+            <p className="text-[13px] font-semibold">Tina</p>
             <p className="mt-0.5 text-xs text-[#6F675E]">Conversation first. Calibration forms alongside it.</p>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-4 py-4">
-            <div className="mx-auto grid max-w-2xl gap-3">
+          <div className="min-h-0 flex-1 overflow-y-auto bg-white px-4 py-4">
+            <div className="mx-auto grid max-w-3xl gap-3">
               {messages.map((message, index) => (
-                <ChatMessage key={message.id} message={message} signals={message.role === "tina" ? deriveInlineSignals(messages.slice(0, index + 1)) : []} />
+                <ChatMessage
+                  key={message.id}
+                  message={message}
+                  signals={message.role === "tina" ? deriveInlineSignals(messages.slice(0, index + 1)) : []}
+                  animate={message.role === "tina" && message.id === latestTinaMessageId && hasConversation}
+                />
               ))}
               {isThinking ? (
                 <div className="flex gap-3">
                   <TinaMark />
                   <div>
                     <p className="text-sm font-semibold">Tina</p>
-                    <p className="mt-2 text-sm text-[#6F7B5B]">Reading the hiring signal...</p>
+                    <TypingStatus />
                     <InlineSignalRows signals={["Live calibration updating", "Market read forming"]} />
                   </div>
                 </div>
               ) : null}
+              {!hasConversation ? <LeadingQuestionButtons onSubmit={sendMessage} isThinking={isThinking} /> : null}
+              <div ref={transcriptEndRef} />
             </div>
           </div>
 
-          <div className="border-t border-[#E7DDD1] bg-[#F8F4ED]/70 p-3">
+          <div className="shrink-0 border-t border-[#ECE7E1] bg-[#FAF8F5] p-3">
             <CommandInput onSubmit={sendMessage} isThinking={isThinking} />
           </div>
         </div>
-
-        <RightIntelligenceRail
-          hasConversation={hasConversation}
-          profiles={profiles}
-          calibration={calibration}
-          pipeline={pipeline}
-          latestSynthesis={latestSynthesis}
-        />
       </section>
+
+      <RightIntelligenceRail
+        hasConversation={hasConversation}
+        profiles={profiles}
+        calibration={calibration}
+        pipeline={pipeline}
+        latestSynthesis={latestSynthesis}
+      />
     </div>
   );
 }
 
 function CommandInput({ onSubmit, isThinking }: { onSubmit: (value: string) => void; isThinking: boolean }) {
   const [value, setValue] = useState("");
-  const placeholder = prompts[0];
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -398,30 +436,30 @@ function CommandInput({ onSubmit, isThinking }: { onSubmit: (value: string) => v
   }
 
   return (
-    <form onSubmit={submit} className="rounded-lg border border-[#D8CEC2] bg-[#FFFCF7] p-3 shadow-[0_14px_36px_rgba(62,52,42,0.055)] transition focus-within:border-[#9A927E] focus-within:shadow-[0_18px_48px_rgba(62,52,42,0.08)]">
+    <form onSubmit={submit} className="rounded-xl border border-[#E2DDD6] bg-white p-3 shadow-[0_18px_48px_rgba(23,23,23,0.07)] transition focus-within:border-[#BBAEFF] focus-within:shadow-[0_22px_60px_rgba(91,53,213,0.09)]">
       <textarea
         value={value}
         onChange={(event) => setValue(event.target.value)}
         onKeyDown={sendOnEnter}
-        placeholder={placeholder}
-        className="min-h-20 w-full resize-none bg-transparent text-sm leading-6 text-[#171717] outline-none placeholder:text-[#9B9289]"
+        placeholder="Ask Tina anything about this hire..."
+        className="min-h-14 w-full resize-none bg-transparent text-[13px] leading-5 text-[#171717] outline-none placeholder:text-[#9B9289]"
       />
-      <div className="mt-3 flex flex-col gap-3 border-t border-[#E7DDD1] pt-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mt-3 flex flex-col gap-3 border-t border-[#ECE7E1] pt-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap gap-2">
-          {["Need an AI product engineer", "Founder is still the bottleneck", "Strong people keep hesitating"].map((chip) => (
+          {tabPromptChips.map((chip) => (
             <button
-              key={chip}
+              key={chip.label}
               type="button"
-              onClick={() => setValue(chip)}
-              className="rounded-full border border-[#DED5C9] bg-[#F8F4ED]/70 px-3 py-1.5 text-xs text-[#625A52] transition hover:border-[#C8BDAE] hover:bg-[#F1ECE4] hover:text-[#262626]"
+              onClick={() => setValue(chip.prompt)}
+              className="rounded-lg border border-[#E3DED7] bg-white px-3 py-1.5 text-xs font-medium text-[#625A52] shadow-[0_8px_18px_rgba(23,23,23,0.035)] transition hover:border-[#CFC4FF] hover:bg-[#F8F6FF] hover:text-[#4B28C9]"
             >
-              {chip}
+              {chip.label}
             </button>
           ))}
         </div>
         <button
           type="submit"
-          className="inline-flex items-center justify-center gap-2 rounded-md bg-[#1E1E1E] px-3.5 py-2 text-sm font-medium text-white shadow-[0_10px_28px_rgba(23,23,23,0.18)] transition hover:bg-[#262626] disabled:opacity-60"
+          className="inline-flex items-center justify-center gap-2 rounded-md bg-[#1E1E1E] px-3.5 py-2 text-xs font-medium text-white shadow-[0_10px_28px_rgba(23,23,23,0.18)] transition hover:bg-[#262626] disabled:opacity-60"
           disabled={isThinking}
         >
           Send
@@ -432,11 +470,34 @@ function CommandInput({ onSubmit, isThinking }: { onSubmit: (value: string) => v
   );
 }
 
-function ChatMessage({ message, signals }: { message: TinaMvpMessage; signals: string[] }) {
+function LeadingQuestionButtons({ onSubmit, isThinking }: { onSubmit: (value: string) => void; isThinking: boolean }) {
+  return (
+    <div className="ml-10 mt-1 flex flex-wrap gap-2.5">
+      {leadingQuestions.map((question, index) => (
+        <button
+          key={question.label}
+          type="button"
+          onClick={() => onSubmit(question.prompt)}
+          disabled={isThinking}
+          className="inline-flex items-center gap-2 rounded-lg border border-[#E5E0DA] bg-white px-3 py-1.5 text-xs font-medium text-[#4B453F] shadow-[0_12px_30px_rgba(23,23,23,0.055)] transition hover:-translate-y-0.5 hover:border-[#CFC4FF] hover:bg-[#F8F6FF] hover:text-[#4B28C9] disabled:opacity-60"
+        >
+          <span className={`grid h-5 w-5 place-items-center rounded-md text-xs ${
+            index === 0 ? "bg-[#F1ECFF] text-[#5B35D5]" : index === 1 ? "bg-[#ECF8F0] text-[#108A4B]" : "bg-[#FFF2E8] text-[#E86A2C]"
+          }`}>
+            {index + 1}
+          </span>
+          {question.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ChatMessage({ message, signals, animate }: { message: TinaMvpMessage; signals: string[]; animate: boolean }) {
   if (message.role === "founder") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[74%] rounded-lg border border-[#E2D7CB] bg-[#F1ECE4] px-4 py-3 text-sm leading-6 text-[#171717] shadow-[0_8px_22px_rgba(23,23,23,0.035)]">
+        <div className="max-w-[74%] rounded-lg border border-[#E2D7CB] bg-[#F1ECE4] px-3.5 py-2.5 text-[13px] leading-5 text-[#171717] shadow-[0_8px_22px_rgba(23,23,23,0.035)]">
           {message.content}
         </div>
       </div>
@@ -447,11 +508,87 @@ function ChatMessage({ message, signals }: { message: TinaMvpMessage; signals: s
     <div className="flex gap-3">
       <TinaMark />
       <div className="min-w-0">
-        <p className="text-sm font-semibold">Tina</p>
-        <p className="mt-2 max-w-lg whitespace-pre-line text-sm leading-6 text-[#262626]">{message.content}</p>
+        <p className="text-[13px] font-semibold">Tina</p>
+        <p className="mt-2 max-w-lg whitespace-pre-line text-[13px] leading-5 text-[#262626]">
+          <TypedText text={message.content} animate={animate} />
+        </p>
         <InlineSignalRows signals={signals} />
       </div>
     </div>
+  );
+}
+
+function TypedText({ text, animate }: { text: string; animate: boolean }) {
+  const [visibleText, setVisibleText] = useState(animate ? "" : text);
+
+  useEffect(() => {
+    if (!animate) {
+      setVisibleText(text);
+      return;
+    }
+
+    let index = 0;
+    setVisibleText("");
+    const timer = window.setInterval(() => {
+      index = Math.min(text.length, index + 3);
+      setVisibleText(text.slice(0, index));
+      if (index >= text.length) window.clearInterval(timer);
+    }, 18);
+
+    return () => window.clearInterval(timer);
+  }, [text, animate]);
+
+  return (
+    <>
+      {visibleText}
+      {animate && visibleText.length < text.length ? <span className="ml-0.5 inline-block h-4 w-px translate-y-0.5 animate-pulse bg-[#6F675E]" /> : null}
+    </>
+  );
+}
+
+function TypingStatus() {
+  const [phraseIndex, setPhraseIndex] = useState(0);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setPhraseIndex((current) => (current + 1) % typingPhrases.length);
+    }, 1200);
+
+    return () => window.clearInterval(timer);
+  }, []);
+
+  return (
+    <p className="mt-2 inline-flex items-center gap-1 text-[13px] text-[#6F7B5B]">
+      <span>{typingPhrases[phraseIndex]}</span>
+      <span className="typing-dots" aria-hidden="true">
+        <span>.</span>
+        <span>.</span>
+        <span>.</span>
+      </span>
+      <style jsx>{`
+        .typing-dots span {
+          animation: tinaTypingDot 1.1s ease-in-out infinite;
+          opacity: 0.25;
+        }
+
+        .typing-dots span:nth-child(2) {
+          animation-delay: 0.15s;
+        }
+
+        .typing-dots span:nth-child(3) {
+          animation-delay: 0.3s;
+        }
+
+        @keyframes tinaTypingDot {
+          0%, 100% {
+            opacity: 0.25;
+          }
+          45% {
+            opacity: 1;
+          }
+        }
+      `}</style>
+    </p>
   );
 }
 
@@ -497,6 +634,43 @@ function shouldAutoRenameThread(title: string) {
 
 function displayThreadTitle(thread: ChatThread) {
   return isProvisionalThreadTitle(thread.title) ? titleFromMessages(thread.messages) : thread.title;
+}
+
+function readStoredThreads() {
+  try {
+    const rawThreads = window.localStorage.getItem(THREAD_STORAGE_KEY);
+    if (!rawThreads) return [];
+    const parsed = JSON.parse(rawThreads) as unknown;
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed.filter(isChatThread);
+  } catch {
+    return [];
+  }
+}
+
+function isChatThread(value: unknown): value is ChatThread {
+  if (!value || typeof value !== "object") return false;
+  const thread = value as ChatThread;
+
+  return (
+    typeof thread.id === "string" &&
+    typeof thread.title === "string" &&
+    typeof thread.time === "string" &&
+    Array.isArray(thread.messages) &&
+    thread.messages.every(isTinaMessage)
+  );
+}
+
+function isTinaMessage(value: unknown): value is TinaMvpMessage {
+  if (!value || typeof value !== "object") return false;
+  const message = value as TinaMvpMessage;
+
+  return (
+    typeof message.id === "string" &&
+    (message.role === "founder" || message.role === "tina") &&
+    typeof message.content === "string"
+  );
 }
 
 function isProvisionalThreadTitle(title: string) {
@@ -560,7 +734,11 @@ function isSpecificRoleTitle(title: string) {
 }
 
 function TinaMark() {
-  return <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[#1E1E1E] text-xs font-semibold text-white">T</div>;
+  return (
+    <div className="flex h-7 w-7 shrink-0 items-center justify-center text-[#178A52]">
+      <Sparkles className="h-5 w-5" strokeWidth={1.8} />
+    </div>
+  );
 }
 
 function EmptyCalibrationPanel({ calibration }: { calibration: LiveCalibration }) {
@@ -605,23 +783,273 @@ function RightIntelligenceRail({
   pipeline: PipelineIntelligence;
   latestSynthesis: string;
 }) {
-  return (
-    <aside className="hidden max-h-[calc(100vh-170px)] overflow-y-auto xl:block">
-      <div className="grid gap-4 pr-1">
-        {hasConversation ? (
-          <CalibrationProfiles
-            profiles={profiles}
-            calibration={calibration}
-            latestSynthesis={latestSynthesis}
-          />
-        ) : (
-          <EmptyCalibrationPanel calibration={calibration} />
-        )}
+  const [activeTab, setActiveTab] = useState<IntelligenceTab>("calibration");
+  const snapshot = pipeline.snapshots[pipeline.defaultState];
 
-        <PipelineIntelligenceModule key={pipeline.defaultState} pipeline={pipeline} />
-      </div>
+  return (
+    <aside className="hidden h-full min-h-0 overflow-y-auto xl:block xl:pt-3">
+      <section className="min-h-[calc(100%-0.75rem)] overflow-hidden rounded-xl border border-[#E7E3DD] bg-white shadow-[0_22px_70px_rgba(23,23,23,0.055)]">
+        <div className="grid grid-cols-4 border-b border-[#ECE7E1] bg-white">
+          {intelligenceTabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`whitespace-nowrap border-b-2 px-1.5 py-3 text-[12px] font-medium leading-none transition ${
+                activeTab === tab.id
+                  ? "border-[#5B35D5] text-[#4B28C9]"
+                  : "border-transparent text-[#625A52] hover:bg-[#F8F6FF] hover:text-[#171717]"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="p-3">
+          {activeTab === "calibration" ? (
+            <CalibrationIntelligenceTab
+              hasConversation={hasConversation}
+              calibration={calibration}
+              latestSynthesis={latestSynthesis}
+              snapshot={snapshot}
+            />
+          ) : null}
+          {activeTab === "market" ? (
+            <MarketIntelTab calibration={calibration} profiles={profiles} snapshot={snapshot} />
+          ) : null}
+          {activeTab === "archetypes" ? (
+            <CandidateArchetypesTab profiles={profiles} calibration={calibration} />
+          ) : null}
+          {activeTab === "liveJd" ? (
+            <LiveJdTab calibration={calibration} profiles={profiles} />
+          ) : null}
+        </div>
+      </section>
     </aside>
   );
+}
+
+function CalibrationIntelligenceTab({
+  hasConversation,
+  calibration,
+  latestSynthesis,
+  snapshot
+}: {
+  hasConversation: boolean;
+  calibration: LiveCalibration;
+  latestSynthesis: string;
+  snapshot: PipelineSnapshot;
+}) {
+  return (
+    <div className="grid gap-3">
+      <section className="rounded-lg border border-[#E5E2DD] bg-white p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Calibration snapshot</p>
+            <p className="mt-2.5 text-[13px] font-medium text-[#171717]">
+              {hasConversation ? "Role signal is forming." : "Waiting for the first role signal."}
+            </p>
+            <p className="mt-1 text-[11px] leading-4 text-[#6F675E]">
+              {hasConversation ? trimInsight(latestSynthesis) : "Start with the outcome this person should unlock."}
+            </p>
+          </div>
+          <AlignmentRing value={calibration.clarity} />
+        </div>
+      </section>
+
+      <LiveJdCard calibration={calibration} />
+
+      <section className="rounded-lg border border-[#E5E2DD] bg-white p-3">
+        <p className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Hiring tension</p>
+        <div className="grid gap-3">
+          {calibration.tensions.slice(0, 4).map((tension) => (
+            <TensionSlider key={`${tension.left}-${tension.right}`} {...tension} />
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-[#E5E2DD] bg-[#FBFAF7] p-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Tina recommendation</p>
+        <p className="mt-2 text-[13px] font-semibold leading-5 text-[#171717]">{trimInsight(snapshot.recommendation)}</p>
+        <p className="mt-2 text-xs leading-5 text-[#625A52]">{snapshot.briefing.next}</p>
+      </section>
+    </div>
+  );
+}
+
+function MarketIntelTab({
+  calibration,
+  profiles,
+  snapshot
+}: {
+  calibration: LiveCalibration;
+  profiles: ReturnType<typeof deriveCalibrationProfiles>;
+  snapshot: PipelineSnapshot;
+}) {
+  const primaryProfile = profiles[0];
+
+  return (
+    <div className="grid gap-3">
+      <section className="rounded-lg border border-[#E5E2DD] bg-white p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Market reality</p>
+            <h3 className="mt-2 text-sm font-semibold text-[#171717]">{calibration.marketPressure} pressure</h3>
+          </div>
+          <Activity className="h-4 w-4 text-[#108A4B]" />
+        </div>
+        <p className="mt-3 text-xs leading-5 text-[#625A52]">{marketPressureInterpretation(calibration)}</p>
+      </section>
+
+      <div className="grid grid-cols-3 overflow-hidden rounded-lg border border-[#E5E2DD] bg-white">
+        <MarketMetric label="Talent supply" value={calibration.poolImpact} note={primaryProfile?.marketDensity || "Forming"} />
+        <MarketMetric label="Comp range" value={primaryProfile?.comp || "TBD"} note="Rough calibration" />
+        <MarketMetric label="Time to fill" value={primaryProfile?.timeToFill || "TBD"} note="+/- market fit" />
+      </div>
+
+      <section className="rounded-lg border border-[#E5E2DD] bg-white p-3">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Sourcing keywords</p>
+        <div className="flex flex-wrap gap-1.5">
+          {calibration.keywords.slice(0, 8).map((keyword) => (
+            <span key={keyword} className="rounded-md bg-[#F4F1EC] px-2.5 py-1 text-xs text-[#625A52]">
+              {keyword}
+            </span>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-[#E5E2DD] bg-[#FBFAF7] p-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">What to ignore</p>
+        <p className="mt-2 text-sm leading-5 text-[#4B453F]">{snapshot.briefing.ignore}</p>
+      </section>
+    </div>
+  );
+}
+
+function CandidateArchetypesTab({
+  profiles,
+  calibration
+}: {
+  profiles: ReturnType<typeof deriveCalibrationProfiles>;
+  calibration: LiveCalibration;
+}) {
+  const visibleProfiles = profiles.slice(0, calibration.depth >= 3 ? 3 : 2);
+
+  return (
+    <div className="grid gap-3">
+      <section className="rounded-lg border border-[#E5E2DD] bg-white p-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Candidate Archetypes</p>
+        <h3 className="mt-2 text-sm font-semibold text-[#171717]">Profiles to calibrate against.</h3>
+        <p className="mt-1 text-xs leading-5 text-[#625A52]">Strategic lanes, not fake candidate identities.</p>
+      </section>
+
+      {visibleProfiles.map((profile) => (
+        <ArchetypeCalibrationCard key={profile.title} profile={profile} />
+      ))}
+    </div>
+  );
+}
+
+function LiveJdTab({
+  calibration,
+  profiles
+}: {
+  calibration: LiveCalibration;
+  profiles: ReturnType<typeof deriveCalibrationProfiles>;
+}) {
+  const primaryProfile = profiles[0];
+  const hasSignal = calibration.depth > 0;
+
+  return (
+    <div className="grid gap-3">
+      <section className="rounded-lg border border-[#E5E2DD] bg-white p-3">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Live JD</p>
+          <span className="rounded-full bg-[#EEF8F1] px-2 py-1 text-[11px] text-[#108A4B]">
+            {hasSignal ? "Drafting" : "Waiting"}
+          </span>
+        </div>
+        <h3 className="mt-3 text-sm font-semibold leading-5 text-[#171717]">{titleForLiveJd(calibration)}</h3>
+        <p className="mt-2 whitespace-pre-line text-[13px] leading-5 text-[#4B453F]">
+          {hasSignal ? calibration.fullJd : "Waiting to gather more information. Share the outcome, scope, must-haves, and tradeoffs, then Tina will turn it into a working JD."}
+        </p>
+      </section>
+
+      <section className="rounded-lg border border-[#E5E2DD] bg-[#FBFAF7] p-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Must prove</p>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {calibration.keywords.slice(0, 6).map((keyword) => (
+            <span key={keyword} className="rounded-md bg-white px-2.5 py-1 text-xs text-[#625A52] ring-1 ring-[#E5E2DD]">
+              {keyword}
+            </span>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-[#E5E2DD] bg-white p-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Profile anchor</p>
+        <p className="mt-2 text-[13px] font-semibold text-[#171717]">{primaryProfile?.title || "Still forming"}</p>
+        <p className="mt-1 text-xs leading-5 text-[#625A52]">{primaryProfile?.why || "Tina needs one more concrete role signal."}</p>
+      </section>
+    </div>
+  );
+}
+
+function titleForLiveJd(calibration: LiveCalibration) {
+  if (calibration.depth === 0) return "Role draft forming";
+  return calibration.roleTitle;
+}
+
+function AlignmentRing({ value }: { value: number }) {
+  return (
+    <div className="grid shrink-0 place-items-center">
+      <div
+        className="grid h-14 w-14 place-items-center rounded-full"
+        style={{ background: `conic-gradient(#108A4B ${value * 3.6}deg, #EFEAE2 0deg)` }}
+      >
+        <div className="grid h-10 w-10 place-items-center rounded-full bg-white">
+          <span className="text-base font-semibold text-[#108A4B]">{value}</span>
+        </div>
+      </div>
+      <p className="mt-1 text-[10px] text-[#108A4B]">alignment</p>
+    </div>
+  );
+}
+
+function LiveJdCard({ calibration }: { calibration: LiveCalibration }) {
+  const showOverview = calibration.depth > 0 && calibration.jdRequested;
+
+  return (
+    <section className="rounded-lg border border-[#E5E2DD] bg-white p-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Live JD</p>
+        <span className="rounded-full bg-[#EEF8F1] px-2 py-1 text-[11px] text-[#108A4B]">{showOverview ? "Ready" : "Waiting"}</span>
+      </div>
+      <p className="mt-3 text-[13px] leading-5 text-[#262626]">
+        {showOverview ? calibration.jdOverview : "Waiting to gather more information. Ask Tina to draft the JD once the role has an outcome, scope, and tradeoff."}
+      </p>
+      <div className="mt-3 flex items-center gap-2 text-[11px] text-[#6F675E]">
+        <span className="h-1.5 w-1.5 rounded-full bg-[#108A4B]" />
+        Auto-updated from the conversation
+      </div>
+    </section>
+  );
+}
+
+function MarketMetric({ label, value, note }: { label: string; value: string; note: string }) {
+  return (
+    <div className="border-r border-[#E5E2DD] p-3 last:border-r-0">
+      <p className="text-[11px] font-medium text-[#6F675E]">{label}</p>
+      <p className="mt-2 text-sm font-semibold text-[#108A4B]">{value}</p>
+      <p className="mt-1 text-[11px] leading-4 text-[#6F675E]">{note}</p>
+    </div>
+  );
+}
+
+function trimInsight(value: string) {
+  const firstLine = value.split("\n").find(Boolean) || value;
+  return firstLine.length > 150 ? `${firstLine.slice(0, 147).trim()}...` : firstLine;
 }
 
 function CalibrationProfiles({
@@ -671,10 +1099,10 @@ function CalibrationProfiles({
           </ModuleCard>
         ) : null}
 
-        <ModuleCard title="Candidate lanes">
+        <ModuleCard title="Candidate Archetypes">
           <div className="grid gap-2.5">
             {profiles.slice(0, showFullCalibration ? 3 : 2).map((profile) => (
-              <CalibrationProfileCard key={profile.title} profile={profile} />
+              <ArchetypeCalibrationCard key={profile.title} profile={profile} />
             ))}
           </div>
         </ModuleCard>
@@ -1045,9 +1473,9 @@ function TensionSlider({ left, right, value, muted }: Tension & { muted?: boolea
         <span>{left}</span>
         <span>{right}</span>
       </div>
-      <div className="relative h-2 rounded-full bg-[#E7DDD1]">
-        <div className="absolute inset-y-0 left-0 rounded-full bg-[#B8B09D] transition-all duration-700 ease-out" style={{ width: `${value}%` }} />
-        <div className="absolute top-1/2 h-4 w-4 -translate-y-1/2 rounded-full border border-[#D8CEC2] bg-white shadow-[0_4px_12px_rgba(23,23,23,0.12)] transition-all duration-700 ease-out" style={{ left: `calc(${value}% - 8px)` }} />
+      <div className="relative h-2 rounded-full bg-[#EFEAE2]">
+        <div className="absolute inset-y-0 left-0 rounded-full bg-[#108A4B] transition-all duration-700 ease-out" style={{ width: `${value}%` }} />
+        <div className="absolute top-1/2 h-4 w-4 -translate-y-1/2 rounded-full border border-white bg-[#F8F6FF] shadow-[0_0_0_3px_rgba(91,53,213,0.08),0_5px_12px_rgba(23,23,23,0.13)] transition-all duration-700 ease-out" style={{ left: `calc(${value}% - 8px)` }} />
       </div>
     </div>
   );
@@ -1084,15 +1512,15 @@ function NextActionCard({ action }: { action: string }) {
   );
 }
 
-function CalibrationProfileCard({ profile }: { profile: ReturnType<typeof deriveCalibrationProfiles>[number] }) {
+function ArchetypeCalibrationCard({ profile }: { profile: ReturnType<typeof deriveCalibrationProfiles>[number] }) {
   return (
-    <article className="rounded-lg border border-[#E2D7CB] bg-[linear-gradient(180deg,rgba(255,255,255,0.72),rgba(255,252,247,0.72))] p-3 shadow-[0_10px_28px_rgba(23,23,23,0.035)]">
+    <article className="rounded-lg border border-[#E2D7CB] bg-white p-3 shadow-[0_10px_28px_rgba(23,23,23,0.03)]">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold">{profile.title}</h3>
           <p className="mt-1.5 text-xs leading-5 text-[#5A524A]">{profile.why}</p>
         </div>
-        <span className="shrink-0 rounded-full bg-[#EEF1E8] px-2.5 py-1 text-xs text-[#5F6D4E]">{profile.match}%</span>
+        <span className="shrink-0 rounded-full bg-[#EEF1E8] px-2.5 py-1 text-xs text-[#5F6D4E]">{profile.match}% fit</span>
       </div>
 
       <div className="mt-2.5 flex flex-wrap gap-1.5">
@@ -1103,18 +1531,27 @@ function CalibrationProfileCard({ profile }: { profile: ReturnType<typeof derive
         ))}
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-2">
-        <ProfileMetric label="Market" value={profile.marketSize} />
-        <ProfileMetric label="Comp" value={profile.comp} />
-        <ProfileMetric label="Fill time" value={profile.timeToFill} />
-        <ProfileMetric label="Top locations" value={profile.locations} />
+      <div className="mt-4 grid gap-2">
+        <ArchetypeRead label="Strengths" value={profile.strengths} />
+        <ArchetypeRead label="Likely tradeoffs" value={profile.tradeoffs} />
+        <ArchetypeRead label="Hiring risks" value={profile.risks} />
+        <ArchetypeRead label="Operating style" value={profile.operatingStyle} />
       </div>
 
-      <div className="mt-4">
-        <p className="mb-2 text-xs font-medium uppercase tracking-[0.12em] text-[#8A8178]">Talent distribution</p>
-        <DistributionBar values={profile.distribution} />
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <ProfileMetric label="Market density" value={profile.marketDensity} />
+        <ProfileMetric label="Comp range" value={profile.comp} />
       </div>
     </article>
+  );
+}
+
+function ArchetypeRead({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-[#E7DDD1] bg-[#FBFAF7] p-2">
+      <p className="text-[10px] font-medium uppercase tracking-[0.1em] text-[#8A8178]">{label}</p>
+      <p className="mt-1 text-xs leading-5 text-[#4B453F]">{value}</p>
+    </div>
   );
 }
 
@@ -1123,18 +1560,6 @@ function ProfileMetric({ label, value }: { label: string; value: string }) {
     <div className="rounded-md border border-[#E7DDD1] bg-[#F8F4ED] p-2">
       <p className="text-[10px] font-medium uppercase tracking-[0.1em] text-[#8A8178]">{label}</p>
       <p className="mt-1 text-xs font-medium text-[#262626]">{value}</p>
-    </div>
-  );
-}
-
-function DistributionBar({ values }: { values: number[] }) {
-  const colors = ["#6F7B5B", "#B8B09D", "#262626"];
-
-  return (
-    <div className="flex h-2 overflow-hidden rounded-full bg-[#E7DDD1]">
-      {values.map((value, index) => (
-        <div key={`${value}-${index}`} style={{ width: `${value}%`, background: colors[index] }} />
-      ))}
     </div>
   );
 }
@@ -1202,7 +1627,11 @@ type LiveCalibration = {
   marketPressure: string;
   poolImpact: string;
   nextAction: string;
+  roleTitle: string;
+  jdRequested: boolean;
   jdSummary: string;
+  jdOverview: string;
+  fullJd: string;
   keywords: string[];
   tensions: Tension[];
 };
@@ -1507,15 +1936,21 @@ function rejectionReadFor(reason: string) {
 
 function deriveLiveCalibration(messages: TinaMvpMessage[]): LiveCalibration {
   const founderMessages = messages.filter((message) => message.role === "founder");
-  const text = founderMessages.map((message) => message.content).join(" ").toLowerCase();
+  const founderText = founderMessages.map((message) => message.content).join(" ");
+  const allText = messages.map((message) => message.content).join(" ");
+  const text = founderText.toLowerCase();
   const depth = founderMessages.length;
   const isAI = /\b(ai|llm|model|agent|machine learning|ml)\b/.test(text);
   const isProduct = /\b(product|customer|workflow|pm|designer|design)\b/.test(text);
   const isOperator = /\b(operator|ops|operations|chief of staff|founder office|bottleneck)\b/.test(text);
   const isSenior = /\b(senior|lead|founding|head of|principal|staff)\b/.test(text);
   const speed = /\b(fast|quick|speed|urgent|young|sharp|high slope|move)\b/.test(text);
-  const domain = /\b(fintech|healthcare|medical|crypto|web3|security|sales|gtm|domain)\b/.test(text);
+  const domain = /\b(fintech|healthcare|medical|crypto|web3|security|sales|gtm|domain|manufacturing|plant|factory|industrial|warehouse|operations)\b/.test(text);
   const clarity = Math.min(86, 28 + depth * 14 + (isAI || isProduct || isOperator ? 10 : 0) + (isSenior ? 6 : 0));
+  const roleTitle = roleTitleForLiveCalibration(founderText);
+  const jdRequested = /\b(jd|job description|role description|draft the role|draft.*jd|create.*jd|write.*jd|live jd)\b/i.test(allText);
+  const jdSummary = summarizeRole({ isAI, isProduct, isOperator, isSenior, speed, domain, text, roleTitle });
+  const keywords = sourcingKeywordsFor({ isAI, isProduct, isOperator, isSenior, domain, speed });
 
   return {
     depth,
@@ -1524,8 +1959,12 @@ function deriveLiveCalibration(messages: TinaMvpMessage[]): LiveCalibration {
     marketPressure: marketPressureFor({ isAI, isSenior, domain, speed }),
     poolImpact: poolImpactFor({ isAI, isOperator, isProduct, domain }),
     nextAction: nextFounderAction({ depth, isAI, isProduct, isOperator }),
-    jdSummary: summarizeRole({ isAI, isProduct, isOperator, isSenior, speed, domain }),
-    keywords: sourcingKeywordsFor({ isAI, isProduct, isOperator, isSenior, domain, speed }),
+    roleTitle,
+    jdRequested,
+    jdSummary,
+    jdOverview: buildLiveJdOverview({ roleTitle, jdSummary, text, depth }),
+    fullJd: buildFullLiveJd({ roleTitle, jdSummary, keywords, text, depth }),
+    keywords,
     tensions: [
       { left: "Execution Speed", right: "Technical Depth", value: speed ? 38 : isAI ? 63 : 52 },
       { left: "Product Instinct", right: "Systems Rigor", value: isProduct ? 36 : isAI ? 58 : 48 },
@@ -1591,7 +2030,9 @@ function summarizeRole({
   isOperator,
   isSenior,
   speed,
-  domain
+  domain,
+  text,
+  roleTitle
 }: {
   isAI: boolean;
   isProduct: boolean;
@@ -1599,7 +2040,12 @@ function summarizeRole({
   isSenior: boolean;
   speed: boolean;
   domain: boolean;
+  text: string;
+  roleTitle: string;
 }) {
+  if (/\b(plant manager|plant|factory|manufacturing|industrial|warehouse)\b/.test(text)) {
+    return `${roleTitle} who can run day-to-day site execution, stabilize people and process, and translate founder-level priorities into reliable operating rhythm.`;
+  }
   if (isOperator) return "Founder-adjacent operator who can absorb loose context, close loops, and reduce leadership drag without adding heavy process.";
   if (isAI && isProduct) return "AI product builder who can turn ambiguous customer problems into reliable workflows, not just impressive demos.";
   if (isAI) return "Technical AI builder with enough product judgment to ship in messy startup conditions.";
@@ -1607,6 +2053,77 @@ function summarizeRole({
   if (domain) return "Domain-aware builder who can move fast without flattening the market or customer nuance.";
   if (isSenior && speed) return "Senior enough to raise the bar, but still impatient enough to ship before the org becomes ceremonial.";
   return "High-ownership startup hire who clarifies the role as much as they execute it.";
+}
+
+function roleTitleForLiveCalibration(founderText: string) {
+  if (!founderText.trim()) return "Role draft forming";
+  const extracted = extractRoleTitle(founderText) || compactRoleTitle(founderText);
+  return extracted === "New role" ? "High-Ownership Startup Hire" : extracted;
+}
+
+function buildLiveJdOverview({
+  roleTitle,
+  jdSummary,
+  text,
+  depth
+}: {
+  roleTitle: string;
+  jdSummary: string;
+  text: string;
+  depth: number;
+}) {
+  if (depth === 0) return "Waiting to gather more information.";
+  const secondSentence = /\b(plant|manufacturing|factory|industrial|warehouse)\b/.test(text)
+    ? "The core screen is whether they can create operating calm on-site without needing the founder to translate every priority."
+    : "The core screen is whether they reduce ambiguity in the environment the company actually has, not the cleaner one everyone wishes existed.";
+
+  return `${roleTitle}: ${jdSummary} ${secondSentence}`;
+}
+
+function buildFullLiveJd({
+  roleTitle,
+  jdSummary,
+  keywords,
+  text,
+  depth
+}: {
+  roleTitle: string;
+  jdSummary: string;
+  keywords: string[];
+  text: string;
+  depth: number;
+}) {
+  if (depth === 0) return "Waiting to gather more information.";
+
+  const plantRole = /\b(plant|manufacturing|factory|industrial|warehouse)\b/.test(text);
+  const mustProve = plantRole
+    ? ["Can run a plant or site through messy daily execution", "Earns trust with frontline teams and founder/ops leadership", "Improves process without turning the environment into bureaucracy"]
+    : ["Can own the first 90-day outcome with limited hand-holding", "Has judgment in ambiguous startup conditions", "Can separate real signal from impressive but irrelevant experience"];
+  const responsibilities = plantRole
+    ? ["Own daily plant performance, people rhythm, quality, and escalation paths", "Translate business priorities into clear operating routines", "Spot process gaps early and fix them without slowing the floor down"]
+    : ["Turn ambiguous hiring or business needs into clear execution", "Partner closely with founders and functional leaders", "Create leverage without adding unnecessary process"];
+  const interviewFocus = plantRole
+    ? ["How they handled a plant-floor failure or production miss", "How they manage frontline trust and accountability", "Where they draw the line between process discipline and speed"]
+    : ["How quickly they create clarity from messy context", "Their strongest examples of ownership under uncertainty", "Where their operating style may create drag"];
+
+  return [
+    `${roleTitle}`,
+    "",
+    "Quick read",
+    jdSummary,
+    "",
+    "What this person owns",
+    ...responsibilities.map((item) => `- ${item}`),
+    "",
+    "Must prove",
+    ...mustProve.map((item) => `- ${item}`),
+    "",
+    "Useful signals",
+    ...keywords.slice(0, 6).map((keyword) => `- ${keyword}`),
+    "",
+    "Interview focus",
+    ...interviewFocus.map((item) => `- ${item}`)
+  ].join("\n");
 }
 
 function sourcingKeywordsFor({
@@ -1651,22 +2168,26 @@ function deriveCalibrationProfiles(messages: TinaMvpMessage[]) {
         why: "Fits when the real need is lower founder load, not another process layer.",
         match: 86,
         keywords: ["context absorption", "trust generation", "low explanation dependency"],
-        marketSize: "1.8k-3.2k",
+        strengths: "Absorbs messy founder context, closes loops, and creates trust without ceremony.",
+        tradeoffs: "May be lighter on deep functional craft if the role secretly needs a specialist.",
+        risks: "Can become the catch-all person if ownership boundaries stay blurry.",
+        operatingStyle: "High-context, calm, low-ego, comfortable with incomplete information.",
+        marketDensity: "Focused",
         comp: "$170k-$240k",
-        timeToFill: "8-12 wks",
-        locations: "SF, NYC, Remote",
-        distribution: [42, 31, 27]
+        timeToFill: "8-12 wks"
       },
       {
         title: "High-Agency Generalist",
         why: "Useful if the role crosses product, customers, ops, and execution without clean boundaries.",
         match: 78,
         keywords: ["ambiguity", "loop closing", "calm urgency"],
-        marketSize: "3k-5k",
+        strengths: "Moves fast across functions and turns vague ownership into forward motion.",
+        tradeoffs: "Needs a clear quality bar or may optimize for motion over depth.",
+        risks: "Can look great early and then plateau if the company needs deeper expertise.",
+        operatingStyle: "Scrappy, direct, broad-range operator who prefers problems over process.",
+        marketDensity: "Moderate",
         comp: "$140k-$210k",
-        timeToFill: "6-10 wks",
-        locations: "SF, Austin, NYC",
-        distribution: [36, 34, 30]
+        timeToFill: "6-10 wks"
       }
     ];
   }
@@ -1674,37 +2195,43 @@ function deriveCalibrationProfiles(messages: TinaMvpMessage[]) {
   if (isAI || isProduct) {
     return [
       {
-        title: isProduct ? "AI Product Builder" : "Native AI Engineer",
+        title: isProduct ? "Product-Oriented AI Builder" : "Native AI Builder",
         why: "Matches the need for AI-native work that can become real customer-facing product.",
         match: speed ? 88 : 82,
         keywords: ["AI workflows", "product judgment", "eval instincts"],
-        marketSize: "900-1.6k",
+        strengths: "Turns model capability into useful product behavior and learns quickly from users.",
+        tradeoffs: "May not have frontier-depth research taste or hardcore infra depth.",
+        risks: "Demo fluency can masquerade as production judgment if the interview is too polished.",
+        operatingStyle: "Builder-minded, customer-aware, pragmatic about reliability tradeoffs.",
+        marketDensity: "Narrow",
         comp: isSenior ? "$220k-$330k" : "$180k-$260k",
-        timeToFill: "10-14 wks",
-        locations: "SF, NYC, London",
-        distribution: [48, 28, 24]
+        timeToFill: "10-14 wks"
       },
       {
-        title: "Product-Minded Systems Builder",
+        title: "ML Infrastructure Specialist",
         why: "Good lane if reliability matters as much as demo speed.",
         match: 76,
         keywords: ["production AI", "systems taste", "workflow reliability"],
-        marketSize: "1.4k-2.4k",
+        strengths: "Brings rigor around model serving, eval loops, observability, and reliability.",
+        tradeoffs: "May be less natural at product discovery or customer-shaped ambiguity.",
+        risks: "Can overbuild infrastructure before there is enough product signal.",
+        operatingStyle: "Systems-oriented, careful, skeptical of fragile demo magic.",
+        marketDensity: "Moderate",
         comp: "$200k-$300k",
-        timeToFill: "9-13 wks",
-        locations: "SF, Seattle, Remote",
-        distribution: [44, 25, 31]
+        timeToFill: "9-13 wks"
       },
       {
-        title: "High-Slope Applied AI Generalist",
+        title: "Research-to-Product Translator",
         why: "Worth testing if the founder cares more about learning velocity than deep research pedigree.",
         match: 71,
         keywords: ["prototype speed", "customer learning", "young sharp builder"],
-        marketSize: "2k-4k",
+        strengths: "Bridges technical AI concepts with usable workflows and product decisions.",
+        tradeoffs: "May need support from deeper infra or research partners as systems scale.",
+        risks: "Can become too broad if the first 90-day outcome is not concrete.",
+        operatingStyle: "Curious, fast-learning, comfortable translating between users and technical constraints.",
+        marketDensity: "Moderate-high",
         comp: "$150k-$230k",
-        timeToFill: "6-9 wks",
-        locations: "NYC, SF, Toronto",
-        distribution: [35, 33, 32]
+        timeToFill: "6-9 wks"
       }
     ];
   }
@@ -1715,22 +2242,26 @@ function deriveCalibrationProfiles(messages: TinaMvpMessage[]) {
       why: "A flexible starting profile while Tina learns whether the real constraint is product, ops, or founder leverage.",
       match: 70,
       keywords: ["ambiguity", "ownership", "clarity creation"],
-      marketSize: "4k-7k",
+      strengths: "Creates clarity in undefined environments and keeps moving without a perfect spec.",
+      tradeoffs: "May lack the domain depth needed once the role narrows.",
+      risks: "Can become a vague catch-all if the founder never names the real job.",
+      operatingStyle: "High-agency, adaptable, comfortable with loose ownership.",
+      marketDensity: "Broad",
       comp: "$130k-$210k",
-      timeToFill: "6-10 wks",
-      locations: "SF, NYC, Remote",
-      distribution: [34, 33, 33]
+      timeToFill: "6-10 wks"
     },
     {
       title: "Customer-Obsessed Builder",
       why: "Useful if the hire needs to turn fuzzy customer pain into product or operating direction.",
       match: 66,
       keywords: ["customer signal", "taste", "execution"],
-      marketSize: "2.5k-4.5k",
+      strengths: "Finds patterns in customer pain and turns them into simpler product choices.",
+      tradeoffs: "May be less strong in deep systems or formal operating cadence.",
+      risks: "Can over-index on individual customer requests without a clear strategy bar.",
+      operatingStyle: "Close to users, commercially aware, practical about shipping.",
+      marketDensity: "Moderate",
       comp: "$150k-$230k",
-      timeToFill: "7-11 wks",
-      locations: "NYC, SF, LA",
-      distribution: [37, 36, 27]
+      timeToFill: "7-11 wks"
     }
   ];
 }
