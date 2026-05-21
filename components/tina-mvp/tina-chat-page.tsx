@@ -119,9 +119,9 @@ export function TinaChatPage() {
   }
 
   function sendOnEnter(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if ((event.nativeEvent as KeyboardEvent["nativeEvent"]).isComposing) return;
+    if (event.nativeEvent.isComposing) return;
     if (event.key !== "Enter" && event.code !== "Enter" && event.code !== "NumpadEnter") return;
-    if (event.shiftKey) return;
+    if (event.metaKey) return;
 
     event.preventDefault();
     sendMessage();

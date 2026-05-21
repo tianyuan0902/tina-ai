@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, KeyboardEvent, useMemo, useState } from "react";
 import {
   ArrowRight,
   BadgeCheck,
@@ -15,9 +15,6 @@ import {
   UsersRound
 } from "lucide-react";
 
-import { ProfileLeadCard } from "@/components/ProfileLeadCard";
-import { ProfileLeadsPanel } from "@/components/ProfileLeadsPanel";
-import type { ProfileLead } from "@/lib/tina/profile-lead-types";
 import type { TinaChatApiResponse, TinaMvpMessage } from "@/lib/tina-mvp/types";
 
 type View = "home" | "role";
@@ -197,37 +194,8 @@ function HomeCommandCenter({
 }) {
   const [messages, setMessages] = useState<TinaMvpMessage[]>([openingMessage]);
   const [isThinking, setIsThinking] = useState(false);
-  const [savedLeads, setSavedLeads] = useState<ProfileLead[]>([]);
-  const [rejectedLeadIds, setRejectedLeadIds] = useState<string[]>([]);
   const hasConversation = messages.some((message) => message.role === "founder");
   const profiles = useMemo(() => deriveCalibrationProfiles(messages), [messages]);
-  const profileLeads = useMemo(
-    () => dedupeProfileLeads(messages.flatMap((message) => message.profileLeads || []).filter((lead) => !rejectedLeadIds.includes(lead.id))),
-    [messages, rejectedLeadIds]
-  );
-
-  function saveLead(lead: ProfileLead) {
-    setSavedLeads((current) =>
-      current.some((item) => item.id === lead.id)
-        ? current
-        : [...current, { ...lead, saved: true }]
-    );
-  }
-
-  function rejectLead(lead: ProfileLead) {
-    setRejectedLeadIds((current) => (current.includes(lead.id) ? current : [...current, lead.id]));
-    setSavedLeads((current) => current.filter((item) => item.id !== lead.id && item.url !== lead.url));
-    setMessages((current) =>
-      current.map((message) =>
-        message.profileLeads?.length
-          ? {
-              ...message,
-              profileLeads: message.profileLeads.filter((item) => item.id !== lead.id && item.url !== lead.url)
-            }
-          : message
-      )
-    );
-  }
 
   async function sendMessage(content: string) {
     if (!content.trim() || isThinking) return;
@@ -293,7 +261,7 @@ function HomeCommandCenter({
           <div className="flex-1 overflow-y-auto px-4 py-4">
             <div className="mx-auto grid max-w-2xl gap-4">
               {messages.map((message) => (
-                <ChatMessage key={message.id} message={message} savedLeads={savedLeads} onSaveLead={saveLead} onRejectLead={rejectLead} />
+                <ChatMessage key={message.id} message={message} />
               ))}
               {isThinking ? (
                 <div className="flex gap-3">
@@ -316,10 +284,6 @@ function HomeCommandCenter({
           <CalibrationProfiles
             profiles={profiles}
             latestSynthesis={latestSynthesis}
-            profileLeads={profileLeads}
-            savedLeads={savedLeads}
-            onSaveLead={saveLead}
-            onRejectLead={rejectLead}
           />
         ) : (
           <EmptyCalibrationPanel />
@@ -341,11 +305,24 @@ function CommandInput({ onSubmit, isThinking }: { onSubmit: (value: string) => v
     setValue("");
   }
 
+  function sendOnEnter(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.nativeEvent.isComposing) return;
+    if (event.key !== "Enter" && event.code !== "Enter" && event.code !== "NumpadEnter") return;
+    if (event.metaKey) return;
+
+    event.preventDefault();
+    const content = value.trim();
+    if (!content || isThinking) return;
+    onSubmit(content);
+    setValue("");
+  }
+
   return (
     <form onSubmit={submit} className="rounded-lg border border-[#D8CEC2] bg-[#FFFCF7] p-3 shadow-[0_14px_36px_rgba(62,52,42,0.055)] transition focus-within:border-[#9A927E] focus-within:shadow-[0_18px_48px_rgba(62,52,42,0.08)]">
       <textarea
         value={value}
         onChange={(event) => setValue(event.target.value)}
+        onKeyDown={sendOnEnter}
         placeholder={placeholder}
         className="min-h-20 w-full resize-none bg-transparent text-sm leading-6 text-[#171717] outline-none placeholder:text-[#9B9289]"
       />
@@ -375,17 +352,7 @@ function CommandInput({ onSubmit, isThinking }: { onSubmit: (value: string) => v
   );
 }
 
-function ChatMessage({
-  message,
-  savedLeads,
-  onSaveLead,
-  onRejectLead
-}: {
-  message: TinaMvpMessage;
-  savedLeads: ProfileLead[];
-  onSaveLead: (lead: ProfileLead) => void;
-  onRejectLead: (lead: ProfileLead) => void;
-}) {
+function ChatMessage({ message }: { message: TinaMvpMessage }) {
   if (message.role === "founder") {
     return (
       <div className="flex justify-end">
@@ -402,33 +369,9 @@ function ChatMessage({
       <div className="min-w-0">
         <p className="text-sm font-semibold">Tina</p>
         <p className="mt-2 max-w-2xl whitespace-pre-line text-[15px] leading-7 text-[#262626]">{message.content}</p>
-        {message.profileLeads?.length ? (
-          <div className="mt-4 grid max-w-2xl gap-3">
-            {dedupeProfileLeads(message.profileLeads).map((lead, index) => (
-              <ProfileLeadCard
-                key={`${lead.id}-${index}`}
-                lead={lead}
-                isSaved={savedLeads.some((savedLead) => savedLead.id === lead.id)}
-                onSave={onSaveLead}
-                onReject={onRejectLead}
-              />
-            ))}
-          </div>
-        ) : null}
       </div>
     </div>
   );
-}
-
-function dedupeProfileLeads(leads: ProfileLead[]) {
-  const seen = new Set<string>();
-
-  return leads.filter((lead) => {
-    const key = lead.url || lead.id;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
 }
 
 function TinaMark() {
@@ -464,18 +407,10 @@ function GhostProfileLine() {
 
 function CalibrationProfiles({
   profiles,
-  latestSynthesis,
-  profileLeads,
-  savedLeads,
-  onSaveLead,
-  onRejectLead
+  latestSynthesis
 }: {
   profiles: ReturnType<typeof deriveCalibrationProfiles>;
   latestSynthesis: string;
-  profileLeads: ProfileLead[];
-  savedLeads: ProfileLead[];
-  onSaveLead: (lead: ProfileLead) => void;
-  onRejectLead: (lead: ProfileLead) => void;
 }) {
   return (
     <aside className="max-h-[calc(100vh-120px)] overflow-y-auto rounded-lg border border-[#DDD2C5] bg-[#FFFCF7]/90 p-3 shadow-[0_16px_48px_rgba(23,23,23,0.06)] backdrop-blur">
@@ -508,8 +443,6 @@ function CalibrationProfiles({
           <CalibrationProfileCard key={profile.title} profile={profile} />
         ))}
       </div>
-
-      <ProfileLeadsPanel leads={profileLeads} savedLeads={savedLeads} onSave={onSaveLead} onReject={onRejectLead} />
     </aside>
   );
 }

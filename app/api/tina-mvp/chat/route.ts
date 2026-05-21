@@ -55,7 +55,7 @@ export async function POST(request: Request) {
       message: {
         id: `tina-public-search-${Date.now()}`,
         role: "tina",
-        content: `I found ${profileLeads.length} public profile ${profileLeads.length === 1 ? "lead" : "leads"} to review. I’d treat ${profileLeads.length === 1 ? "this as a person" : "these as people"} to inspect, not qualified candidates yet.`,
+        content: buildProfileSearchResponse(latestUserMessage.content, profileLeads.length),
         profileLeads
       },
       source: "public_search"
@@ -171,6 +171,25 @@ export async function POST(request: Request) {
     source: "openai",
     responseId: data.id
   });
+}
+
+function buildProfileSearchResponse(message: string, count: number) {
+  const scope = inferRequestedScope(message);
+
+  return [
+    `I pulled ${count} public calibration ${count === 1 ? "profile" : "profiles"} for ${scope}.`,
+    "Use Yes/No as signal, not final judgment. After three yeses, Tina has enough pattern to look for similar people."
+  ].join(" ");
+}
+
+function inferRequestedScope(message: string) {
+  const cleaned = message
+    .replace(/\b(show|send|find|source|pull|give me|search for)\b/gi, "")
+    .replace(/\b(profiles?|people|candidates?|leads?|linkedin|public|about|around)\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return cleaned || "this hiring lane";
 }
 
 async function callOpenAI(openaiPayload: object) {

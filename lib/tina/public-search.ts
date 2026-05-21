@@ -8,7 +8,7 @@ type TavilyLikeResult = {
   snippet?: string;
 };
 
-const DEFAULT_PROFILE_BATCH_SIZE = 3;
+const DEFAULT_PROFILE_BATCH_SIZE = 5;
 const MAX_PROFILE_BATCH_SIZE = 5;
 
 export async function searchPublicProfileLeads(hiringContext: string, requestedCount = DEFAULT_PROFILE_BATCH_SIZE): Promise<ProfileLead[]> {
@@ -86,7 +86,8 @@ function mapToProfileLead(result: TavilyLikeResult, query: string, hiringContext
     fitReason: buildFitReason(hiringContext, snippet),
     confidence: confidenceForIndex(index),
     tags: buildTags(hiringContext, snippet),
-    saved: false
+    saved: false,
+    calibration: buildCalibration(result, hiringContext, snippet, title)
   };
 }
 
@@ -175,8 +176,129 @@ function clampProfileBatchSize(count: number) {
 
 function confidenceForIndex(index: number): ProfileLead["confidence"] {
   if (index === 0) return "high";
-  if (index === 1) return "medium";
+  if (index <= 2) return "medium";
   return "low";
+}
+
+function buildCalibration(result: TavilyLikeResult, hiringContext: string, snippet: string, title: string): NonNullable<ProfileLead["calibration"]> {
+  const text = `${title} ${snippet}`.toLowerCase();
+  const target = inferTargetLane(hiringContext);
+
+  return {
+    scope: scopeForTarget(target),
+    roleTitle: inferRoleTitle(title),
+    location: inferLocation(`${result.content || ""} ${result.snippet || ""}`),
+    yearsExperience: inferYearsExperience(text, target),
+    mustHaves: mustHavesForTarget(target),
+    niceToHaves: niceToHavesForTarget(target),
+    compRange: compRangeForTarget(target, hiringContext)
+  };
+}
+
+function scopeForTarget(target: string) {
+  const scopes: Record<string, string> = {
+    ai: "Applied AI/product engineering in a startup environment",
+    backend: "Backend/platform ownership with startup pace",
+    product: "Product judgment, customer signal, and founder-context translation",
+    operator: "Founder-adjacent operating leverage across messy priorities",
+    design: "Product design under ambiguity with close engineering proximity",
+    gtm: "Early GTM motion, customer learning, and revenue ownership",
+    general: "Broad startup ownership where the exact lane is still forming"
+  };
+
+  return scopes[target] || scopes.general;
+}
+
+function inferRoleTitle(title: string) {
+  const cleaned = title
+    .replace(/\s*-\s*LinkedIn\s*$/i, "")
+    .replace(/\s*\|\s*LinkedIn\s*$/i, "")
+    .trim();
+
+  return cleaned || "Public profile lead";
+}
+
+function inferLocation(text: string) {
+  const locations = [
+    "San Francisco",
+    "New York",
+    "Seattle",
+    "Austin",
+    "Boston",
+    "Los Angeles",
+    "London",
+    "Toronto",
+    "Remote",
+    "United States"
+  ];
+  const found = locations.find((location) => new RegExp(`\\b${location}\\b`, "i").test(text));
+
+  return found || "Not clear from public snippet";
+}
+
+function inferYearsExperience(text: string, target: string) {
+  const explicit = text.match(/\b([3-9]|1[0-9]|2[0-5])\+?\s*(yoe|years|yrs)\b/i);
+  if (explicit) return `${explicit[1]}+ years`;
+  if (/\b(founder|head of|staff|principal|director|vp|cto)\b/.test(text)) return "8+ years likely";
+  if (/\b(senior|lead)\b/.test(text)) return "5-8 years likely";
+
+  return target === "operator" ? "4-8 years likely" : "3-7 years likely";
+}
+
+function mustHavesForTarget(target: string) {
+  const map: Record<string, string[]> = {
+    ai: ["Shipped AI features", "Product judgment", "Reliability instincts"],
+    backend: ["Systems ownership", "Production reliability", "Startup execution pace"],
+    product: ["Customer signal", "Prioritization judgment", "Founder-context fluency"],
+    operator: ["High trust", "Ambiguity tolerance", "Closes loops without process weight"],
+    design: ["Product taste", "Customer empathy", "Engineering proximity"],
+    gtm: ["Customer learning", "Founder-led selling comfort", "Pipeline ownership"],
+    general: ["High agency", "Ownership density", "Ambiguity tolerance"]
+  };
+
+  return map[target] || map.general;
+}
+
+function niceToHavesForTarget(target: string) {
+  const map: Record<string, string[]> = {
+    ai: ["Eval experience", "Customer-facing AI", "Startup or founding work"],
+    backend: ["AI-adjacent systems", "Infra scaling", "Security judgment"],
+    product: ["AI/product exposure", "Zero-to-one launches", "Technical fluency"],
+    operator: ["Founder office", "BizOps", "Technical product context"],
+    design: ["Design systems", "AI tool experience", "0-to-1 product work"],
+    gtm: ["Fintech or AI market", "Outbound motion", "Founder network"],
+    general: ["Domain familiarity", "Early-stage references", "Low-ego range"]
+  };
+
+  return map[target] || map.general;
+}
+
+function compRangeForTarget(target: string, hiringContext: string) {
+  if (/\b(sf|san francisco|bay area|new york|nyc)\b/i.test(hiringContext)) {
+    const highCost: Record<string, string> = {
+      ai: "$180k-$300k base + equity",
+      backend: "$170k-$260k base + equity",
+      product: "$160k-$250k base + equity",
+      operator: "$140k-$230k base + equity",
+      design: "$150k-$230k base + equity",
+      gtm: "$140k-$220k base + variable/equity",
+      general: "$140k-$230k base + equity"
+    };
+
+    return highCost[target] || highCost.general;
+  }
+
+  const ranges: Record<string, string> = {
+    ai: "$150k-$260k base + equity",
+    backend: "$140k-$230k base + equity",
+    product: "$140k-$230k base + equity",
+    operator: "$120k-$200k base + equity",
+    design: "$130k-$210k base + equity",
+    gtm: "$120k-$200k base + variable/equity",
+    general: "$120k-$210k base + equity"
+  };
+
+  return ranges[target] || ranges.general;
 }
 
 function buildFitReason(hiringContext: string, snippet: string) {

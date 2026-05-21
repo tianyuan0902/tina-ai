@@ -10,4 +10,13 @@ export type ProfileLead = {
   tags: string[];
   saved: boolean;
   feedback?: "not_relevant";
+  calibration?: {
+    scope: string;
+    roleTitle: string;
+    location: string;
+    yearsExperience: string;
+    mustHaves: string[];
+    niceToHaves: string[];
+    compRange: string;
+  };
 };

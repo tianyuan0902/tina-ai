@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, ThumbsDown, ThumbsUp } from "lucide-react";
 
 import type { ProfileLead } from "@/lib/tina/profile-lead-types";
 
@@ -29,6 +29,16 @@ export function ProfileLeadCard({ lead, isSaved, onSave, onReject }: ProfileLead
 
       <p className="mt-2 text-xs leading-5 text-[#5A524A]">{lead.snippet}</p>
       <p className="mt-2 text-xs leading-5 text-[#262626]">{lead.fitReason}</p>
+      {lead.calibration ? (
+        <div className="mt-3 grid gap-2 rounded-md border border-[#E7DDD1] bg-[#F8F4ED]/70 p-2.5 text-xs leading-5 text-[#5A524A]">
+          <ProfileField label="Scope" value={lead.calibration.scope} />
+          <ProfileField label="Location" value={lead.calibration.location} />
+          <ProfileField label="Experience" value={lead.calibration.yearsExperience} />
+          <ProfileField label="Must haves" value={lead.calibration.mustHaves.join(", ")} />
+          <ProfileField label="Nice to have" value={lead.calibration.niceToHaves.join(", ")} />
+          <ProfileField label="Comp range" value={lead.calibration.compRange} />
+        </div>
+      ) : null}
 
       <div className="mt-3 flex flex-wrap gap-2">
         <a
@@ -47,7 +57,8 @@ export function ProfileLeadCard({ lead, isSaved, onSave, onReject }: ProfileLead
             className="rounded-md border border-[#D8CEC2] bg-[#1E1E1E] px-2.5 py-1.5 text-xs text-white transition hover:bg-[#262626] disabled:opacity-50"
             disabled={saved}
           >
-            {saved ? "Saved" : "Save"}
+            <ThumbsUp className="h-3 w-3" />
+            {saved ? "Saved" : "Yes"}
           </button>
         ) : null}
         {onReject ? (
@@ -56,11 +67,20 @@ export function ProfileLeadCard({ lead, isSaved, onSave, onReject }: ProfileLead
             onClick={() => onReject(lead)}
             className="rounded-md border border-[#D8CEC2] bg-[#F8F4ED] px-2.5 py-1.5 text-xs text-[#625A52] transition hover:bg-[#F1ECE4]"
           >
-            Not relevant
+            <ThumbsDown className="h-3 w-3" />
+            No
           </button>
         ) : null}
       </div>
     </article>
+  );
+}
+
+function ProfileField({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <span className="font-medium text-[#262626]">{label}:</span> {value}
+    </div>
   );
 }
 
