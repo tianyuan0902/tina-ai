@@ -4,9 +4,12 @@ import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "
 import {
   Activity,
   AlertTriangle,
+  Archive,
   ArrowRight,
   Brain,
   CheckCircle2,
+  MoreHorizontal,
+  Pencil,
   Sparkles,
   SlidersHorizontal,
   XCircle
@@ -148,8 +151,9 @@ const initialThreads: ChatThread[] = [
 ];
 
 export function TinaWorkspace() {
-  const [threads, setThreads] = useState<ChatThread[]>(initialThreads);
-  const [activeThreadId, setActiveThreadId] = useState(initialThreads[0].id);
+  const initialSessionThread = createNewRoleThread();
+  const [threads, setThreads] = useState<ChatThread[]>([initialSessionThread, ...initialThreads.filter((thread) => thread.id !== initialSessionThread.id)]);
+  const [activeThreadId, setActiveThreadId] = useState(initialSessionThread.id);
   const [storageReady, setStorageReady] = useState(false);
   const [latestSynthesis, setLatestSynthesis] = useState(
     "Tina is watching for the difference between a strong title match and a person who actually reduces founder ambiguity."
@@ -157,24 +161,64 @@ export function TinaWorkspace() {
   const activeThread = threads.find((thread) => thread.id === activeThreadId) || threads[0];
 
   useEffect(() => {
+    let cancelled = false;
     const storedThreads = readStoredThreads();
-    const storedActiveThreadId = window.localStorage.getItem(ACTIVE_THREAD_STORAGE_KEY);
+    const sessionThread = createNewRoleThread();
 
     if (storedThreads.length) {
-      const nextActiveThread = storedThreads.find((thread) => thread.id === storedActiveThreadId) || storedThreads[0];
-      setThreads(storedThreads);
-      setActiveThreadId(nextActiveThread.id);
-      setLatestSynthesis(latestThreadSynthesis(nextActiveThread.messages));
+      setThreads([sessionThread, ...storedThreads.filter((thread) => !isBlankNewRoleThread(thread))]);
+      setActiveThreadId(sessionThread.id);
+      setLatestSynthesis(latestThreadSynthesis(sessionThread.messages));
     }
 
-    setStorageReady(true);
+    async function loadStoredWorkspace() {
+      try {
+        const response = await fetch("/api/tina-mvp/threads", { cache: "no-store" });
+        if (!response.ok) return;
+
+        const data = (await response.json()) as { enabled?: boolean; threads?: ChatThread[] };
+        const remoteThreads = Array.isArray(data.threads) ? data.threads.filter(isChatThread) : [];
+        if (!data.enabled || !remoteThreads.length || cancelled) return;
+
+        setThreads([sessionThread, ...remoteThreads.filter((thread) => !isBlankNewRoleThread(thread))]);
+        setActiveThreadId(sessionThread.id);
+        setLatestSynthesis(latestThreadSynthesis(sessionThread.messages));
+      } catch {
+        // Local storage remains the fallback while Supabase is not fully configured.
+      } finally {
+        if (!cancelled) setStorageReady(true);
+      }
+    }
+
+    loadStoredWorkspace();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
     if (!storageReady) return;
-    window.localStorage.setItem(THREAD_STORAGE_KEY, JSON.stringify(threads));
+    const persistedThreads = threads.map((thread) => ({
+      ...thread,
+      latestSynthesis: thread.id === activeThreadId ? latestSynthesis : latestThreadSynthesis(thread.messages)
+    }));
+
+    window.localStorage.setItem(THREAD_STORAGE_KEY, JSON.stringify(persistedThreads));
     window.localStorage.setItem(ACTIVE_THREAD_STORAGE_KEY, activeThreadId);
-  }, [activeThreadId, storageReady, threads]);
+
+    const timer = window.setTimeout(() => {
+      fetch("/api/tina-mvp/threads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ threads: persistedThreads })
+      }).catch(() => {
+        // Local storage has already saved the workspace.
+      });
+    }, 400);
+
+    return () => window.clearTimeout(timer);
+  }, [activeThreadId, latestSynthesis, storageReady, threads]);
 
   function selectThread(threadId: string) {
     const nextThread = threads.find((thread) => thread.id === threadId);
@@ -185,18 +229,7 @@ export function TinaWorkspace() {
   }
 
   function startNewThread() {
-    const threadId = `thread-${Date.now()}`;
-    const nextThread: ChatThread = {
-      id: threadId,
-      title: "New role",
-      time: "Just now",
-      messages: [
-        {
-          ...openingMessage,
-          id: `tina-opening-${threadId}`
-        }
-      ]
-    };
+    const nextThread = createNewRoleThread();
 
     setThreads((current) => [nextThread, ...current]);
     setActiveThreadId(threadId);
@@ -217,6 +250,34 @@ export function TinaWorkspace() {
     );
   }
 
+  function renameThread(threadId: string, title: string) {
+    const cleanTitle = title.trim();
+    if (!cleanTitle) return;
+
+    setThreads((current) =>
+      current.map((thread) => (thread.id === threadId ? { ...thread, title: cleanTitle } : thread))
+    );
+  }
+
+  function archiveThread(threadId: string) {
+    setThreads((current) => {
+      const remaining = current.filter((thread) => thread.id !== threadId);
+      if (!remaining.length) {
+        const replacement = createNewRoleThread();
+        setActiveThreadId(replacement.id);
+        setLatestSynthesis(latestThreadSynthesis(replacement.messages));
+        return [replacement];
+      }
+
+      if (threadId === activeThreadId) {
+        setActiveThreadId(remaining[0].id);
+        setLatestSynthesis(latestThreadSynthesis(remaining[0].messages));
+      }
+
+      return remaining;
+    });
+  }
+
   return (
     <main className="relative h-screen overflow-hidden bg-white text-[#171717]">
       <div className="relative z-10 flex h-screen min-h-0">
@@ -225,6 +286,8 @@ export function TinaWorkspace() {
           activeThreadId={activeThreadId}
           onSelectThread={selectThread}
           onNewThread={startNewThread}
+          onRenameThread={renameThread}
+          onArchiveThread={archiveThread}
         />
         <div className="min-h-0 min-w-0 flex-1">
           <HomeCommandCenter
@@ -243,13 +306,34 @@ function Sidebar({
   threads,
   activeThreadId,
   onSelectThread,
-  onNewThread
+  onNewThread,
+  onRenameThread,
+  onArchiveThread
 }: {
   threads: ChatThread[];
   activeThreadId: string;
   onSelectThread: (threadId: string) => void;
   onNewThread: () => void;
+  onRenameThread: (threadId: string, title: string) => void;
+  onArchiveThread: (threadId: string) => void;
 }) {
+  const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
+  const [openMenuThreadId, setOpenMenuThreadId] = useState<string | null>(null);
+  const [draftTitle, setDraftTitle] = useState("");
+
+  function startEditing(thread: ChatThread) {
+    setOpenMenuThreadId(null);
+    setEditingThreadId(thread.id);
+    setDraftTitle(displayThreadTitle(thread));
+  }
+
+  function finishEditing() {
+    if (!editingThreadId) return;
+    onRenameThread(editingThreadId, draftTitle);
+    setEditingThreadId(null);
+    setDraftTitle("");
+  }
+
   return (
     <aside className="hidden w-[clamp(220px,16vw,272px)] shrink-0 border-r border-[#E6E0D8] bg-white px-3 py-4 shadow-[14px_0_44px_rgba(23,23,23,0.025)] lg:flex lg:flex-col">
       <div className="mb-6 px-2">
@@ -268,17 +352,63 @@ function Sidebar({
       <div className="px-2 text-xs font-medium text-[#6F675E]">Conversations</div>
       <div className="mt-3 grid gap-1.5">
         {threads.map((thread) => (
-          <button
+          <div
             key={thread.id}
-            type="button"
-            onClick={() => onSelectThread(thread.id)}
-            className={`rounded-md px-3 py-1.5 text-left transition ${
+            className={`group relative flex max-w-full items-center gap-1 rounded-md px-2 py-1.5 transition ${
               thread.id === activeThreadId ? "bg-[#F3EFE8] shadow-[0_10px_24px_rgba(62,52,42,0.05)]" : "hover:bg-[#F7F4EF]"
             }`}
           >
-            <p className="text-sm font-medium text-[#262626]">{displayThreadTitle(thread)}</p>
-            <p className="mt-0.5 text-xs text-[#777068]">{thread.time}</p>
-          </button>
+            {editingThreadId === thread.id ? (
+              <input
+                value={draftTitle}
+                onChange={(event) => setDraftTitle(event.target.value)}
+                onBlur={finishEditing}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") finishEditing();
+                  if (event.key === "Escape") setEditingThreadId(null);
+                }}
+                className="min-w-0 flex-1 rounded border border-[#D8CEC2] bg-white px-2 py-1 text-sm text-[#262626] outline-none"
+                autoFocus
+              />
+            ) : (
+              <button type="button" onClick={() => onSelectThread(thread.id)} className="min-w-0 flex-1 text-left">
+                <p className="truncate text-sm font-medium text-[#262626]">{displayThreadTitle(thread)}</p>
+                <p className="mt-0.5 text-xs text-[#777068]">{thread.time}</p>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setOpenMenuThreadId((current) => (current === thread.id ? null : thread.id))}
+              className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-[#8A8178] opacity-0 transition hover:bg-white hover:text-[#171717] group-hover:opacity-100"
+              aria-label={`Conversation options for ${displayThreadTitle(thread)}`}
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </button>
+            {openMenuThreadId === thread.id ? (
+              <div className="absolute right-2 top-9 z-20 w-32 overflow-hidden rounded-lg border border-[#E2DDD6] bg-white p-1 text-sm shadow-[0_18px_40px_rgba(23,23,23,0.12)]">
+                <button
+                  type="button"
+                  onClick={() => startEditing(thread)}
+                  className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-[#262626] hover:bg-[#F7F4EF]"
+                >
+                  <Pencil className="h-3.5 w-3.5 text-[#8A8178]" />
+                  Edit name
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpenMenuThreadId(null);
+                    onArchiveThread(thread.id);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-[#262626] hover:bg-[#F7F4EF]"
+                >
+                  <Archive className="h-3.5 w-3.5 text-[#8A8178]" />
+                  Archive
+                </button>
+              </div>
+            ) : null}
+          </div>
         ))}
       </div>
 
@@ -670,6 +800,26 @@ function isTinaMessage(value: unknown): value is TinaMvpMessage {
     typeof message.id === "string" &&
     (message.role === "founder" || message.role === "tina") &&
     typeof message.content === "string"
+  );
+}
+
+function createNewRoleThread(): ChatThread {
+  const threadId = `thread-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+  return {
+    id: threadId,
+    title: "New role",
+    time: "Just now",
+    messages: [{ ...openingMessage, id: `tina-opening-${threadId}` }]
+  };
+}
+
+function isBlankNewRoleThread(thread: ChatThread) {
+  return (
+    isProvisionalThreadTitle(thread.title) &&
+    thread.messages.length === 1 &&
+    thread.messages[0]?.role === "tina" &&
+    thread.messages[0]?.content === openingMessage.content
   );
 }
 
