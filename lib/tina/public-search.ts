@@ -8,8 +8,8 @@ type TavilyLikeResult = {
   snippet?: string;
 };
 
-const DEFAULT_PROFILE_BATCH_SIZE = 5;
-const MAX_PROFILE_BATCH_SIZE = 5;
+const DEFAULT_PROFILE_BATCH_SIZE = 10;
+const MAX_PROFILE_BATCH_SIZE = 10;
 
 export async function searchPublicProfileLeads(hiringContext: string, requestedCount = DEFAULT_PROFILE_BATCH_SIZE): Promise<ProfileLead[]> {
   const queries = buildPublicTalentSearchQueries(hiringContext);

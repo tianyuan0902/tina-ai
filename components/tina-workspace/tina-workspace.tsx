@@ -15,6 +15,7 @@ import {
   XCircle
 } from "lucide-react";
 
+import type { ProfileLead } from "@/lib/tina/profile-lead-types";
 import type { TinaChatApiResponse, TinaMvpMessage } from "@/lib/tina-mvp/types";
 
 type ChatThread = {
@@ -26,13 +27,14 @@ type ChatThread = {
 
 const THREAD_STORAGE_KEY = "tina:mvp:threads";
 const ACTIVE_THREAD_STORAGE_KEY = "tina:mvp:active-thread-id";
+const PROFILE_LEAD_STATUS_STORAGE_KEY = "tina:mvp:profile-lead-status";
 
 const typingPhrases = ["Reading the signal", "Shaping the role", "Tightening the market read"];
 
 const tabPromptChips = [
   { label: "Calibration", prompt: "Help me calibrate this role" },
   { label: "Market Intel", prompt: "What is the market reality for this hire?" },
-  { label: "Archetypes", prompt: "What candidate archetypes should I consider?" },
+  { label: "Talent Pool", prompt: "What candidate archetypes should I consider?" },
   { label: "Live JD", prompt: "Draft the live JD from what we know so far" }
 ];
 
@@ -45,11 +47,16 @@ const leadingQuestions = [
 const intelligenceTabs = [
   { id: "calibration", label: "Calibration" },
   { id: "market", label: "Market Intel" },
-  { id: "archetypes", label: "Archetypes" },
+  { id: "talentPool", label: "Talent Pool" },
   { id: "liveJd", label: "Live JD" }
 ] as const;
 
 type IntelligenceTab = (typeof intelligenceTabs)[number]["id"];
+
+type ProfileLeadStatus = {
+  action?: "saved" | "rejected";
+  preference?: "more_like_this" | "less_like_this";
+};
 
 const openingMessage: TinaMvpMessage = {
   id: "tina-opening",
@@ -232,7 +239,7 @@ export function TinaWorkspace() {
     const nextThread = createNewRoleThread();
 
     setThreads((current) => [nextThread, ...current]);
-    setActiveThreadId(threadId);
+    setActiveThreadId(nextThread.id);
     setLatestSynthesis("Tina is watching for the difference between a strong title match and a person who actually reduces founder ambiguity.");
   }
 
@@ -432,13 +439,28 @@ function HomeCommandCenter({
   const messages = activeThread.messages;
   const hasConversation = messages.some((message) => message.role === "founder");
   const profiles = useMemo(() => deriveCalibrationProfiles(messages), [messages]);
+  const profileLeads = useMemo(() => collectProfileLeads(messages), [messages]);
   const calibration = useMemo(() => deriveLiveCalibration(messages), [messages]);
   const pipeline = useMemo(() => derivePipelineIntelligence(messages), [messages]);
   const latestTinaMessageId = useMemo(() => [...messages].reverse().find((message) => message.role === "tina")?.id, [messages]);
+  const [activeIntelligenceTab, setActiveIntelligenceTab] = useState<IntelligenceTab>("calibration");
+  const [profileLeadStatus, setProfileLeadStatus] = useState<Record<string, ProfileLeadStatus>>({});
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, isThinking, activeThread.id]);
+
+  useEffect(() => {
+    setProfileLeadStatus(readProfileLeadStatus());
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(PROFILE_LEAD_STATUS_STORAGE_KEY, JSON.stringify(profileLeadStatus));
+  }, [profileLeadStatus]);
+
+  useEffect(() => {
+    if (profileLeads.length) setActiveIntelligenceTab("talentPool");
+  }, [activeThread.id, profileLeads.length]);
 
   async function sendMessage(content: string) {
     if (!content.trim() || isThinking) return;
@@ -466,6 +488,7 @@ function HomeCommandCenter({
       const finalMessages = [...nextMessages, data.message];
       onMessagesChange(finalMessages);
       onSynthesis(data.message.content);
+      if (data.message.profileLeads?.length) setActiveIntelligenceTab("talentPool");
     } catch {
       const errorMessage: TinaMvpMessage = {
         id: `tina-error-${Date.now()}`,
@@ -534,9 +557,19 @@ function HomeCommandCenter({
       <RightIntelligenceRail
         hasConversation={hasConversation}
         profiles={profiles}
+        profileLeads={profileLeads}
+        profileLeadStatus={profileLeadStatus}
+        onProfileLeadStatusChange={(leadId, status) =>
+          setProfileLeadStatus((current) => ({
+            ...current,
+            [leadId]: { ...current[leadId], ...status }
+          }))
+        }
         calibration={calibration}
         pipeline={pipeline}
         latestSynthesis={latestSynthesis}
+        activeTab={activeIntelligenceTab}
+        onActiveTabChange={setActiveIntelligenceTab}
       />
     </div>
   );
@@ -766,6 +799,30 @@ function displayThreadTitle(thread: ChatThread) {
   return isProvisionalThreadTitle(thread.title) ? titleFromMessages(thread.messages) : thread.title;
 }
 
+function collectProfileLeads(messages: TinaMvpMessage[]) {
+  const leads = messages.flatMap((message) => message.profileLeads || []);
+  const seen = new Set<string>();
+
+  return leads.filter((lead) => {
+    if (seen.has(lead.id)) return false;
+    seen.add(lead.id);
+    return true;
+  });
+}
+
+function readProfileLeadStatus() {
+  try {
+    const rawStatus = window.localStorage.getItem(PROFILE_LEAD_STATUS_STORAGE_KEY);
+    if (!rawStatus) return {};
+    const parsed = JSON.parse(rawStatus) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+
+    return parsed as Record<string, ProfileLeadStatus>;
+  } catch {
+    return {};
+  }
+}
+
 function readStoredThreads() {
   try {
     const rawThreads = window.localStorage.getItem(THREAD_STORAGE_KEY);
@@ -923,17 +980,26 @@ function EmptyCalibrationPanel({ calibration }: { calibration: LiveCalibration }
 function RightIntelligenceRail({
   hasConversation,
   profiles,
+  profileLeads,
+  profileLeadStatus,
+  onProfileLeadStatusChange,
   calibration,
   pipeline,
-  latestSynthesis
+  latestSynthesis,
+  activeTab,
+  onActiveTabChange
 }: {
   hasConversation: boolean;
   profiles: ReturnType<typeof deriveCalibrationProfiles>;
+  profileLeads: ProfileLead[];
+  profileLeadStatus: Record<string, ProfileLeadStatus>;
+  onProfileLeadStatusChange: (leadId: string, status: ProfileLeadStatus) => void;
   calibration: LiveCalibration;
   pipeline: PipelineIntelligence;
   latestSynthesis: string;
+  activeTab: IntelligenceTab;
+  onActiveTabChange: (tab: IntelligenceTab) => void;
 }) {
-  const [activeTab, setActiveTab] = useState<IntelligenceTab>("calibration");
   const snapshot = pipeline.snapshots[pipeline.defaultState];
 
   return (
@@ -944,7 +1010,7 @@ function RightIntelligenceRail({
             <button
               key={tab.id}
               type="button"
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => onActiveTabChange(tab.id)}
               className={`whitespace-nowrap border-b-2 px-1.5 py-3 text-[12px] font-medium leading-none transition ${
                 activeTab === tab.id
                   ? "border-[#5B35D5] text-[#4B28C9]"
@@ -968,8 +1034,14 @@ function RightIntelligenceRail({
           {activeTab === "market" ? (
             <MarketIntelTab calibration={calibration} profiles={profiles} snapshot={snapshot} />
           ) : null}
-          {activeTab === "archetypes" ? (
-            <CandidateArchetypesTab profiles={profiles} calibration={calibration} />
+          {activeTab === "talentPool" ? (
+            <TalentPoolTab
+              profiles={profiles}
+              calibration={calibration}
+              profileLeads={profileLeads}
+              profileLeadStatus={profileLeadStatus}
+              onProfileLeadStatusChange={onProfileLeadStatusChange}
+            />
           ) : null}
           {activeTab === "liveJd" ? (
             <LiveJdTab calibration={calibration} profiles={profiles} />
@@ -1077,19 +1149,47 @@ function MarketIntelTab({
   );
 }
 
-function CandidateArchetypesTab({
+function TalentPoolTab({
   profiles,
-  calibration
+  calibration,
+  profileLeads,
+  profileLeadStatus,
+  onProfileLeadStatusChange
 }: {
   profiles: ReturnType<typeof deriveCalibrationProfiles>;
   calibration: LiveCalibration;
+  profileLeads: ProfileLead[];
+  profileLeadStatus: Record<string, ProfileLeadStatus>;
+  onProfileLeadStatusChange: (leadId: string, status: ProfileLeadStatus) => void;
 }) {
   const visibleProfiles = profiles.slice(0, calibration.depth >= 3 ? 3 : 2);
+  const visibleLeads = profileLeads.filter((lead) => profileLeadStatus[lead.id]?.action !== "rejected");
+
+  if (visibleLeads.length) {
+    return (
+      <div className="grid gap-3">
+        <section className="rounded-lg border border-[#E5E2DD] bg-white p-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Talent Pool</p>
+          <h3 className="mt-2 text-sm font-semibold text-[#171717]">Public profile leads to review.</h3>
+          <p className="mt-1 text-xs leading-5 text-[#625A52]">Treat these as calibration leads, not qualified candidates yet.</p>
+        </section>
+
+        {visibleLeads.map((lead) => (
+          <ProfileLeadCard
+            key={lead.id}
+            lead={lead}
+            status={profileLeadStatus[lead.id]}
+            onStatusChange={(status) => onProfileLeadStatusChange(lead.id, status)}
+          />
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="grid gap-3">
       <section className="rounded-lg border border-[#E5E2DD] bg-white p-3">
-        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Candidate Archetypes</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Talent Pool</p>
         <h3 className="mt-2 text-sm font-semibold text-[#171717]">Profiles to calibrate against.</h3>
         <p className="mt-1 text-xs leading-5 text-[#625A52]">Strategic lanes, not fake candidate identities.</p>
       </section>
@@ -1098,6 +1198,103 @@ function CandidateArchetypesTab({
         <ArchetypeCalibrationCard key={profile.title} profile={profile} />
       ))}
     </div>
+  );
+}
+
+function ProfileLeadCard({
+  lead,
+  status,
+  onStatusChange
+}: {
+  lead: ProfileLead;
+  status?: ProfileLeadStatus;
+  onStatusChange: (status: ProfileLeadStatus) => void;
+}) {
+  const calibration = lead.calibration;
+  const isSaved = status?.action === "saved";
+
+  return (
+    <article className="rounded-lg border border-[#E5E2DD] bg-white p-3 shadow-[0_10px_28px_rgba(23,23,23,0.035)]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap gap-1.5">
+            <span className="rounded-full bg-[#EEF8F1] px-2 py-0.5 text-[11px] capitalize text-[#4F7A5C]">{lead.source.replace("_", " ")}</span>
+            <span className="rounded-full bg-[#F3EFE8] px-2 py-0.5 text-[11px] text-[#6F675E]">{lead.confidence}</span>
+          </div>
+          <h3 className="mt-2 text-sm font-semibold leading-5 text-[#171717]">{lead.title}</h3>
+        </div>
+        <a
+          href={lead.url}
+          target="_blank"
+          rel="noreferrer"
+          className="shrink-0 rounded-md border border-[#E3DED7] px-2 py-1 text-[11px] font-medium text-[#4B453F] hover:bg-[#F7F4EF]"
+        >
+          Open
+        </a>
+      </div>
+
+      <p className="mt-2 max-h-20 overflow-hidden text-xs leading-5 text-[#625A52]">{lead.snippet}</p>
+      <p className="mt-2 text-xs font-medium leading-5 text-[#262626]">{lead.fitReason}</p>
+
+      {calibration ? (
+        <div className="mt-3 grid gap-2 rounded-lg bg-[#FBFAF7] p-2 text-[11px] leading-4 text-[#625A52]">
+          <p><span className="font-semibold text-[#4B453F]">Scope:</span> {calibration.scope}</p>
+          <p><span className="font-semibold text-[#4B453F]">Title:</span> {calibration.roleTitle}</p>
+          <p><span className="font-semibold text-[#4B453F]">Location:</span> {calibration.location}</p>
+          <p><span className="font-semibold text-[#4B453F]">Experience:</span> {calibration.yearsExperience}</p>
+          <p><span className="font-semibold text-[#4B453F]">Must-haves:</span> {calibration.mustHaves.slice(0, 3).join(", ")}</p>
+          <p><span className="font-semibold text-[#4B453F]">Nice-to-haves:</span> {calibration.niceToHaves.slice(0, 3).join(", ")}</p>
+          <p><span className="font-semibold text-[#4B453F]">Comp:</span> {calibration.compRange}</p>
+        </div>
+      ) : null}
+
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {lead.tags.slice(0, 5).map((tag) => (
+          <span key={tag} className="rounded-md bg-[#F4F1EC] px-2 py-1 text-[11px] text-[#625A52]">
+            {tag}
+          </span>
+        ))}
+      </div>
+
+      <p className="mt-2 truncate text-[10px] text-[#9A9085]">Query: {lead.query}</p>
+
+      <div className="mt-3 grid grid-cols-2 gap-1.5">
+        <button
+          type="button"
+          onClick={() => onStatusChange({ action: isSaved ? undefined : "saved" })}
+          className={`rounded-md border px-2 py-1.5 text-[11px] font-medium transition ${
+            isSaved ? "border-[#171717] bg-[#171717] text-white" : "border-[#E3DED7] bg-white text-[#4B453F] hover:bg-[#F7F4EF]"
+          }`}
+        >
+          {isSaved ? "Saved" : "Save"}
+        </button>
+        <button
+          type="button"
+          onClick={() => onStatusChange({ action: "rejected" })}
+          className="rounded-md border border-[#E3DED7] bg-white px-2 py-1.5 text-[11px] font-medium text-[#4B453F] transition hover:bg-[#F7F4EF]"
+        >
+          Reject
+        </button>
+        <button
+          type="button"
+          onClick={() => onStatusChange({ preference: "more_like_this" })}
+          className={`rounded-md border px-2 py-1.5 text-[11px] font-medium transition ${
+            status?.preference === "more_like_this" ? "border-[#108A4B] bg-[#EEF8F1] text-[#108A4B]" : "border-[#E3DED7] bg-white text-[#4B453F] hover:bg-[#F7F4EF]"
+          }`}
+        >
+          More like this
+        </button>
+        <button
+          type="button"
+          onClick={() => onStatusChange({ preference: "less_like_this" })}
+          className={`rounded-md border px-2 py-1.5 text-[11px] font-medium transition ${
+            status?.preference === "less_like_this" ? "border-[#B87A4A] bg-[#FFF2E8] text-[#A35F2E]" : "border-[#E3DED7] bg-white text-[#4B453F] hover:bg-[#F7F4EF]"
+          }`}
+        >
+          Less like this
+        </button>
+      </div>
+    </article>
   );
 }
 
