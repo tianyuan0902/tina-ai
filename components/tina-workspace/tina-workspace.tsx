@@ -28,6 +28,7 @@ type ChatThread = {
 const THREAD_STORAGE_KEY = "tina:mvp:threads";
 const ACTIVE_THREAD_STORAGE_KEY = "tina:mvp:active-thread-id";
 const PROFILE_LEAD_STATUS_STORAGE_KEY = "tina:mvp:profile-lead-status";
+const MAX_FEEDBACK_SUMMARY_LEADS = 8;
 
 const typingPhrases = ["Reading the signal", "Shaping the role", "Tightening the market read"];
 
@@ -440,6 +441,7 @@ function HomeCommandCenter({
   const hasConversation = messages.some((message) => message.role === "founder");
   const profiles = useMemo(() => deriveCalibrationProfiles(messages), [messages]);
   const profileLeads = useMemo(() => collectProfileLeads(messages), [messages]);
+  const latestProfileLeads = useMemo(() => collectLatestProfileLeads(messages), [messages]);
   const calibration = useMemo(() => deriveLiveCalibration(messages), [messages]);
   const pipeline = useMemo(() => derivePipelineIntelligence(messages), [messages]);
   const latestTinaMessageId = useMemo(() => [...messages].reverse().find((message) => message.role === "tina")?.id, [messages]);
@@ -558,12 +560,16 @@ function HomeCommandCenter({
         hasConversation={hasConversation}
         profiles={profiles}
         profileLeads={profileLeads}
+        latestProfileLeads={latestProfileLeads}
         profileLeadStatus={profileLeadStatus}
         onProfileLeadStatusChange={(leadId, status) =>
           setProfileLeadStatus((current) => ({
             ...current,
             [leadId]: { ...current[leadId], ...status }
           }))
+        }
+        onRefineSearch={(summary) =>
+          sendMessage(`Refine this sourcing search based on Talent Pool feedback: ${summary}. Find another batch of public profiles.`)
         }
         calibration={calibration}
         pipeline={pipeline}
@@ -800,7 +806,7 @@ function displayThreadTitle(thread: ChatThread) {
 }
 
 function collectProfileLeads(messages: TinaMvpMessage[]) {
-  const leads = messages.flatMap((message) => message.profileLeads || []);
+  const leads = [...messages].reverse().flatMap((message) => message.profileLeads || []);
   const seen = new Set<string>();
 
   return leads.filter((lead) => {
@@ -808,6 +814,10 @@ function collectProfileLeads(messages: TinaMvpMessage[]) {
     seen.add(lead.id);
     return true;
   });
+}
+
+function collectLatestProfileLeads(messages: TinaMvpMessage[]) {
+  return [...messages].reverse().find((message) => message.profileLeads?.length)?.profileLeads || [];
 }
 
 function readProfileLeadStatus() {
@@ -981,8 +991,10 @@ function RightIntelligenceRail({
   hasConversation,
   profiles,
   profileLeads,
+  latestProfileLeads,
   profileLeadStatus,
   onProfileLeadStatusChange,
+  onRefineSearch,
   calibration,
   pipeline,
   latestSynthesis,
@@ -992,8 +1004,10 @@ function RightIntelligenceRail({
   hasConversation: boolean;
   profiles: ReturnType<typeof deriveCalibrationProfiles>;
   profileLeads: ProfileLead[];
+  latestProfileLeads: ProfileLead[];
   profileLeadStatus: Record<string, ProfileLeadStatus>;
   onProfileLeadStatusChange: (leadId: string, status: ProfileLeadStatus) => void;
+  onRefineSearch: (summary: string) => void;
   calibration: LiveCalibration;
   pipeline: PipelineIntelligence;
   latestSynthesis: string;
@@ -1039,8 +1053,10 @@ function RightIntelligenceRail({
               profiles={profiles}
               calibration={calibration}
               profileLeads={profileLeads}
+              latestProfileLeads={latestProfileLeads}
               profileLeadStatus={profileLeadStatus}
               onProfileLeadStatusChange={onProfileLeadStatusChange}
+              onRefineSearch={onRefineSearch}
             />
           ) : null}
           {activeTab === "liveJd" ? (
@@ -1153,32 +1169,53 @@ function TalentPoolTab({
   profiles,
   calibration,
   profileLeads,
+  latestProfileLeads,
   profileLeadStatus,
-  onProfileLeadStatusChange
+  onProfileLeadStatusChange,
+  onRefineSearch
 }: {
   profiles: ReturnType<typeof deriveCalibrationProfiles>;
   calibration: LiveCalibration;
   profileLeads: ProfileLead[];
+  latestProfileLeads: ProfileLead[];
   profileLeadStatus: Record<string, ProfileLeadStatus>;
   onProfileLeadStatusChange: (leadId: string, status: ProfileLeadStatus) => void;
+  onRefineSearch: (summary: string) => void;
 }) {
   const visibleProfiles = profiles.slice(0, calibration.depth >= 3 ? 3 : 2);
+  const visibleLeads = prioritizeLatestProfileLeads(profileLeads, latestProfileLeads);
+  const hasFeedback = visibleLeads.some((lead) => hasProfileLeadFeedback(profileLeadStatus[lead.id]));
+  const handleRefineSearch = () => {
+    const summary = buildTalentPoolFeedbackSummary(visibleLeads, profileLeadStatus);
+    if (summary) onRefineSearch(summary);
+  };
 
-  if (profileLeads.length) {
+  if (visibleLeads.length) {
     return (
       <div className="grid gap-3">
         <section className="rounded-lg border border-[#E5E2DD] bg-white p-3">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Talent Pool</p>
           <div className="mt-2 flex items-start justify-between gap-3">
             <h3 className="text-sm font-semibold text-[#171717]">Potential Candidates</h3>
-            <span className="shrink-0 rounded-full bg-[#F3EFE8] px-2 py-1 text-[11px] font-medium text-[#6F675E]">
-              {profileLeads.length} {profileLeads.length === 1 ? "lead" : "leads"}
-            </span>
+            <div className="flex shrink-0 items-center gap-1.5">
+              {hasFeedback ? (
+                <button
+                  type="button"
+                  onClick={handleRefineSearch}
+                  className="rounded-md border border-[#CFC4B8] bg-[#171717] px-2 py-1 text-[11px] font-medium text-white transition hover:bg-[#2A2724]"
+                >
+                  Refine search
+                </button>
+              ) : null}
+              <span className="rounded-full bg-[#F3EFE8] px-2 py-1 text-[11px] font-medium text-[#6F675E]">
+                {visibleLeads.length} {visibleLeads.length === 1 ? "lead" : "leads"}
+              </span>
+            </div>
           </div>
           <p className="mt-1 text-xs leading-5 text-[#625A52]">Public profile signals only — review before outreach.</p>
         </section>
 
-        {profileLeads.map((lead) => (
+        {visibleLeads.map((lead) => (
           <ProfileLeadCard
             key={lead.id}
             lead={lead}
@@ -1322,6 +1359,74 @@ function ProfileLeadCard({
       </div>
     </article>
   );
+}
+
+function prioritizeLatestProfileLeads(profileLeads: ProfileLead[], latestProfileLeads: ProfileLead[]) {
+  const latestIds = new Set(latestProfileLeads.map((lead) => lead.id));
+  return [
+    ...latestProfileLeads,
+    ...profileLeads.filter((lead) => !latestIds.has(lead.id))
+  ];
+}
+
+function hasProfileLeadFeedback(status?: ProfileLeadStatus) {
+  return Boolean(status?.action || status?.preference);
+}
+
+function buildTalentPoolFeedbackSummary(leads: ProfileLead[], statuses: Record<string, ProfileLeadStatus>) {
+  const positive: string[] = [];
+  const negative: string[] = [];
+
+  for (const lead of leads) {
+    const status = statuses[lead.id];
+    if (!status) continue;
+
+    const summary = summarizeProfileLeadForRefinement(lead);
+
+    if (status.action === "saved" || status.preference === "more_like_this") {
+      positive.push(summary);
+    }
+
+    if (status.action === "rejected" || status.preference === "less_like_this") {
+      negative.push(summary);
+    }
+  }
+
+  const sections = [];
+  if (positive.length) sections.push(`Positive signals: ${positive.slice(0, MAX_FEEDBACK_SUMMARY_LEADS).join(" | ")}`);
+  if (negative.length) sections.push(`Negative signals: ${negative.slice(0, MAX_FEEDBACK_SUMMARY_LEADS).join(" | ")}`);
+
+  return sections.join(" ");
+}
+
+function summarizeProfileLeadForRefinement(lead: ProfileLead) {
+  const company = inferCompanyFromLead(lead);
+  const calibration = lead.calibration;
+  const details = [
+    `title=${lead.title}`,
+    company ? `company=${company}` : "",
+    `source=${lead.source}`,
+    `confidence=${lead.confidence}`,
+    lead.tags.length ? `tags=${lead.tags.slice(0, 5).join(", ")}` : "",
+    lead.fitReason ? `fitReason=${compactLeadText(lead.fitReason)}` : "",
+    lead.snippet ? `snippet=${compactLeadText(lead.snippet)}` : "",
+    calibration?.scope ? `scope=${compactLeadText(calibration.scope)}` : "",
+    calibration?.mustHaves?.length ? `mustHaves=${calibration.mustHaves.slice(0, 3).join(", ")}` : ""
+  ].filter(Boolean);
+
+  return details.join("; ");
+}
+
+function inferCompanyFromLead(lead: ProfileLead) {
+  const titleMatch = lead.title.match(/\s[-–—]\s(?:.*?\bat\s+|.*?@\s*)?([^|,]+?)(?:\s[-–—]\s|$)/i);
+  if (titleMatch?.[1]) return titleMatch[1].trim();
+
+  const snippetMatch = lead.snippet.match(/\b(?:at|@)\s+([A-Z][A-Za-z0-9.&\-\s]{1,36})(?:[,.]|\s{2,}|$)/);
+  return snippetMatch?.[1]?.trim() || "";
+}
+
+function compactLeadText(value: string) {
+  return value.replace(/\s+/g, " ").trim().slice(0, 180);
 }
 
 function LiveJdTab({
