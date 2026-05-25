@@ -17,9 +17,13 @@ type OpenAIInputMessage = {
 };
 
 export async function POST(request: Request) {
-  const { messages } = (await request.json()) as { messages?: TinaMvpMessage[] };
+  const { messages, sourcingRefinementSummary } = (await request.json()) as {
+    messages?: TinaMvpMessage[];
+    sourcingRefinementSummary?: string;
+  };
   const cleanMessages = normalizeMessages(messages);
   const latestUserMessage = [...cleanMessages].reverse().find((message) => message.role === "founder");
+  const refinementSummary = typeof sourcingRefinementSummary === "string" ? sourcingRefinementSummary.trim() : "";
 
   if (!cleanMessages.length || !latestUserMessage) {
     return NextResponse.json({ error: "No founder message was provided." }, { status: 400 });
@@ -48,7 +52,11 @@ export async function POST(request: Request) {
   }
 
   if (isPublicProfileSearchRequest(latestUserMessage.content)) {
-    const hiringContext = cleanMessages.map((message) => message.content).join("\n");
+    const isRefinementSearch = isSourcingRefinementRequest(latestUserMessage.content) && Boolean(refinementSummary);
+    const hiringContext = [
+      cleanMessages.map((message) => message.content).join("\n"),
+      refinementSummary ? `Talent Pool feedback summary for sourcing refinement:\n${refinementSummary}` : ""
+    ].filter(Boolean).join("\n\n");
     const requestedCount = getRequestedProfileCount(latestUserMessage.content);
     const profileLeads = await searchPublicProfileLeads(hiringContext, requestedCount);
 
@@ -56,7 +64,7 @@ export async function POST(request: Request) {
       message: {
         id: `tina-public-search-${Date.now()}`,
         role: "tina",
-        content: buildProfileSearchResponse(latestUserMessage.content, profileLeads.length),
+        content: buildProfileSearchResponse(latestUserMessage.content, profileLeads.length, isRefinementSearch),
         profileLeads
       },
       source: "public_search"
@@ -171,13 +179,24 @@ export async function POST(request: Request) {
   });
 }
 
-function buildProfileSearchResponse(message: string, count: number) {
+function buildProfileSearchResponse(message: string, count: number, isRefinementSearch = false) {
+  if (isRefinementSearch) {
+    return [
+      `I pulled ${count} new public ${count === 1 ? "profile" : "profiles"} based on your Talent Pool feedback.`,
+      "Use Yes/No as signal, not final judgment."
+    ].join(" ");
+  }
+
   const scope = inferRequestedScope(message);
 
   return [
     `I pulled ${count} public calibration ${count === 1 ? "profile" : "profiles"} for ${scope}.`,
     "Use Yes/No as signal, not final judgment. After three yeses, Tina has enough pattern to look for similar people."
   ].join(" ");
+}
+
+function isSourcingRefinementRequest(message: string) {
+  return /\b(refine|another batch|talent pool feedback|based on my.*feedback|based on.*feedback)\b/i.test(message);
 }
 
 function inferRequestedScope(message: string) {
@@ -351,6 +370,8 @@ function isPublicProfileSearchRequest(message: string) {
   if (isProfileSearchFeedback(message)) return false;
 
   const text = message.toLowerCase();
+  if (isSourcingRefinementRequest(message)) return true;
+
   const asksForApproach =
     /\b(how should i|how do i|approach|strategy|plan|calibrate|where should i start|what should i do|advice)\b/.test(text);
   const asksForSearchHelpOnly =

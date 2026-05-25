@@ -464,7 +464,7 @@ function HomeCommandCenter({
     if (profileLeads.length) setActiveIntelligenceTab("talentPool");
   }, [activeThread.id, profileLeads.length]);
 
-  async function sendMessage(content: string) {
+  async function sendMessage(content: string, options?: { sourcingRefinementSummary?: string }) {
     if (!content.trim() || isThinking) return;
 
     const founderMessage: TinaMvpMessage = {
@@ -482,7 +482,10 @@ function HomeCommandCenter({
       const response = await fetch("/api/tina-mvp/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: nextMessages })
+        body: JSON.stringify({
+          messages: nextMessages,
+          sourcingRefinementSummary: options?.sourcingRefinementSummary
+        })
       });
       const data = (await response.json()) as TinaChatApiResponse | { error?: string };
 
@@ -569,7 +572,9 @@ function HomeCommandCenter({
           }))
         }
         onRefineSearch={(summary) =>
-          sendMessage(`Refine this sourcing search based on Talent Pool feedback: ${summary}. Find another batch of public profiles.`)
+          sendMessage("Refine this search based on my Talent Pool feedback. Find another batch.", {
+            sourcingRefinementSummary: summary
+          })
         }
         calibration={calibration}
         pipeline={pipeline}
