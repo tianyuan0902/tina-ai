@@ -183,7 +183,8 @@ function buildProfileSearchResponse(message: string, count: number) {
 function inferRequestedScope(message: string) {
   const cleaned = message
     .replace(/\b(show|send|find|source|pull|give me|search for)\b/gi, "")
-    .replace(/\b(profiles?|people|candidates?|leads?|linkedin|public|about|around)\b/gi, "")
+    .replace(/\b([1-9]|10|one|two|three|four|five)\b/gi, "")
+    .replace(/\b(profiles?|people|candidates?|leads?|linkedin|public|about|around|for)\b/gi, "")
     .replace(/\s+/g, " ")
     .trim();
 

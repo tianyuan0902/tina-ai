@@ -34,7 +34,7 @@ function inferRoleTerms(text: string) {
 
 function buildPublicPortfolioQuery(roleTerm: string, text: string) {
   if (/\b(ai|llm|model|agent|machine learning|ml|engineer|developer)\b/.test(text)) {
-    return `site:github.com "${roleTerm}" "startup"`;
+    return `site:linkedin.com/in "${roleTerm}" "AI" "startup"`;
   }
 
   return `site:linkedin.com/in "${roleTerm}" "startup"`;

@@ -6,6 +6,7 @@ type TavilyLikeResult = {
   url?: string;
   content?: string;
   snippet?: string;
+  query?: string;
 };
 
 const DEFAULT_PROFILE_BATCH_SIZE = 10;
@@ -20,10 +21,10 @@ export async function searchPublicProfileLeads(hiringContext: string, requestedC
   const relevantResults = filterRelevantResults(results, hiringContext);
 
   return dedupeLeads(
-    relevantResults
+    dedupeResults(relevantResults.filter(isProfileLikeResult))
       .filter((result) => result.url && result.title)
       .slice(0, batchSize)
-      .map((result, index) => mapToProfileLead(result, queries[index % queries.length], hiringContext, index))
+      .map((result, index) => mapToProfileLead(result, result.query || queries[index % queries.length], hiringContext, index))
   );
 }
 
@@ -33,7 +34,7 @@ async function searchWithTavily(queries: string[]) {
   );
 
   return dedupeResults(
-    settled.flatMap((result) => {
+    settled.flatMap((result, index) => {
       if (result.status === "rejected") {
         console.error("[Tina public search] Tavily search failed:", result.reason);
         return [];
@@ -42,7 +43,8 @@ async function searchWithTavily(queries: string[]) {
       return (result.value.results || []).map((item: TavilyLikeResult) => ({
         title: item.title,
         url: item.url,
-        content: item.content || item.snippet
+        content: item.content || item.snippet,
+        query: queries[index]
       }));
     })
   );
@@ -153,8 +155,8 @@ function inferSource(url: string): ProfileLead["source"] {
 }
 
 export function getRequestedProfileCount(message: string) {
-  const numericMatch = message.match(/\b([1-9]|10)\b(?=\s*(more\s+)?(profiles?|people|leads?|candidates?|targets?))/i);
-  const wordMatch = message.match(/\b(one|two|three|four|five)\b(?=\s*(more\s+)?(profiles?|people|leads?|candidates?|targets?))/i);
+  const numericMatch = message.match(/\b([1-9]|10)\b(?:\s+\w+){0,4}\s+(profiles?|people|leads?|candidates?|targets?)\b/i);
+  const wordMatch = message.match(/\b(one|two|three|four|five)\b(?:\s+\w+){0,4}\s+(profiles?|people|leads?|candidates?|targets?)\b/i);
   const wordCounts: Record<string, number> = {
     one: 1,
     two: 2,
@@ -351,6 +353,23 @@ function dedupeLeads(leads: ProfileLead[]) {
     seen.add(key);
     return true;
   });
+}
+
+function isProfileLikeResult(result: TavilyLikeResult) {
+  const url = result.url || "";
+  if (url.includes("linkedin.com/in/")) return true;
+
+  if (url.includes("github.com/")) {
+    try {
+      const parsed = new URL(url);
+      const parts = parsed.pathname.split("/").filter(Boolean);
+      return parts.length === 1;
+    } catch {
+      return false;
+    }
+  }
+
+  return false;
 }
 
 function filterRelevantResults(results: TavilyLikeResult[], hiringContext: string) {
