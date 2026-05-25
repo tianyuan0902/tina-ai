@@ -44,16 +44,22 @@ const IMPORTANT_TERMS = new Set([
     "inr",
     "interview",
     "interviewer",
+    "inclusive",
     "judgment",
     "learning",
     "matching",
+    "message",
     "ownership",
     "operator",
+    "outreach",
     "pay",
     "pedigree",
     "pm",
+    "pool",
+    "profile",
     "product",
     "protocol",
+    "recruiter",
     "recruiting",
     "remote",
     "roadmap",
@@ -228,6 +234,46 @@ function scoreChunk(content, query, queryTerms) {
     if (/\b(strong people|leave|disengaged|a players|few months)\b/i.test(query) &&
         /\b(emotional operating compatibility|founder anxiety dynamics|autonomy vs visibility|startup pressure systems|strong people can disengage)\b/i.test(content)) {
         score += 12;
+    }
+    if (/\b(talent pool|potential candidates?|profile review|profiles?|yes\/no|yes no|candidate lanes?|people to review)\b/i.test(query) &&
+        /\b(talent pool|potential candidates?|profile review|yes\/no|yes no|candidate lanes?|calibration instruments?|profile feedback|learning density)\b/i.test(content)) {
+        score += 18;
+    }
+    if (/\b(sourcing strategy|source|sourcing|search lanes?|where should we source|where do we find|company list|adjacent companies)\b/i.test(query) &&
+        /\b(sourcing strategy|search lanes?|source from|adjacent environments?|work pattern|company lists?|candidate lanes?|sourcing lanes?)\b/i.test(content)) {
+        score += 16;
+    }
+    if (/\b(outreach|message strategy|sourcing message|outbound|write.*message|draft.*message|reply|replies|response rate)\b/i.test(query) &&
+        /\b(outreach|message strategy|sourcing messages?|outbound|reply|replies|high-signal|thoughtful pattern match|overselling)\b/i.test(content)) {
+        score += 18;
+    }
+    if (/\b(living jd|live jd|job description evolution|job description keeps changing|jd keeps changing|draft.*jd|role description)\b/i.test(query) &&
+        /\b(living jd|job description evolution|jd changes|role evolution|market pushed back|static writing task)\b/i.test(content)) {
+        score += 18;
+    }
+    if (/\b(calibration drift|drifting|drift|moving the goalposts|goalposts|keeps changing what we want|market learning|shiny profile)\b/i.test(query) &&
+        /\b(calibration drift|drifting|goalposts|market learning|shiny-profile|shiny profile|founder anxiety|durable search changes)\b/i.test(content)) {
+        score += 18;
+    }
+    if (/\b(candidate quality|higher quality|quality vs speed|speed vs quality|hire fast|hiring fast|wait for|lower the bar|good enough)\b/i.test(query) &&
+        /\b(candidate quality|quality versus speed|quality vs speed|speed vs quality|hire fast|time pressure|lower the bar|good enough|failure cost)\b/i.test(content)) {
+        score += 18;
+    }
+    if (/\b(hiring manager|recruiter|recruiter collaboration|hm feedback|feedback loop|work together|profile feedback)\b/i.test(query) &&
+        /\b(hiring manager|recruiter|judgment transfer|feedback loop|profile feedback|search logic|calibration alignment|keywords)\b/i.test(content)) {
+        score += 18;
+    }
+    if (/\b(debrief|onsite|panel disagrees|panel disagreement|interview panel|interview loop|interviewers disagree|interviewer feedback)\b/i.test(query) &&
+        /\b(debrief|onsite|panel disagreement|interview panel|interview loop|signal disagreement|interviewer|behavioral evidence)\b/i.test(content)) {
+        score += 18;
+    }
+    if (/\b(inclusive hiring|dei|diversity|diverse|bias|biased|inclusive|widen the pool|widen.*pool)\b/i.test(query) &&
+        /\b(inclusive hiring|dei|diversity|bias|biased|inclusive sourcing|comfortable proxies|predictive signal|widen the pool|consistent standards)\b/i.test(content)) {
+        score += 18;
+    }
+    if (/\b(compensation tradeoff|comp tradeoff|below market|cash comp|cash compensation|senior.*budget|mid-level budget|equity.*salary|lower salary)\b/i.test(query) &&
+        /\b(compensation tradeoffs?|below-market|below market|cash comp|cash compensation|senior candidates?|mid-level budget|equity|salary|market will ignore)\b/i.test(content)) {
+        score += 18;
     }
     if (normalized.startsWith("good")) {
         score += 4;
