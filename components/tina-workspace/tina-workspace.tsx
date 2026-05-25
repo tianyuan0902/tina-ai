@@ -59,6 +59,12 @@ type ProfileLeadStatus = {
   preference?: "more_like_this" | "less_like_this";
 };
 
+type ProfileLeadItem = {
+  lead: ProfileLead;
+  batchId: string;
+  statusKey: string;
+};
+
 const openingMessage: TinaMvpMessage = {
   id: "tina-opening",
   role: "tina",
@@ -440,8 +446,8 @@ function HomeCommandCenter({
   const messages = activeThread.messages;
   const hasConversation = messages.some((message) => message.role === "founder");
   const profiles = useMemo(() => deriveCalibrationProfiles(messages), [messages]);
-  const profileLeads = useMemo(() => collectProfileLeads(messages), [messages]);
-  const latestProfileLeads = useMemo(() => collectLatestProfileLeads(messages), [messages]);
+  const profileLeadItems = useMemo(() => collectProfileLeadItems(activeThread.id, messages), [activeThread.id, messages]);
+  const latestProfileLeadItems = useMemo(() => collectLatestProfileLeadItems(activeThread.id, messages), [activeThread.id, messages]);
   const calibration = useMemo(() => deriveLiveCalibration(messages), [messages]);
   const pipeline = useMemo(() => derivePipelineIntelligence(messages), [messages]);
   const latestTinaMessageId = useMemo(() => [...messages].reverse().find((message) => message.role === "tina")?.id, [messages]);
@@ -461,8 +467,8 @@ function HomeCommandCenter({
   }, [profileLeadStatus]);
 
   useEffect(() => {
-    if (profileLeads.length) setActiveIntelligenceTab("talentPool");
-  }, [activeThread.id, profileLeads.length]);
+    if (profileLeadItems.length) setActiveIntelligenceTab("talentPool");
+  }, [activeThread.id, profileLeadItems.length]);
 
   async function sendMessage(content: string, options?: { sourcingRefinementSummary?: string }) {
     if (!content.trim() || isThinking) return;
@@ -562,13 +568,13 @@ function HomeCommandCenter({
       <RightIntelligenceRail
         hasConversation={hasConversation}
         profiles={profiles}
-        profileLeads={profileLeads}
-        latestProfileLeads={latestProfileLeads}
+        profileLeadItems={profileLeadItems}
+        latestProfileLeadItems={latestProfileLeadItems}
         profileLeadStatus={profileLeadStatus}
-        onProfileLeadStatusChange={(leadId, status) =>
+        onProfileLeadStatusChange={(statusKey, status) =>
           setProfileLeadStatus((current) => ({
             ...current,
-            [leadId]: { ...current[leadId], ...status }
+            [statusKey]: { ...current[statusKey], ...status }
           }))
         }
         onRefineSearch={(summary) =>
@@ -810,19 +816,30 @@ function displayThreadTitle(thread: ChatThread) {
   return isProvisionalThreadTitle(thread.title) ? titleFromMessages(thread.messages) : thread.title;
 }
 
-function collectProfileLeads(messages: TinaMvpMessage[]) {
-  const leads = [...messages].reverse().flatMap((message) => message.profileLeads || []);
+function collectProfileLeadItems(threadId: string, messages: TinaMvpMessage[]) {
+  const items = [...messages].reverse().flatMap((message) =>
+    (message.profileLeads || []).map((lead) => toProfileLeadItem(threadId, message.id, lead))
+  );
   const seen = new Set<string>();
 
-  return leads.filter((lead) => {
-    if (seen.has(lead.id)) return false;
-    seen.add(lead.id);
+  return items.filter((item) => {
+    if (seen.has(item.statusKey)) return false;
+    seen.add(item.statusKey);
     return true;
   });
 }
 
-function collectLatestProfileLeads(messages: TinaMvpMessage[]) {
-  return [...messages].reverse().find((message) => message.profileLeads?.length)?.profileLeads || [];
+function collectLatestProfileLeadItems(threadId: string, messages: TinaMvpMessage[]) {
+  const latestMessage = [...messages].reverse().find((message) => message.profileLeads?.length);
+  return latestMessage?.profileLeads?.map((lead) => toProfileLeadItem(threadId, latestMessage.id, lead)) || [];
+}
+
+function toProfileLeadItem(threadId: string, batchId: string, lead: ProfileLead): ProfileLeadItem {
+  return {
+    lead,
+    batchId,
+    statusKey: `${threadId}:${batchId}:${lead.id}`
+  };
 }
 
 function readProfileLeadStatus() {
@@ -995,8 +1012,8 @@ function EmptyCalibrationPanel({ calibration }: { calibration: LiveCalibration }
 function RightIntelligenceRail({
   hasConversation,
   profiles,
-  profileLeads,
-  latestProfileLeads,
+  profileLeadItems,
+  latestProfileLeadItems,
   profileLeadStatus,
   onProfileLeadStatusChange,
   onRefineSearch,
@@ -1008,8 +1025,8 @@ function RightIntelligenceRail({
 }: {
   hasConversation: boolean;
   profiles: ReturnType<typeof deriveCalibrationProfiles>;
-  profileLeads: ProfileLead[];
-  latestProfileLeads: ProfileLead[];
+  profileLeadItems: ProfileLeadItem[];
+  latestProfileLeadItems: ProfileLeadItem[];
   profileLeadStatus: Record<string, ProfileLeadStatus>;
   onProfileLeadStatusChange: (leadId: string, status: ProfileLeadStatus) => void;
   onRefineSearch: (summary: string) => void;
@@ -1057,8 +1074,8 @@ function RightIntelligenceRail({
             <TalentPoolTab
               profiles={profiles}
               calibration={calibration}
-              profileLeads={profileLeads}
-              latestProfileLeads={latestProfileLeads}
+              profileLeadItems={profileLeadItems}
+              latestProfileLeadItems={latestProfileLeadItems}
               profileLeadStatus={profileLeadStatus}
               onProfileLeadStatusChange={onProfileLeadStatusChange}
               onRefineSearch={onRefineSearch}
@@ -1173,29 +1190,29 @@ function MarketIntelTab({
 function TalentPoolTab({
   profiles,
   calibration,
-  profileLeads,
-  latestProfileLeads,
+  profileLeadItems,
+  latestProfileLeadItems,
   profileLeadStatus,
   onProfileLeadStatusChange,
   onRefineSearch
 }: {
   profiles: ReturnType<typeof deriveCalibrationProfiles>;
   calibration: LiveCalibration;
-  profileLeads: ProfileLead[];
-  latestProfileLeads: ProfileLead[];
+  profileLeadItems: ProfileLeadItem[];
+  latestProfileLeadItems: ProfileLeadItem[];
   profileLeadStatus: Record<string, ProfileLeadStatus>;
   onProfileLeadStatusChange: (leadId: string, status: ProfileLeadStatus) => void;
   onRefineSearch: (summary: string) => void;
 }) {
   const visibleProfiles = profiles.slice(0, calibration.depth >= 3 ? 3 : 2);
-  const visibleLeads = prioritizeLatestProfileLeads(profileLeads, latestProfileLeads);
-  const hasFeedback = visibleLeads.some((lead) => hasProfileLeadFeedback(profileLeadStatus[lead.id]));
+  const visibleItems = prioritizeLatestProfileLeadItems(profileLeadItems, latestProfileLeadItems);
+  const hasFeedback = latestProfileLeadItems.some((item) => hasProfileLeadFeedback(profileLeadStatus[item.statusKey]));
   const handleRefineSearch = () => {
-    const summary = buildTalentPoolFeedbackSummary(visibleLeads, profileLeadStatus);
+    const summary = buildTalentPoolFeedbackSummary(latestProfileLeadItems, profileLeadStatus);
     if (summary) onRefineSearch(summary);
   };
 
-  if (visibleLeads.length) {
+  if (visibleItems.length) {
     return (
       <div className="grid gap-3">
         <section className="rounded-lg border border-[#E5E2DD] bg-white p-3">
@@ -1213,19 +1230,19 @@ function TalentPoolTab({
                 </button>
               ) : null}
               <span className="rounded-full bg-[#F3EFE8] px-2 py-1 text-[11px] font-medium text-[#6F675E]">
-                {visibleLeads.length} {visibleLeads.length === 1 ? "lead" : "leads"}
+                {latestProfileLeadItems.length || visibleItems.length} {(latestProfileLeadItems.length || visibleItems.length) === 1 ? "lead" : "leads"}
               </span>
             </div>
           </div>
           <p className="mt-1 text-xs leading-5 text-[#625A52]">Public profile signals only — review before outreach.</p>
         </section>
 
-        {visibleLeads.map((lead) => (
+        {visibleItems.map((item) => (
           <ProfileLeadCard
-            key={lead.id}
-            lead={lead}
-            status={profileLeadStatus[lead.id]}
-            onStatusChange={(status) => onProfileLeadStatusChange(lead.id, status)}
+            key={item.statusKey}
+            lead={item.lead}
+            status={profileLeadStatus[item.statusKey]}
+            onStatusChange={(status) => onProfileLeadStatusChange(item.statusKey, status)}
           />
         ))}
       </div>
@@ -1366,11 +1383,11 @@ function ProfileLeadCard({
   );
 }
 
-function prioritizeLatestProfileLeads(profileLeads: ProfileLead[], latestProfileLeads: ProfileLead[]) {
-  const latestIds = new Set(latestProfileLeads.map((lead) => lead.id));
+function prioritizeLatestProfileLeadItems(profileLeadItems: ProfileLeadItem[], latestProfileLeadItems: ProfileLeadItem[]) {
+  const latestKeys = new Set(latestProfileLeadItems.map((item) => item.statusKey));
   return [
-    ...latestProfileLeads,
-    ...profileLeads.filter((lead) => !latestIds.has(lead.id))
+    ...latestProfileLeadItems,
+    ...profileLeadItems.filter((item) => !latestKeys.has(item.statusKey))
   ];
 }
 
@@ -1378,15 +1395,15 @@ function hasProfileLeadFeedback(status?: ProfileLeadStatus) {
   return Boolean(status?.action || status?.preference);
 }
 
-function buildTalentPoolFeedbackSummary(leads: ProfileLead[], statuses: Record<string, ProfileLeadStatus>) {
+function buildTalentPoolFeedbackSummary(items: ProfileLeadItem[], statuses: Record<string, ProfileLeadStatus>) {
   const positive: string[] = [];
   const negative: string[] = [];
 
-  for (const lead of leads) {
-    const status = statuses[lead.id];
+  for (const item of items) {
+    const status = statuses[item.statusKey];
     if (!status) continue;
 
-    const summary = summarizeProfileLeadForRefinement(lead);
+    const summary = summarizeProfileLeadForRefinement(item.lead);
 
     if (status.action === "saved" || status.preference === "more_like_this") {
       positive.push(summary);
