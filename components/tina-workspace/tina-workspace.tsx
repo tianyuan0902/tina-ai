@@ -1163,18 +1163,22 @@ function TalentPoolTab({
   onProfileLeadStatusChange: (leadId: string, status: ProfileLeadStatus) => void;
 }) {
   const visibleProfiles = profiles.slice(0, calibration.depth >= 3 ? 3 : 2);
-  const visibleLeads = profileLeads.filter((lead) => profileLeadStatus[lead.id]?.action !== "rejected");
 
-  if (visibleLeads.length) {
+  if (profileLeads.length) {
     return (
       <div className="grid gap-3">
         <section className="rounded-lg border border-[#E5E2DD] bg-white p-3">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Talent Pool</p>
-          <h3 className="mt-2 text-sm font-semibold text-[#171717]">Public profile leads to review.</h3>
-          <p className="mt-1 text-xs leading-5 text-[#625A52]">Treat these as calibration leads, not qualified candidates yet.</p>
+          <div className="mt-2 flex items-start justify-between gap-3">
+            <h3 className="text-sm font-semibold text-[#171717]">Potential Candidates</h3>
+            <span className="shrink-0 rounded-full bg-[#F3EFE8] px-2 py-1 text-[11px] font-medium text-[#6F675E]">
+              {profileLeads.length} {profileLeads.length === 1 ? "lead" : "leads"}
+            </span>
+          </div>
+          <p className="mt-1 text-xs leading-5 text-[#625A52]">Public profile signals only — review before outreach.</p>
         </section>
 
-        {visibleLeads.map((lead) => (
+        {profileLeads.map((lead) => (
           <ProfileLeadCard
             key={lead.id}
             lead={lead}
@@ -1190,7 +1194,7 @@ function TalentPoolTab({
     <div className="grid gap-3">
       <section className="rounded-lg border border-[#E5E2DD] bg-white p-3">
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Talent Pool</p>
-        <h3 className="mt-2 text-sm font-semibold text-[#171717]">Profiles to calibrate against.</h3>
+        <h3 className="mt-2 text-sm font-semibold text-[#171717]">Candidate Archetypes</h3>
         <p className="mt-1 text-xs leading-5 text-[#625A52]">Strategic lanes, not fake candidate identities.</p>
       </section>
 
@@ -1212,14 +1216,26 @@ function ProfileLeadCard({
 }) {
   const calibration = lead.calibration;
   const isSaved = status?.action === "saved";
+  const isRejected = status?.action === "rejected";
+  const sourceLabel = lead.source.replace("_", " ");
 
   return (
-    <article className="rounded-lg border border-[#E5E2DD] bg-white p-3 shadow-[0_10px_28px_rgba(23,23,23,0.035)]">
+    <article
+      className={`rounded-lg border p-3 shadow-[0_10px_28px_rgba(23,23,23,0.035)] transition ${
+        isRejected ? "border-[#E2D6CC] bg-[#FBF7F3] opacity-75" : "border-[#E5E2DD] bg-white"
+      }`}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex flex-wrap gap-1.5">
-            <span className="rounded-full bg-[#EEF8F1] px-2 py-0.5 text-[11px] capitalize text-[#4F7A5C]">{lead.source.replace("_", " ")}</span>
-            <span className="rounded-full bg-[#F3EFE8] px-2 py-0.5 text-[11px] text-[#6F675E]">{lead.confidence}</span>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="rounded-full bg-[#EEF8F1] px-2 py-0.5 text-[11px] capitalize text-[#4F7A5C]">{sourceLabel}</span>
+            <span className="rounded-full bg-[#F3EFE8] px-2 py-0.5 text-[11px] capitalize text-[#6F675E]">{lead.confidence} confidence</span>
+            {isRejected ? (
+              <span className="rounded-full bg-[#FFF2E8] px-2 py-0.5 text-[11px] text-[#A35F2E]">Rejected</span>
+            ) : null}
+            {isSaved ? (
+              <span className="rounded-full bg-[#EEF8F1] px-2 py-0.5 text-[11px] text-[#108A4B]">Saved</span>
+            ) : null}
           </div>
           <h3 className="mt-2 text-sm font-semibold leading-5 text-[#171717]">{lead.title}</h3>
         </div>
@@ -1235,6 +1251,14 @@ function ProfileLeadCard({
 
       <p className="mt-2 max-h-20 overflow-hidden text-xs leading-5 text-[#625A52]">{lead.snippet}</p>
       <p className="mt-2 text-xs font-medium leading-5 text-[#262626]">{lead.fitReason}</p>
+      <a
+        href={lead.url}
+        target="_blank"
+        rel="noreferrer"
+        className="mt-2 block truncate text-[11px] font-medium text-[#4B28C9] underline-offset-2 hover:underline"
+      >
+        {lead.url}
+      </a>
 
       {calibration ? (
         <div className="mt-3 grid gap-2 rounded-lg bg-[#FBFAF7] p-2 text-[11px] leading-4 text-[#625A52]">
@@ -1270,10 +1294,12 @@ function ProfileLeadCard({
         </button>
         <button
           type="button"
-          onClick={() => onStatusChange({ action: "rejected" })}
-          className="rounded-md border border-[#E3DED7] bg-white px-2 py-1.5 text-[11px] font-medium text-[#4B453F] transition hover:bg-[#F7F4EF]"
+          onClick={() => onStatusChange({ action: isRejected ? undefined : "rejected" })}
+          className={`rounded-md border px-2 py-1.5 text-[11px] font-medium transition ${
+            isRejected ? "border-[#A35F2E] bg-[#FFF2E8] text-[#A35F2E]" : "border-[#E3DED7] bg-white text-[#4B453F] hover:bg-[#F7F4EF]"
+          }`}
         >
-          Reject
+          {isRejected ? "Rejected" : "Reject"}
         </button>
         <button
           type="button"
