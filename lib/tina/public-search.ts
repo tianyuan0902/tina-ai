@@ -1,4 +1,4 @@
-import type { ProfileLead } from "@/lib/tina/profile-lead-types";
+import type { ProfileLead, SourcingBatchMetadata } from "@/lib/tina/profile-lead-types";
 import { buildPublicTalentSearchQueries, type PublicTalentSearchRefinement } from "@/lib/tina/search-query-builder";
 
 type TavilyLikeResult = {
@@ -17,26 +17,60 @@ export type PublicProfileSearchOptions = {
   refinement?: PublicTalentSearchRefinement;
 };
 
+export type PublicProfileSearchBatch = {
+  profileLeads: ProfileLead[];
+  metadata: SourcingBatchMetadata;
+};
+
 export async function searchPublicProfileLeads(
   hiringContext: string,
   requestedCount = DEFAULT_PROFILE_BATCH_SIZE,
   options: PublicProfileSearchOptions = {}
 ): Promise<ProfileLead[]> {
+  return (await searchPublicProfileBatch(hiringContext, requestedCount, options)).profileLeads;
+}
+
+export async function searchPublicProfileBatch(
+  hiringContext: string,
+  requestedCount = DEFAULT_PROFILE_BATCH_SIZE,
+  options: PublicProfileSearchOptions = {}
+): Promise<PublicProfileSearchBatch> {
   const queries = buildPublicTalentSearchQueries(hiringContext, options.refinement);
   const batchSize = clampProfileBatchSize(requestedCount);
   const excludedUrls = new Set((options.excludedUrls || []).map(normalizeUrl).filter(Boolean));
+  const requestedFunction = classifyRequestedRoleFunction(hiringContext);
   const results = process.env.TAVILY_API_KEY
     ? await searchWithTavily(queries)
     : mockPublicSearchResults(queries, hiringContext);
   const relevantResults = filterRelevantResults(results, hiringContext);
-
-  const leads = dedupeResults(relevantResults.filter(isProfileLikeResult))
+  const candidateLeads = dedupeResults(relevantResults.filter(isProfileLikeResult))
       .filter((result) => !excludedUrls.has(normalizeUrl(result.url || "")))
       .filter((result) => result.url && result.title)
-      .slice(0, batchSize)
-      .map((result, index) => mapToProfileLead(result, result.query || queries[index % queries.length], hiringContext, index));
+      .slice(0, Math.max(batchSize * 3, 12))
+      .map((result, index) => {
+        const lead = mapToProfileLead(result, result.query || queries[index % queries.length], hiringContext, index);
+        return {
+          ...lead,
+          validation: validateProfileLead(lead, requestedFunction)
+        };
+      });
+  const validLeads = dedupeLeads(candidateLeads)
+    .filter((lead) => lead.confidence !== "low")
+    .filter((lead) => lead.validation?.roleFunctionMatch || lead.validation?.evidenceStrength === "strong")
+    .slice(0, batchSize);
+  const filtered = candidateLeads.filter((lead) => !validLeads.some((validLead) => validLead.id === lead.id));
+  const filteredReasons = topValues(filtered.map((lead) => lead.validation?.filteredReason || "weak public evidence")).slice(0, 4);
 
-  return dedupeLeads(leads).filter((lead) => lead.confidence !== "low");
+  return {
+    profileLeads: validLeads,
+    metadata: {
+      requestedCount: batchSize,
+      returnedCount: validLeads.length,
+      validCount: validLeads.length,
+      filteredCount: filtered.length,
+      filteredReasons
+    }
+  };
 }
 
 async function searchWithTavily(queries: string[]) {
@@ -319,6 +353,75 @@ function compRangeForTarget(target: string, hiringContext: string) {
   return ranges[target] || ranges.general;
 }
 
+type RoleFunction = "engineering" | "product" | "design" | "gtm" | "operations" | "recruiting" | "people" | "finance" | "other";
+
+function classifyRequestedRoleFunction(hiringContext: string): RoleFunction {
+  const text = hiringContext.toLowerCase();
+
+  if (/\b(account executive|ae|sales|gtm|growth|revenue|business development|bd)\b/.test(text)) return "gtm";
+  if (/\b(recruiter|sourcer|talent acquisition|recruiting)\b/.test(text)) return "recruiting";
+  if (/\b(people|hr|human resources|people ops|head of people)\b/.test(text)) return "people";
+  if (/\b(finance|controller|fp&a|cfo|accounting)\b/.test(text)) return "finance";
+  if (/\b(designer|design|ux|ui)\b/.test(text)) return "design";
+  if (/\b(pm|product manager|founding pm|head of product|product lead|product operator)\b/.test(text)) return "product";
+  if (/\b(chief of staff|founder office|operator|operations|bizops|business operations)\b/.test(text)) return "operations";
+  if (/\b(engineer|developer|software|full-stack|full stack|backend|frontend|ml engineer|ai engineer|product engineer|founding engineer|solidity|smart contract|technical founder|github|built|shipped)\b/.test(text)) return "engineering";
+
+  return "other";
+}
+
+function validateProfileLead(lead: ProfileLead, requestedFunction: RoleFunction): NonNullable<ProfileLead["validation"]> {
+  const text = `${lead.title} ${lead.snippet} ${lead.fitReason} ${lead.tags.join(" ")} ${lead.url}`.toLowerCase();
+  const evidenceStrength = classifyEvidenceStrength(text, lead);
+  const actualFunction = classifyCandidateFunction(text);
+  const roleFunctionMatch =
+    requestedFunction === "other" ||
+    actualFunction === requestedFunction ||
+    (requestedFunction === "engineering" && hasClearEngineeringEvidence(text));
+
+  if (roleFunctionMatch) {
+    return { roleFunctionMatch, evidenceStrength };
+  }
+
+  return {
+    roleFunctionMatch,
+    evidenceStrength,
+    filteredReason: filteredReasonFor(requestedFunction, actualFunction, evidenceStrength)
+  };
+}
+
+function classifyCandidateFunction(text: string): RoleFunction {
+  if (/\b(account executive|sales|gtm|revenue|business development|growth)\b/.test(text)) return "gtm";
+  if (/\b(recruiter|sourcer|talent acquisition|recruiting)\b/.test(text)) return "recruiting";
+  if (/\b(people ops|head of people|hr|human resources)\b/.test(text)) return "people";
+  if (/\b(finance|controller|accounting|fp&a|cfo)\b/.test(text)) return "finance";
+  if (/\b(product designer|designer|design lead|ux|ui)\b/.test(text)) return "design";
+  if (/\b(product manager|founding pm|head of product|product lead|pm\b|product operator)\b/.test(text)) return "product";
+  if (/\b(chief of staff|founder office|startup operator|business operations|bizops|operator)\b/.test(text)) return "operations";
+  if (hasClearEngineeringEvidence(text)) return "engineering";
+
+  return "other";
+}
+
+function hasClearEngineeringEvidence(text: string) {
+  return /\b(engineer|developer|software|full-stack|full stack|backend|frontend|ml engineer|ai engineer|product engineer|founding engineer|solidity|smart contract|github|repo|code|coded|built|shipped|technical founder|architecture|infrastructure)\b/.test(text);
+}
+
+function classifyEvidenceStrength(text: string, lead: ProfileLead): "strong" | "medium" | "weak" {
+  const strongSignals = /\b(shipped|built|launched|owned|github|repo|mainnet|production|founding engineer|product manager|head of product|engineer)\b/.test(text);
+  const mediumSignals = /\b(product|customer|startup|founding|workflow|ai|ml|operator|design|sales)\b/.test(text);
+
+  if (lead.confidence === "high" && strongSignals) return "strong";
+  if (strongSignals || (lead.confidence !== "low" && mediumSignals)) return "medium";
+  return "weak";
+}
+
+function filteredReasonFor(requestedFunction: RoleFunction, actualFunction: RoleFunction, evidenceStrength: "strong" | "medium" | "weak") {
+  if (actualFunction !== "other") return `${actualFunction} profile, not ${requestedFunction}`;
+  if (evidenceStrength === "weak") return "weak public evidence";
+  return `unclear ${requestedFunction} evidence`;
+}
+
 function buildFitReason(hiringContext: string, snippet: string) {
   if (/\b(product manager|head of product|pm|customer)\b/i.test(hiringContext)) {
     return "Possible fit because the public result suggests product ownership or customer proximity.";
@@ -377,6 +480,17 @@ function dedupeLeads(leads: ProfileLead[]) {
   });
 }
 
+function topValues(values: string[]) {
+  const counts = values.filter(Boolean).reduce<Record<string, number>>((acc, value) => {
+    acc[value] = (acc[value] || 0) + 1;
+    return acc;
+  }, {});
+
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([value]) => value);
+}
+
 function isProfileLikeResult(result: TavilyLikeResult) {
   const url = result.url || "";
   if (url.includes("linkedin.com/in/")) return true;
@@ -410,11 +524,13 @@ function filterRelevantResults(results: TavilyLikeResult[], hiringContext: strin
 
 function inferTargetLane(hiringContext: string) {
   const text = hiringContext.toLowerCase();
+  const explicitProductRole = /\b(pm|product manager|founding pm|head of product|product lead)\b/.test(text);
+  const explicitEngineeringRole = /\b(engineer|developer|solidity|smartcontract|smart contract engineer|protocol engineer|code|coding)\b/.test(text);
 
   if (/\b(operator|ops|operations|chief of staff|founder office)\b/.test(text)) return "operator";
   if (/\b(gtm|sales|account executive|ae|growth|revenue)\b/.test(text)) return "gtm";
-  if (/\b(solidity|smart contract|smartcontract|web3|defi|protocol|mainnet)\b/.test(text)) return "web3";
-  if (/\b(pm|product manager|head of product|product lead)\b/.test(text)) return "product";
+  if (explicitProductRole) return "product";
+  if (explicitEngineeringRole && /\b(solidity|smart contract|smartcontract|web3|defi|protocol|mainnet)\b/.test(text)) return "web3";
   if (/\b(design|designer)\b/.test(text)) return "design";
   if (/\b(ai|llm|machine learning|ml|model|agent)\b/.test(text)) return "ai";
   if (/\b(backend|infra|systems|platform)\b/.test(text)) return "backend";

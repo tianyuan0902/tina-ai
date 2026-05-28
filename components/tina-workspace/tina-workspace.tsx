@@ -15,7 +15,9 @@ import {
   XCircle
 } from "lucide-react";
 
-import type { ProfileLead } from "@/lib/tina/profile-lead-types";
+import { buildBrainState } from "@/lib/brain/buildBrainState";
+import type { BrainState } from "@/lib/brain/types";
+import type { ProfileLead, SourcingBatchMetadata } from "@/lib/tina/profile-lead-types";
 import { evaluateSourcingReadiness, type SourcingReadiness } from "@/lib/tina/sourcing-readiness";
 import type { TinaChatApiResponse, TinaMvpMessage } from "@/lib/tina-mvp/types";
 
@@ -29,6 +31,7 @@ type ChatThread = {
 const THREAD_STORAGE_KEY = "tina:mvp:threads";
 const ACTIVE_THREAD_STORAGE_KEY = "tina:mvp:active-thread-id";
 const PROFILE_LEAD_STATUS_STORAGE_KEY = "tina:mvp:profile-lead-status";
+const BRAIN_STATE_STORAGE_KEY = "tina:mvp:brain-state";
 const MAX_FEEDBACK_SUMMARY_LEADS = 8;
 
 const typingPhrases = ["Shaping the search", "Reading candidate signal", "Tightening the Talent Pool"];
@@ -454,6 +457,9 @@ function HomeCommandCenter({
   onSynthesis: (value: string) => void;
 }) {
   const [isThinking, setIsThinking] = useState(false);
+  const [profileLeadStatus, setProfileLeadStatus] = useState<Record<string, ProfileLeadStatus>>({});
+  const [storedBrainStates, setStoredBrainStates] = useState<Record<string, BrainState>>({});
+  const [showFullConversation, setShowFullConversation] = useState(false);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
   const messages = activeThread.messages;
   const hasConversation = messages.some((message) => message.role === "founder");
@@ -461,22 +467,88 @@ function HomeCommandCenter({
   const sourcingReadiness = useMemo(() => latestSourcingReadiness(messages) || evaluateSourcingReadiness(messages), [messages]);
   const profileLeadItems = useMemo(() => collectProfileLeadItems(activeThread.id, messages), [activeThread.id, messages]);
   const latestProfileLeadItems = useMemo(() => collectLatestProfileLeadItems(activeThread.id, messages), [activeThread.id, messages]);
+  const latestSourcingBatch = useMemo(() => collectLatestSourcingBatch(messages), [messages]);
   const calibration = useMemo(() => deriveLiveCalibration(messages), [messages]);
   const pipeline = useMemo(() => derivePipelineIntelligence(messages), [messages]);
+  const sourcingStrategy = useMemo(() => deriveSourcingStrategy(calibration, profiles, sourcingReadiness), [calibration, profiles, sourcingReadiness]);
+  const brainState = useMemo(
+    () => buildBrainState({
+      messages,
+      sourcingReadiness,
+      profileLeads: (latestProfileLeadItems.length ? latestProfileLeadItems : profileLeadItems).map((item) => item.lead),
+      feedback: profileLeadItems.map((item) => ({
+        lead: item.lead,
+        status: profileLeadStatus[item.statusKey]
+      })),
+      roleThesis: sourcingStrategy.searchThesis,
+      seekSignals: sourcingStrategy.seek,
+      avoidSignals: sourcingStrategy.avoidSignals,
+      likelyTitles: sourcingStrategy.targetTitles,
+      sourceLaneHints: [
+        ...sourcingStrategy.targetCompanyTypes,
+        ...sourcingStrategy.searchLanes,
+        ...sourcingStrategy.queryTerms
+      ]
+    }),
+    [messages, sourcingReadiness, latestProfileLeadItems, profileLeadItems, profileLeadStatus, sourcingStrategy]
+  );
   const latestTinaMessageId = useMemo(() => [...messages].reverse().find((message) => message.role === "tina")?.id, [messages]);
-  const [profileLeadStatus, setProfileLeadStatus] = useState<Record<string, ProfileLeadStatus>>({});
+  const visibleProfileLeadItems = useMemo(
+    () => prioritizeLatestProfileLeadItems(profileLeadItems, latestProfileLeadItems),
+    [profileLeadItems, latestProfileLeadItems]
+  );
+  const shortlistedItems = useMemo(
+    () => profileLeadItems.filter((item) => profileLeadStatus[item.statusKey]?.action === "saved"),
+    [profileLeadItems, profileLeadStatus]
+  );
+  const potentialItems = useMemo(
+    () => prioritizePotentialCandidateItems(
+      visibleProfileLeadItems.filter((item) => profileLeadStatus[item.statusKey]?.action !== "saved"),
+      profileLeadStatus
+    ),
+    [visibleProfileLeadItems, profileLeadStatus]
+  );
+  const hasCandidateResults = visibleProfileLeadItems.length > 0;
+  const hasFeedback = latestProfileLeadItems.some((item) => hasProfileLeadFeedback(profileLeadStatus[item.statusKey]));
+  const feedbackRead = buildFeedbackLearningRead(latestProfileLeadItems, profileLeadStatus);
+  const refineLabel = shortlistedItems.length ? "Find more like saved candidates" : "Refine Talent Pool";
+  const latestBatchRead = buildTalentBatchRead(latestProfileLeadItems.length ? latestProfileLeadItems : visibleProfileLeadItems);
+  const displayedMessages = hasCandidateResults && !showFullConversation ? latestConversationExchange(messages) : messages;
+  const hiddenMessageCount = Math.max(0, messages.length - displayedMessages.length);
+  const missionHeader = buildMissionHeader(messages, calibration, sourcingStrategy);
+  const handleRefineSearch = () => {
+    const summary = buildTalentPoolFeedbackSummary(latestProfileLeadItems, profileLeadStatus);
+    if (summary) {
+      sendMessage("Refine this search based on my Talent Pool feedback. Find another batch.", {
+        sourcingRefinementSummary: summary
+      });
+    }
+  };
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, isThinking, activeThread.id]);
 
   useEffect(() => {
+    setShowFullConversation(false);
+  }, [activeThread.id, hasCandidateResults]);
+
+  useEffect(() => {
     setProfileLeadStatus(readProfileLeadStatus());
+    setStoredBrainStates(readStoredBrainStates());
   }, []);
 
   useEffect(() => {
     window.localStorage.setItem(PROFILE_LEAD_STATUS_STORAGE_KEY, JSON.stringify(profileLeadStatus));
   }, [profileLeadStatus]);
+
+  useEffect(() => {
+    setStoredBrainStates((current) => {
+      const next = { ...current, [activeThread.id]: brainState };
+      window.localStorage.setItem(BRAIN_STATE_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, [activeThread.id, brainState]);
 
   async function sendMessage(content: string, options?: { sourcingRefinementSummary?: string }) {
     if (!content.trim() || isThinking) return;
@@ -521,33 +593,60 @@ function HomeCommandCenter({
   }
 
   return (
-    <div className="grid h-screen min-h-0 w-full grid-cols-1 gap-3 overflow-hidden px-3 pb-3 pt-8 md:grid-cols-[minmax(0,1fr)_minmax(220px,0.48fr)] md:pb-4 md:pt-10 lg:grid-cols-[minmax(0,1fr)_minmax(240px,0.55fr)] xl:grid-cols-[minmax(0,2fr)_minmax(300px,0.95fr)] xl:gap-[clamp(14px,1.25vw,22px)] xl:px-[clamp(14px,1.4vw,22px)] xl:pt-14">
+    <div className={`grid h-screen min-h-0 w-full grid-cols-1 gap-3 overflow-hidden px-3 pb-3 pt-6 md:grid-cols-[minmax(0,1fr)_minmax(260px,0.5fr)] md:pb-4 md:pt-8 lg:grid-cols-[minmax(0,1fr)_minmax(300px,0.46fr)] xl:gap-[clamp(14px,1.25vw,22px)] xl:px-[clamp(14px,1.4vw,22px)] ${hasConversation ? "xl:pt-7" : "xl:pt-14"} ${hasCandidateResults ? "xl:grid-cols-[minmax(0,2fr)_minmax(340px,0.86fr)]" : "xl:grid-cols-[minmax(0,2fr)_minmax(300px,0.9fr)]"}`}>
       <section className="flex min-h-0 flex-col overflow-hidden">
-        <header className="mb-3 shrink-0 pt-1 text-center xl:mb-5 xl:pt-2">
-          <div className="mx-auto max-w-xl xl:max-w-2xl">
-            <p className="mb-2 flex items-center justify-center gap-2 text-[11px] text-[#6B6259] xl:mb-3">
-              <Sparkles className="h-3.5 w-3.5 text-[#178A52]" />
-              Founder-grade sourcing, powered by hiring judgment.
-            </p>
-            <h1 className="font-serif text-[clamp(1.45rem,1.9vw,2.1rem)] font-semibold leading-[1.05] tracking-normal text-[#171717] xl:text-[clamp(1.75rem,2.15vw,2.35rem)]">
-              Your AI talent partner for hard startup hires.
-            </h1>
-          </div>
+        <header className={`shrink-0 pt-1 ${hasConversation ? "mb-2 text-left" : "mb-3 text-center xl:mb-5 xl:pt-2"}`}>
+          {hasConversation ? (
+            <div className="rounded-xl border border-[#E7E3DD] bg-white/85 px-4 py-3 shadow-[0_14px_40px_rgba(23,23,23,0.045)]">
+              <p className="flex items-center gap-2 text-[11px] font-medium text-[#6B6259]">
+                <Sparkles className="h-3.5 w-3.5 text-[#178A52]" />
+                Active sourcing mission
+              </p>
+              <h1 className="mt-1 text-lg font-semibold leading-6 text-[#171717]">{missionHeader}</h1>
+            </div>
+          ) : (
+            <div className="mx-auto max-w-xl xl:max-w-2xl">
+              <p className="mb-2 flex items-center justify-center gap-2 text-[11px] text-[#6B6259] xl:mb-3">
+                <Sparkles className="h-3.5 w-3.5 text-[#178A52]" />
+                Founder-grade sourcing, powered by hiring judgment.
+              </p>
+              <h1 className="font-serif text-[clamp(1.45rem,1.9vw,2.1rem)] font-semibold leading-[1.05] tracking-normal text-[#171717] xl:text-[clamp(1.75rem,2.15vw,2.35rem)]">
+                Your AI talent partner for hard startup hires.
+              </h1>
+            </div>
+          )}
         </header>
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[#E7E3DD] bg-white shadow-[0_22px_70px_rgba(23,23,23,0.055)]">
+        <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] gap-3 overflow-hidden">
+        <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-[#E7E3DD] bg-white shadow-[0_22px_70px_rgba(23,23,23,0.055)]">
           <div className="shrink-0 border-b border-[#ECE7E1] bg-white px-4 py-3">
-            <p className="text-[13px] font-semibold">Tina</p>
-            <p className="mt-0.5 text-xs text-[#6F675E]">Talent Pool first. Calibration and market intel support the search.</p>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[13px] font-semibold">Tina</p>
+                  <p className="mt-0.5 text-xs text-[#6F675E]">{hasCandidateResults ? "Talent Pool updated on the right. Keep refining here." : "Talent Pool first. Calibration and market intel support the search."}</p>
+              </div>
+              {hasCandidateResults && hiddenMessageCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setShowFullConversation((current) => !current)}
+                  className="shrink-0 rounded-md border border-[#E3DED7] bg-white px-2.5 py-1.5 text-xs font-medium text-[#625A52] transition hover:bg-[#F7F4EF]"
+                >
+                  {showFullConversation ? "Hide conversation" : `Show conversation (${hiddenMessageCount})`}
+                </button>
+              ) : null}
+            </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto bg-white px-4 py-4">
+          <div className={`min-h-0 flex-1 overflow-y-auto bg-white px-4 ${hasCandidateResults ? "py-3" : "py-4"}`}>
             <div className="mx-auto grid w-full max-w-3xl gap-3">
-              {messages.map((message, index) => (
+              {hasCandidateResults ? (
+                <SourcingResultArtifact leads={(latestProfileLeadItems.length ? latestProfileLeadItems : visibleProfileLeadItems).map((item) => item.lead)} sourcingBatch={latestSourcingBatch} />
+              ) : null}
+              {displayedMessages.map((message) => (
                 <ChatMessage
                   key={message.id}
                   message={message}
-                  signals={message.role === "tina" ? deriveInlineSignals(messages.slice(0, index + 1)) : []}
+                  signals={message.role === "tina" ? deriveInlineSignals(messages.slice(0, messages.findIndex((item) => item.id === message.id) + 1)) : []}
                   animate={message.role === "tina" && message.id === latestTinaMessageId && hasConversation}
                 />
               ))}
@@ -570,11 +669,12 @@ function HomeCommandCenter({
             <CommandInput onSubmit={sendMessage} isThinking={isThinking} />
           </div>
         </div>
+        </div>
       </section>
 
       <RightIntelligenceRail
-        hasConversation={hasConversation}
-        profiles={profiles}
+        sourcingStrategy={sourcingStrategy}
+        brainState={brainState}
         profileLeadItems={profileLeadItems}
         latestProfileLeadItems={latestProfileLeadItems}
         profileLeadStatus={profileLeadStatus}
@@ -584,15 +684,12 @@ function HomeCommandCenter({
             [statusKey]: { ...current[statusKey], ...status }
           }))
         }
-        onRefineSearch={(summary) =>
-          sendMessage("Refine this search based on my Talent Pool feedback. Find another batch.", {
-            sourcingRefinementSummary: summary
-          })
-        }
-        calibration={calibration}
-        sourcingReadiness={sourcingReadiness}
-        pipeline={pipeline}
-        latestSynthesis={latestSynthesis}
+        onRefineSearch={handleRefineSearch}
+        batchRead={latestBatchRead}
+        sourcingBatch={latestSourcingBatch}
+        feedbackRead={feedbackRead}
+        hasFeedback={hasFeedback}
+        refineLabel={refineLabel}
       />
     </div>
   );
@@ -698,8 +795,31 @@ function ChatMessage({ message, signals, animate }: { message: TinaMvpMessage; s
         <p className="mt-2 max-w-full whitespace-pre-line break-words text-[13px] leading-5 text-[#262626]">
           <TypedText text={message.content} animate={animate} />
         </p>
+        {message.profileLeads?.length ? <SourcingResultArtifact leads={message.profileLeads} sourcingBatch={message.sourcingBatch} /> : null}
         <InlineSignalRows signals={signals} />
       </div>
+    </div>
+  );
+}
+
+function SourcingResultArtifact({ leads, sourcingBatch }: { leads: ProfileLead[]; sourcingBatch?: SourcingBatchMetadata }) {
+  const highCount = leads.filter((lead) => lead.confidence === "high").length;
+  const weakCount = leads.filter((lead) => lead.confidence !== "high").length;
+  const topTags = topValues(leads.flatMap((lead) => lead.tags)).slice(0, 2);
+  const missingThemes = topValues(leads.map((lead) => missingSignalTheme(missingSignalForLead(lead)))).slice(0, 1);
+
+  return (
+    <div className="mt-3 rounded-lg border border-[#E1D8CE] bg-[#FFFCF7] p-3 shadow-[0_12px_32px_rgba(23,23,23,0.04)]">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="rounded-full bg-[#EEF8F1] px-2.5 py-1 text-[11px] font-semibold text-[#108A4B]">Talent Pool updated</span>
+        <span className="text-xs font-medium text-[#625A52]">{leads.length} {leads.length === 1 ? "profile" : "profiles"}</span>
+        <span className="text-xs text-[#8A8178]">{highCount} strong · {weakCount} calibration</span>
+        {sourcingBatch ? <span className="text-xs text-[#8A8178]">{sourcingBatch.requestedCount} requested · {sourcingBatch.filteredCount} filtered</span> : null}
+      </div>
+      <p className="mt-2 text-xs leading-5 text-[#4B453F]">
+        I found {leads.length} possible {leads.length === 1 ? "profile" : "profiles"}. Best signal: {topTags.join(", ") || "role adjacency"}. Weakness: {missingThemes.join(", ") || "proof still needs review"}.
+      </p>
+      <p className="mt-1 text-[11px] text-[#8A8178]">Review and train the Talent Pool on the right.</p>
     </div>
   );
 }
@@ -840,6 +960,21 @@ function collectLatestProfileLeadItems(threadId: string, messages: TinaMvpMessag
   return latestMessage?.profileLeads?.map((lead) => toProfileLeadItem(threadId, latestMessage.id, lead)) || [];
 }
 
+function collectLatestSourcingBatch(messages: TinaMvpMessage[]) {
+  return [...messages].reverse().find((message) => message.sourcingBatch)?.sourcingBatch;
+}
+
+function latestConversationExchange(messages: TinaMvpMessage[]) {
+  const latestFounderIndex = messages.map((message, index) => ({ message, index })).reverse().find((item) => item.message.role === "founder")?.index;
+  if (typeof latestFounderIndex !== "number") return messages.slice(-2);
+
+  const nextTinaIndex = messages.findIndex((message, index) => index > latestFounderIndex && message.role === "tina");
+  const startIndex = Math.max(0, latestFounderIndex - 1);
+  const endIndex = nextTinaIndex >= 0 ? nextTinaIndex + 1 : latestFounderIndex + 1;
+
+  return messages.slice(startIndex, endIndex);
+}
+
 function latestSourcingReadiness(messages: TinaMvpMessage[]) {
   return [...messages].reverse().find((message) => message.sourcingReadiness)?.sourcingReadiness;
 }
@@ -865,6 +1000,22 @@ function readProfileLeadStatus() {
   }
 }
 
+function readStoredBrainStates() {
+  try {
+    const rawStates = window.localStorage.getItem(BRAIN_STATE_STORAGE_KEY);
+    if (!rawStates) return {};
+    const parsed = JSON.parse(rawStates) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+
+    return Object.fromEntries(
+      Object.entries(parsed)
+        .filter((entry): entry is [string, BrainState] => typeof entry[0] === "string" && isBrainState(entry[1]))
+    );
+  } catch {
+    return {};
+  }
+}
+
 function readStoredThreads() {
   try {
     const rawThreads = window.localStorage.getItem(THREAD_STORAGE_KEY);
@@ -876,6 +1027,28 @@ function readStoredThreads() {
   } catch {
     return [];
   }
+}
+
+function isBrainState(value: unknown): value is BrainState {
+  if (!value || typeof value !== "object") return false;
+  const state = value as BrainState;
+
+  return (
+    typeof state.roleThesis === "string" &&
+    typeof state.readinessScore === "number" &&
+    typeof state.batchQualityScore === "number" &&
+    typeof state.noveltyScore === "number" &&
+    typeof state.confidenceScore === "number" &&
+    Boolean(state.searchShape) &&
+    Array.isArray(state.seekSignals) &&
+    Array.isArray(state.avoidSignals) &&
+    Array.isArray(state.likelyTitles) &&
+    Boolean(state.sourceLanes) &&
+    Array.isArray(state.missingSignals) &&
+    Array.isArray(state.calibrationQuestions) &&
+    (state.sourcingReadiness === "not_ready" || state.sourcingReadiness === "calibration_batch" || state.sourcingReadiness === "ready") &&
+    typeof state.tinaRead === "string"
+  );
 }
 
 function isChatThread(value: unknown): value is ChatThread {
@@ -1025,58 +1198,246 @@ function EmptyCalibrationPanel({ calibration }: { calibration: LiveCalibration }
 }
 
 function RightIntelligenceRail({
-  hasConversation,
-  profiles,
+  sourcingStrategy,
+  brainState,
   profileLeadItems,
   latestProfileLeadItems,
   profileLeadStatus,
   onProfileLeadStatusChange,
   onRefineSearch,
-  calibration,
-  sourcingReadiness,
-  pipeline,
-  latestSynthesis
+  batchRead,
+  sourcingBatch,
+  feedbackRead,
+  hasFeedback,
+  refineLabel
 }: {
-  hasConversation: boolean;
-  profiles: ReturnType<typeof deriveCalibrationProfiles>;
+  sourcingStrategy: SourcingStrategy;
+  brainState: BrainState;
   profileLeadItems: ProfileLeadItem[];
   latestProfileLeadItems: ProfileLeadItem[];
   profileLeadStatus: Record<string, ProfileLeadStatus>;
   onProfileLeadStatusChange: (leadId: string, status: ProfileLeadStatus) => void;
-  onRefineSearch: (summary: string) => void;
-  calibration: LiveCalibration;
-  sourcingReadiness: SourcingReadiness;
-  pipeline: PipelineIntelligence;
-  latestSynthesis: string;
+  onRefineSearch: () => void;
+  batchRead: string;
+  sourcingBatch?: SourcingBatchMetadata;
+  feedbackRead: string;
+  hasFeedback: boolean;
+  refineLabel: string;
 }) {
-  const snapshot = pipeline.snapshots[pipeline.defaultState];
+  const visibleItems = prioritizeLatestProfileLeadItems(profileLeadItems, latestProfileLeadItems);
+  const hasProfiles = visibleItems.length > 0;
 
   return (
     <aside className="hidden h-full min-h-0 min-w-0 overflow-y-auto md:block md:pt-2 xl:pt-3">
       <section className="min-h-[calc(100%-0.75rem)] min-w-0 overflow-hidden rounded-xl border border-[#E7E3DD] bg-white shadow-[0_22px_70px_rgba(23,23,23,0.055)]">
         <div className="border-b border-[#ECE7E1] bg-white px-3 py-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Sourcing Mission</p>
-          <h2 className="mt-1 text-base font-semibold text-[#171717]">Talent Pool</h2>
-          <p className="mt-1 text-xs leading-5 text-[#625A52]">Tell Tina who you need. She’ll find you people.</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">{hasProfiles ? "Talent Pool" : "Sourcing Signal"}</p>
+          <h2 className="mt-1 text-base font-semibold text-[#171717]">{hasProfiles ? "Potential candidates" : "Tina’s brain"}</h2>
+          <p className="mt-1 text-xs leading-5 text-[#625A52]">{hasProfiles ? "Compact profile review and taste training." : "Working memory from the conversation."}</p>
         </div>
 
         <div className="p-3">
-          <TalentPoolTab
-            hasConversation={hasConversation}
-            profiles={profiles}
-            calibration={calibration}
-            sourcingReadiness={sourcingReadiness}
-            profileLeadItems={profileLeadItems}
-            latestProfileLeadItems={latestProfileLeadItems}
-            profileLeadStatus={profileLeadStatus}
-            onProfileLeadStatusChange={onProfileLeadStatusChange}
-            onRefineSearch={onRefineSearch}
-            latestSynthesis={latestSynthesis}
-            snapshot={snapshot}
-          />
+          {hasProfiles ? (
+            <TalentPoolRail
+              brainState={brainState}
+              sourcingStrategy={sourcingStrategy}
+              items={visibleItems}
+              latestItems={latestProfileLeadItems}
+              statuses={profileLeadStatus}
+              onProfileLeadStatusChange={onProfileLeadStatusChange}
+              onRefineSearch={onRefineSearch}
+              batchRead={batchRead}
+              sourcingBatch={sourcingBatch}
+              feedbackRead={feedbackRead}
+              hasFeedback={hasFeedback}
+              refineLabel={refineLabel}
+            />
+          ) : (
+            <SourcingStrategyCard strategy={sourcingStrategy} brainState={brainState} />
+          )}
         </div>
       </section>
     </aside>
+  );
+}
+
+function TalentPoolRail({
+  brainState,
+  sourcingStrategy,
+  items,
+  latestItems,
+  statuses,
+  onProfileLeadStatusChange,
+  onRefineSearch,
+  batchRead,
+  sourcingBatch,
+  feedbackRead,
+  hasFeedback,
+  refineLabel
+}: {
+  brainState: BrainState;
+  sourcingStrategy: SourcingStrategy;
+  items: ProfileLeadItem[];
+  latestItems: ProfileLeadItem[];
+  statuses: Record<string, ProfileLeadStatus>;
+  onProfileLeadStatusChange: (leadId: string, status: ProfileLeadStatus) => void;
+  onRefineSearch: () => void;
+  batchRead: string;
+  sourcingBatch?: SourcingBatchMetadata;
+  feedbackRead: string;
+  hasFeedback: boolean;
+  refineLabel: string;
+}) {
+  const latestKeys = new Set(latestItems.map((item) => item.statusKey));
+  const sortedItems = prioritizePotentialCandidateItems(items, statuses);
+  const batchReadSummary = limitSentences(`${brainState.tinaRead} ${batchReadDetail(batchRead)}`, 2);
+
+  return (
+    <div className="grid gap-3">
+      <section className="rounded-lg border border-[#DCD3C8] bg-[#FFFCF7] p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Batch read</p>
+        <p className="mt-2 text-sm font-semibold text-[#171717]">{items.length} {items.length === 1 ? "profile" : "profiles"}</p>
+          </div>
+          {hasFeedback ? (
+            <button
+              type="button"
+              onClick={onRefineSearch}
+              className="shrink-0 rounded-md bg-[#171717] px-2.5 py-1.5 text-[11px] font-medium text-white"
+            >
+              {refineLabel}
+            </button>
+          ) : null}
+        </div>
+        {sourcingBatch ? (
+          <p className="mt-2 rounded-md bg-white px-2 py-1.5 text-[11px] font-medium text-[#6F675E] ring-1 ring-[#E7DDD1]">
+            {sourcingBatch.requestedCount} requested · {sourcingBatch.validCount} valid · {sourcingBatch.filteredCount} filtered
+          </p>
+        ) : null}
+        <p className="mt-2 text-xs leading-5 text-[#4B453F]">{batchReadSummary}</p>
+        {feedbackRead ? <p className="mt-2 text-xs leading-5 text-[#4A6A4D]">{feedbackRead}</p> : null}
+      </section>
+
+      <div className="grid gap-2">
+        {sortedItems.map((item) => (
+          <TalentPoolLeadRow
+            key={item.statusKey}
+            item={item}
+            isLatest={latestKeys.has(item.statusKey)}
+            status={statuses[item.statusKey]}
+            onStatusChange={(status) => onProfileLeadStatusChange(item.statusKey, status)}
+          />
+        ))}
+      </div>
+
+      {sourcingBatch?.filteredCount ? (
+        <details className="rounded-lg border border-[#E7DDD1] bg-white p-3">
+          <summary className="cursor-pointer text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Filtered out</summary>
+          <p className="mt-2 text-xs leading-5 text-[#625A52]">
+            Tina filtered {sourcingBatch.filteredCount} false {sourcingBatch.filteredCount === 1 ? "positive" : "positives"} before showing this batch: {sourcingBatch.filteredReasons.join(", ") || "role/function mismatch"}.
+          </p>
+        </details>
+      ) : null}
+
+      <details className="rounded-lg border border-[#E7DDD1] bg-white p-3">
+        <summary className="cursor-pointer text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Why Tina searched this way</summary>
+        <div className="mt-3">
+          <SourcingStrategyCard strategy={sourcingStrategy} brainState={brainState} />
+        </div>
+      </details>
+
+      <details className="rounded-lg border border-[#E7DDD1] bg-white p-3">
+        <summary className="cursor-pointer text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Missing signals</summary>
+        <div className="mt-2">
+          <StrategyRow label="Missing" items={brainState.missingSignals.slice(0, 5)} tone="warning" />
+        </div>
+      </details>
+
+      <details className="rounded-lg border border-[#E7DDD1] bg-white p-3">
+        <summary className="cursor-pointer text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Source lanes</summary>
+        <div className="mt-2">
+          <StrategyRow label="Lanes" items={sourceLaneChips(brainState.sourceLanes)} />
+        </div>
+      </details>
+    </div>
+  );
+}
+
+function TalentPoolLeadRow({
+  item,
+  isLatest,
+  status,
+  onStatusChange
+}: {
+  item: ProfileLeadItem;
+  isLatest: boolean;
+  status?: ProfileLeadStatus;
+  onStatusChange: (status: ProfileLeadStatus) => void;
+}) {
+  const lead = item.lead;
+  const isSaved = status?.action === "saved";
+  const isRejected = status?.action === "rejected";
+  const whySurfaced = compactLeadText(lead.fitReason, 92);
+  const missingSignal = compactLeadText(missingSignalForLead(lead), 92);
+
+  return (
+    <details className={`rounded-lg border bg-white p-3 ${isRejected ? "border-[#E2D6CC] opacity-70" : "border-[#E5E2DD]"} ${isLatest ? "ring-1 ring-[#E7DDD1]" : ""}`}>
+      <summary className="cursor-pointer list-none">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-[#171717]">{lead.title}</p>
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              <span className="rounded-full bg-[#EEF8F1] px-2 py-0.5 text-[10px] capitalize text-[#4F7A5C]">{lead.source.replace("_", " ")}</span>
+              <span className="rounded-full bg-[#F3EFE8] px-2 py-0.5 text-[10px] capitalize text-[#6F675E]">{lead.confidence}</span>
+              {isSaved ? <span className="rounded-full bg-[#EEF8F1] px-2 py-0.5 text-[10px] text-[#108A4B]">Saved</span> : null}
+              {isRejected ? <span className="rounded-full bg-[#FFF2E8] px-2 py-0.5 text-[10px] text-[#A35F2E]">Rejected</span> : null}
+            </div>
+          </div>
+        </div>
+        <p className="mt-2 text-xs leading-5 text-[#4B453F]">{whySurfaced}</p>
+        <p className="mt-1 text-[11px] leading-4 text-[#8A8178]">{missingSignal}</p>
+        <div className="mt-2 grid grid-cols-2 gap-1.5">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.preventDefault();
+              onStatusChange({ action: isSaved ? undefined : "saved" });
+            }}
+            className={`rounded-md border px-2 py-1.5 text-[11px] font-medium ${isSaved ? "border-[#171717] bg-[#171717] text-white" : "border-[#E3DED7] text-[#4B453F]"}`}
+          >
+            {isSaved ? "Saved" : "Save"}
+          </button>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.preventDefault();
+              onStatusChange({ action: isRejected ? undefined : "rejected" });
+            }}
+            className={`rounded-md border px-2 py-1.5 text-[11px] font-medium ${isRejected ? "border-[#A35F2E] bg-[#FFF2E8] text-[#A35F2E]" : "border-[#E3DED7] text-[#4B453F]"}`}
+          >
+            {isRejected ? "Rejected" : "Reject"}
+          </button>
+        </div>
+      </summary>
+
+      <div className="mt-3 border-t border-[#EFE8DF] pt-3 text-xs leading-5 text-[#4B453F]">
+        <p><span className="font-semibold">Why surfaced:</span> {lead.fitReason}</p>
+        <p className="mt-1"><span className="font-semibold">Evidence/proof:</span> {leadEvidenceLine(lead)}</p>
+        <p className="mt-1"><span className="font-semibold">Missing signal:</span> {missingSignalForLead(lead)}</p>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {lead.tags.slice(0, 5).map((tag) => (
+            <span key={tag} className="rounded-md bg-[#F4F1EC] px-2 py-1 text-[11px] text-[#625A52]">{tag}</span>
+          ))}
+        </div>
+        <p className="mt-2 break-words"><span className="font-semibold">Query:</span> {lead.query}</p>
+        <div className="mt-3 grid grid-cols-2 gap-1.5">
+          <a href={lead.url} target="_blank" rel="noreferrer" className="rounded-md border border-[#E3DED7] px-2 py-1.5 text-center text-[11px] font-medium text-[#4B453F]">Open</a>
+          <button type="button" onClick={() => onStatusChange({ preference: status?.preference === "more_like_this" ? undefined : "more_like_this" })} className={`rounded-md border px-2 py-1.5 text-[11px] font-medium ${status?.preference === "more_like_this" ? "border-[#108A4B] bg-[#EEF8F1] text-[#108A4B]" : "border-[#E3DED7] text-[#4B453F]"}`}>More like this</button>
+          <button type="button" onClick={() => onStatusChange({ preference: status?.preference === "less_like_this" ? undefined : "less_like_this" })} className={`rounded-md border px-2 py-1.5 text-[11px] font-medium ${status?.preference === "less_like_this" ? "border-[#B87A4A] bg-[#FFF2E8] text-[#A35F2E]" : "border-[#E3DED7] text-[#4B453F]"}`}>Less like this</button>
+        </div>
+      </div>
+    </details>
   );
 }
 
@@ -1182,6 +1543,8 @@ function TalentPoolTab({
   profiles,
   calibration,
   sourcingReadiness,
+  sourcingStrategy,
+  brainState,
   profileLeadItems,
   latestProfileLeadItems,
   profileLeadStatus,
@@ -1194,6 +1557,8 @@ function TalentPoolTab({
   profiles: ReturnType<typeof deriveCalibrationProfiles>;
   calibration: LiveCalibration;
   sourcingReadiness: SourcingReadiness;
+  sourcingStrategy: SourcingStrategy;
+  brainState: BrainState;
   profileLeadItems: ProfileLeadItem[];
   latestProfileLeadItems: ProfileLeadItem[];
   profileLeadStatus: Record<string, ProfileLeadStatus>;
@@ -1203,7 +1568,6 @@ function TalentPoolTab({
   snapshot: PipelineSnapshot;
 }) {
   const visibleProfiles = profiles.slice(0, calibration.depth >= 3 ? 3 : 2);
-  const sourcingStrategy = deriveSourcingStrategy(calibration, profiles, sourcingReadiness);
   const visibleItems = prioritizeLatestProfileLeadItems(profileLeadItems, latestProfileLeadItems);
   const shortlistedItems = profileLeadItems.filter((item) => profileLeadStatus[item.statusKey]?.action === "saved");
   const potentialItems = prioritizePotentialCandidateItems(
@@ -1223,9 +1587,10 @@ function TalentPoolTab({
 
     return (
       <div className="grid gap-3">
-        <SourcingStrategyCard strategy={sourcingStrategy} />
+        <SourcingStrategyCard strategy={sourcingStrategy} brainState={brainState} />
 
         <CandidateResultsSection
+          brainState={brainState}
           count={latestProfileLeadItems.length || visibleItems.length}
           hasFeedback={hasFeedback}
           refineLabel={refineLabel}
@@ -1249,16 +1614,16 @@ function TalentPoolTab({
           onRemove={(statusKey) => onProfileLeadStatusChange(statusKey, { action: undefined })}
         />
 
-        <RoleMemorySection calibration={calibration} strategy={sourcingStrategy} latestSynthesis={latestSynthesis} defaultOpen={hasConversation && calibration.depth >= 3} />
+        <RoleMemorySection calibration={calibration} strategy={sourcingStrategy} brainState={brainState} latestSynthesis={latestSynthesis} defaultOpen={hasConversation && calibration.depth >= 3} />
 
-        <MarketRealitySection calibration={calibration} profiles={profiles} strategy={sourcingStrategy} snapshot={snapshot} defaultOpen={false} />
+        <MarketRealitySection calibration={calibration} profiles={profiles} strategy={sourcingStrategy} brainState={brainState} snapshot={snapshot} defaultOpen={false} />
       </div>
     );
   }
 
   return (
     <div className="grid gap-3">
-      <SourcingStrategyCard strategy={sourcingStrategy} />
+      <SourcingStrategyCard strategy={sourcingStrategy} brainState={brainState} />
 
       <EmptyCandidateResults />
 
@@ -1279,10 +1644,118 @@ function TalentPoolTab({
         onRemove={(statusKey) => onProfileLeadStatusChange(statusKey, { action: undefined })}
       />
 
-      <RoleMemorySection calibration={calibration} strategy={sourcingStrategy} latestSynthesis={latestSynthesis} defaultOpen={false} />
+      <RoleMemorySection calibration={calibration} strategy={sourcingStrategy} brainState={brainState} latestSynthesis={latestSynthesis} defaultOpen={false} />
 
-      <MarketRealitySection calibration={calibration} profiles={profiles} strategy={sourcingStrategy} snapshot={snapshot} defaultOpen={false} />
+      <MarketRealitySection calibration={calibration} profiles={profiles} strategy={sourcingStrategy} brainState={brainState} snapshot={snapshot} defaultOpen={false} />
     </div>
+  );
+}
+
+function MainCandidateResults({
+  brainState,
+  count,
+  hasFeedback,
+  refineLabel,
+  onRefineSearch,
+  batchRead,
+  feedbackRead,
+  shortlistedItems,
+  profileLeadStatus,
+  onProfileLeadStatusChange,
+  potentialItems
+}: {
+  brainState: BrainState;
+  count: number;
+  hasFeedback: boolean;
+  refineLabel: string;
+  onRefineSearch: () => void;
+  batchRead: string;
+  feedbackRead: string;
+  shortlistedItems: ProfileLeadItem[];
+  profileLeadStatus: Record<string, ProfileLeadStatus>;
+  onProfileLeadStatusChange: (leadId: string, status: ProfileLeadStatus) => void;
+  potentialItems: ProfileLeadItem[];
+}) {
+  const batchReadSummary = limitSentences(`${brainState.tinaRead} ${batchReadDetail(batchRead)}`, 2);
+
+  return (
+    <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-[#E2DDD6] bg-white shadow-[0_24px_80px_rgba(23,23,23,0.07)]">
+      <div className="flex flex-col gap-3 border-b border-[#ECE7E1] bg-[#FFFCF7] px-4 py-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Candidate Results</p>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <h2 className="text-xl font-semibold leading-tight text-[#171717]">Potential Candidates</h2>
+            <span className="rounded-full bg-[#F3EFE8] px-2.5 py-1 text-xs font-medium text-[#6F675E]">
+              {count} {count === 1 ? "lead" : "leads"}
+            </span>
+          </div>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-[#4B453F]">{batchReadSummary}</p>
+          {feedbackRead ? <p className="mt-1 text-xs leading-5 text-[#4A6A4D]">{feedbackRead}</p> : null}
+        </div>
+
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <MiniScore label="Quality" value={brainState.batchQualityScore} />
+          <MiniScore label="Novelty" value={brainState.noveltyScore} />
+          <MiniScore label="Confidence" value={brainState.confidenceScore} />
+          {hasFeedback ? (
+            <button
+              type="button"
+              onClick={onRefineSearch}
+              className="rounded-md border border-[#CFC4B8] bg-[#171717] px-3 py-2 text-xs font-medium text-white transition hover:bg-[#2A2724]"
+            >
+              {refineLabel}
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        {shortlistedItems.length ? (
+          <div className="mb-4 rounded-lg border border-[#D7CFC5] bg-[#FBFAF7] p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Shortlist</p>
+                <p className="mt-1 text-sm font-semibold text-[#171717]">Saved candidates</p>
+              </div>
+              <span className="rounded-full bg-[#EEF8F1] px-2 py-1 text-[11px] font-medium text-[#108A4B]">
+                {shortlistedItems.length} saved
+              </span>
+            </div>
+            <p className="mt-2 text-xs leading-5 text-[#4B453F]">{buildShortlistRead(shortlistedItems)}</p>
+            <div className="mt-3 grid gap-2 md:grid-cols-2">
+              {shortlistedItems.map((item) => (
+                <div key={item.statusKey} className="rounded-lg border border-[#E7DDD1] bg-white p-2.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-[#171717]">{item.lead.title}</p>
+                      <p className="mt-1 text-[11px] text-[#8A8178]">{displayCompanyFromLead(item.lead)}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onProfileLeadStatusChange(item.statusKey, { action: undefined })}
+                      className="shrink-0 rounded-md border border-[#E3DED7] bg-white px-2 py-1 text-[11px] font-medium text-[#625A52] transition hover:bg-[#F7F4EF]"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+          {potentialItems.map((item) => (
+            <ProfileLeadCard
+              key={item.statusKey}
+              lead={item.lead}
+              status={profileLeadStatus[item.statusKey]}
+              onStatusChange={(status) => onProfileLeadStatusChange(item.statusKey, status)}
+            />
+          ))}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -1301,21 +1774,22 @@ function ProfileLeadCard({
   const sourceLabel = lead.source.replace("_", " ");
   const companyLabel = displayCompanyFromLead(lead);
   const whySurfaced = compactLeadText(lead.fitReason, 140);
+  const evidenceLine = leadEvidenceLine(lead);
   const missingSignal = missingSignalForLead(lead);
 
   return (
     <article
-      className={`rounded-lg border p-3 shadow-[0_10px_28px_rgba(23,23,23,0.035)] transition ${
+      className={`rounded-xl border p-4 shadow-[0_14px_38px_rgba(23,23,23,0.045)] transition ${
         isRejected ? "border-[#E2D6CC] bg-[#FBF7F3] opacity-75" : "border-[#E5E2DD] bg-white"
       }`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="text-sm font-semibold leading-5 text-[#171717]">{lead.title}</h3>
-          <p className="mt-1 text-[11px] leading-4 text-[#8A8178]">{companyLabel}</p>
+          <h3 className="text-base font-semibold leading-6 text-[#171717]">{lead.title}</h3>
+          <p className="mt-1 text-xs leading-5 text-[#8A8178]">{companyLabel}</p>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            <span className="rounded-full bg-[#EEF8F1] px-2 py-0.5 text-[11px] capitalize text-[#4F7A5C]">{sourceLabel}</span>
-            <span className="rounded-full bg-[#F3EFE8] px-2 py-0.5 text-[11px] capitalize text-[#6F675E]">{lead.confidence} confidence</span>
+            <span className="rounded-full bg-[#EEF8F1] px-2.5 py-1 text-xs capitalize text-[#4F7A5C]">{sourceLabel}</span>
+            <span className="rounded-full bg-[#F3EFE8] px-2.5 py-1 text-xs capitalize text-[#6F675E]">{lead.confidence} confidence</span>
             {isRejected ? <span className="rounded-full bg-[#FFF2E8] px-2 py-0.5 text-[11px] text-[#A35F2E]">Rejected</span> : null}
             {isSaved ? <span className="rounded-full bg-[#EEF8F1] px-2 py-0.5 text-[11px] text-[#108A4B]">Saved</span> : null}
           </div>
@@ -1324,20 +1798,21 @@ function ProfileLeadCard({
           href={lead.url}
           target="_blank"
           rel="noreferrer"
-          className="shrink-0 rounded-md border border-[#E3DED7] px-2 py-1 text-[11px] font-medium text-[#4B453F] hover:bg-[#F7F4EF]"
+          className="shrink-0 rounded-md border border-[#E3DED7] px-2.5 py-1.5 text-xs font-medium text-[#4B453F] hover:bg-[#F7F4EF]"
         >
           Open
         </a>
       </div>
 
-      <div className="mt-3 grid gap-2 rounded-lg bg-[#FBFAF7] p-2 text-xs leading-5">
+      <div className="mt-4 grid gap-3 rounded-lg bg-[#FBFAF7] p-3 text-sm leading-6">
         <p className="text-[#262626]"><span className="font-semibold">Why surfaced:</span> {whySurfaced}</p>
+        <p className="text-[#4B453F]"><span className="font-semibold">Evidence/proof:</span> {evidenceLine}</p>
         <p className="text-[#625A52]"><span className="font-semibold text-[#4B453F]">Missing signal:</span> {missingSignal}</p>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-1.5">
+      <div className="mt-4 flex flex-wrap gap-1.5">
         {lead.tags.slice(0, 5).map((tag) => (
-          <span key={tag} className="rounded-md bg-[#F4F1EC] px-2 py-1 text-[11px] text-[#625A52]">
+          <span key={tag} className="rounded-md bg-[#F4F1EC] px-2.5 py-1 text-xs text-[#625A52]">
             {tag}
           </span>
         ))}
@@ -1365,11 +1840,11 @@ function ProfileLeadCard({
         </div>
       </details>
 
-      <div className="mt-3 grid grid-cols-2 gap-1.5">
+      <div className="mt-4 grid grid-cols-2 gap-2">
         <button
           type="button"
           onClick={() => onStatusChange({ action: isSaved ? undefined : "saved" })}
-          className={`rounded-md border px-2 py-1.5 text-[11px] font-medium transition ${
+          className={`rounded-md border px-2 py-2 text-xs font-medium transition ${
             isSaved ? "border-[#171717] bg-[#171717] text-white" : "border-[#E3DED7] bg-white text-[#4B453F] hover:bg-[#F7F4EF]"
           }`}
         >
@@ -1378,7 +1853,7 @@ function ProfileLeadCard({
         <button
           type="button"
           onClick={() => onStatusChange({ action: isRejected ? undefined : "rejected" })}
-          className={`rounded-md border px-2 py-1.5 text-[11px] font-medium transition ${
+          className={`rounded-md border px-2 py-2 text-xs font-medium transition ${
             isRejected ? "border-[#A35F2E] bg-[#FFF2E8] text-[#A35F2E]" : "border-[#E3DED7] bg-white text-[#4B453F] hover:bg-[#F7F4EF]"
           }`}
         >
@@ -1387,7 +1862,7 @@ function ProfileLeadCard({
         <button
           type="button"
           onClick={() => onStatusChange({ preference: "more_like_this" })}
-          className={`rounded-md border px-2 py-1.5 text-[11px] font-medium transition ${
+          className={`rounded-md border px-2 py-2 text-xs font-medium transition ${
             status?.preference === "more_like_this" ? "border-[#108A4B] bg-[#EEF8F1] text-[#108A4B]" : "border-[#E3DED7] bg-white text-[#4B453F] hover:bg-[#F7F4EF]"
           }`}
         >
@@ -1396,7 +1871,7 @@ function ProfileLeadCard({
         <button
           type="button"
           onClick={() => onStatusChange({ preference: "less_like_this" })}
-          className={`rounded-md border px-2 py-1.5 text-[11px] font-medium transition ${
+          className={`rounded-md border px-2 py-2 text-xs font-medium transition ${
             status?.preference === "less_like_this" ? "border-[#B87A4A] bg-[#FFF2E8] text-[#A35F2E]" : "border-[#E3DED7] bg-white text-[#4B453F] hover:bg-[#F7F4EF]"
           }`}
         >
@@ -1408,6 +1883,7 @@ function ProfileLeadCard({
 }
 
 function CandidateResultsSection({
+  brainState,
   count,
   hasFeedback,
   refineLabel,
@@ -1416,6 +1892,7 @@ function CandidateResultsSection({
   feedbackRead,
   children
 }: {
+  brainState: BrainState;
   count: number;
   hasFeedback: boolean;
   refineLabel: string;
@@ -1447,10 +1924,29 @@ function CandidateResultsSection({
         </div>
       </div>
       <p className="mt-1 text-xs leading-5 text-[#625A52]">Actionable candidates from public signals. Review before outreach.</p>
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <MiniScore label="Quality" value={brainState.batchQualityScore} />
+        <MiniScore label="Novelty" value={brainState.noveltyScore} />
+        <MiniScore label="Confidence" value={brainState.confidenceScore} />
+      </div>
       <TalentBatchReadCard read={batchRead} />
       {feedbackRead ? <FeedbackLearningCard read={feedbackRead} /> : null}
       <div className="mt-3 grid gap-3">{children}</div>
     </section>
+  );
+}
+
+function MiniScore({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-md border border-[#E7DDD1] bg-[#FBFAF7] p-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[10px] font-medium uppercase tracking-[0.1em] text-[#8A8178]">{label}</p>
+        <span className="text-[11px] font-semibold text-[#262626]">{value}</span>
+      </div>
+      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-[#E9E1D8]">
+        <div className="h-full rounded-full bg-[#108A4B]" style={{ width: `${clampPercent(value)}%` }} />
+      </div>
+    </div>
   );
 }
 
@@ -1478,11 +1974,13 @@ function FeedbackLearningCard({ read }: { read: string }) {
 function RoleMemorySection({
   calibration,
   strategy,
+  brainState,
   latestSynthesis,
   defaultOpen
 }: {
   calibration: LiveCalibration;
   strategy: SourcingStrategy;
+  brainState: BrainState;
   latestSynthesis: string;
   defaultOpen: boolean;
 }) {
@@ -1507,7 +2005,7 @@ function RoleMemorySection({
 
       <div className="mt-3 rounded-lg border border-[#E7DDD1] bg-white p-2.5">
         <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8A8178]">Role thesis</p>
-        <p className="mt-1.5 text-xs leading-5 text-[#4B453F]">{strategy.searchThesis}</p>
+        <p className="mt-1.5 text-xs leading-5 text-[#4B453F]">{brainState.roleThesis}</p>
       </div>
 
       <div className="mt-3 rounded-lg border border-[#E7DDD1] bg-white p-2.5">
@@ -1518,8 +2016,8 @@ function RoleMemorySection({
       <div className="mt-3 grid gap-2">
         <StrategyRow label="Must-have signals" items={strategy.mustHaveSignals.slice(0, 5)} />
         <StrategyRow label="Nice-to-have signals" items={strategy.niceToHaveSignals.slice(0, 5)} />
-        <StrategyRow label="Avoid signals" items={strategy.avoidSignals.slice(0, 5)} tone="warning" />
-        <StrategyRow label="Open questions" items={openQuestions.slice(0, 3)} tone={strategy.readiness.followUpQuestions.length ? "warning" : "default"} />
+        <StrategyRow label="Avoid signals" items={brainState.avoidSignals.slice(0, 5)} tone="warning" />
+        <StrategyRow label="Open questions" items={(brainState.calibrationQuestions.length ? brainState.calibrationQuestions : openQuestions).slice(0, 3)} tone={brainState.calibrationQuestions.length ? "warning" : "default"} />
       </div>
 
       <details className="mt-3 rounded-lg border border-[#E7DDD1] bg-white">
@@ -1609,12 +2107,14 @@ function MarketRealitySection({
   calibration,
   profiles,
   strategy,
+  brainState,
   snapshot,
   defaultOpen
 }: {
   calibration: LiveCalibration;
   profiles: ReturnType<typeof deriveCalibrationProfiles>;
   strategy: SourcingStrategy;
+  brainState: BrainState;
   snapshot: PipelineSnapshot;
   defaultOpen: boolean;
 }) {
@@ -1622,7 +2122,7 @@ function MarketRealitySection({
   const compRange = primaryProfile?.comp || calibration.marketPressure;
   const talentSupply = calibration.poolImpact || snapshot.briefing.marketReality;
   const timeToFill = estimateTimeToFill(calibration, profiles);
-  const keywords = uniqueStrings([...strategy.queryTerms, ...calibration.keywords]).slice(0, 6);
+  const keywords = uniqueStrings([...strategy.queryTerms, ...brainState.seekSignals, ...calibration.keywords]).slice(0, 6);
 
   return (
     <details open={defaultOpen} className="rounded-lg border border-[#E5E2DD] bg-white p-3">
@@ -1673,7 +2173,9 @@ function ShortlistReadCard({ read }: { read: string }) {
   );
 }
 
-function SourcingStrategyCard({ strategy }: { strategy: SourcingStrategy }) {
+function SourcingStrategyCard({ strategy, brainState }: { strategy: SourcingStrategy; brainState: BrainState }) {
+  const sourceLaneItems = sourceLaneChips(brainState.sourceLanes);
+
   return (
     <section className="rounded-lg border border-[#DCD3C8] bg-[#FBFAF7] p-3">
       <div className="flex items-start justify-between gap-3">
@@ -1681,18 +2183,49 @@ function SourcingStrategyCard({ strategy }: { strategy: SourcingStrategy }) {
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Search Brief</p>
           <h3 className="mt-2 text-sm font-semibold text-[#171717]">How Tina is thinking.</h3>
         </div>
-        <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold ${readinessBadgeClass(strategy.readiness.readinessStatus)}`}>
-          {readinessLabel(strategy.readiness.readinessStatus)}
+        <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold ${brainReadinessBadgeClass(brainState.sourcingReadiness)}`}>
+          {brainReadinessLabel(brainState.sourcingReadiness)}
         </span>
       </div>
 
-      <p className="mt-2 text-xs leading-5 text-[#5A524A]">{strategy.searchThesis}</p>
+      <p className="mt-2 text-xs leading-5 text-[#5A524A]">{brainState.tinaRead}</p>
+
+      <div className="mt-3 rounded-lg border border-[#E7DDD1] bg-white p-2.5">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8A8178]">Readiness</p>
+          <span className="text-xs font-semibold text-[#262626]">{brainState.readinessScore}</span>
+        </div>
+        <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#E9E1D8]">
+          <div className="h-full rounded-full bg-[#108A4B]" style={{ width: `${clampPercent(brainState.readinessScore)}%` }} />
+        </div>
+      </div>
 
       <div className="mt-3 grid gap-2">
-        <StrategyRow label="Seek" items={strategy.seek.slice(0, 5)} />
-        <StrategyRow label="Avoid" items={strategy.avoidSignals.slice(0, 5)} tone="warning" />
-        <StrategyRow label="Likely titles" items={strategy.targetTitles.slice(0, 5)} />
-        <StrategyRow label="Source lanes" items={strategy.targetCompanyTypes.slice(0, 5)} />
+        <SearchShapeBar label="Ownership" value={brainState.searchShape.ownership} />
+        <SearchShapeBar label="Ambiguity" value={brainState.searchShape.ambiguityTolerance} />
+        <SearchShapeBar label="Product judgment" value={brainState.searchShape.productJudgment} />
+        <SearchShapeBar label="Execution speed" value={brainState.searchShape.executionSpeed} />
+        <SearchShapeBar label="Technical depth" value={brainState.searchShape.technicalDepth} />
+      </div>
+
+      {brainState.missingSignals.length ? (
+        <div className="mt-3 rounded-lg border border-[#F0D8C8] bg-[#FFF8F2] p-2.5">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#A35F2E]">Missing signal</p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {brainState.missingSignals.slice(0, 4).map((signal) => (
+              <span key={signal} className="rounded-md bg-white px-2 py-1 text-[11px] text-[#9A5D31] ring-1 ring-[#F0D8C8]">
+                {signal}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="mt-3 grid gap-2">
+        <StrategyRow label="Seek" items={brainState.seekSignals.slice(0, 5)} />
+        <StrategyRow label="Avoid" items={brainState.avoidSignals.slice(0, 5)} tone="warning" />
+        <StrategyRow label="Likely titles" items={brainState.likelyTitles.slice(0, 5)} />
+        <StrategyRow label="Source lanes" items={sourceLaneItems} />
       </div>
 
       <details className="mt-3 rounded-lg border border-[#E7DDD1] bg-white">
@@ -1705,11 +2238,41 @@ function SourcingStrategyCard({ strategy }: { strategy: SourcingStrategy }) {
           <StrategyRow label="Nice-to-have signals" items={strategy.niceToHaveSignals.slice(0, 5)} />
           <StrategyRow label="Target company types" items={strategy.targetCompanyTypes.slice(0, 5)} />
           <StrategyRow label="Search lanes" items={strategy.searchLanes.slice(0, 5)} />
-          <StrategyRow label="Missing signals" items={strategy.readiness.missingSignals.slice(0, 5)} tone="warning" />
+          <StrategyRow label="Calibration questions" items={brainState.calibrationQuestions.slice(0, 5)} tone="warning" />
           <StrategyRow label="Query terms" items={strategy.queryTerms.slice(0, 5)} />
         </div>
       </details>
     </section>
+  );
+}
+
+function sourceLaneChips(sourceLanes: BrainState["sourceLanes"]) {
+  const labels: Record<keyof BrainState["sourceLanes"], string> = {
+    publicWeb: "Public web",
+    linkedinLike: "LinkedIn-like",
+    github: "GitHub",
+    startupAlumni: "Startup alumni",
+    blogsTalks: "Blogs/talks"
+  };
+
+  return (Object.entries(sourceLanes) as Array<[keyof BrainState["sourceLanes"], BrainState["sourceLanes"][keyof BrainState["sourceLanes"]]]>)
+    .filter(([, status]) => status !== "inactive")
+    .map(([lane, status]) => `${labels[lane]}: ${status}`);
+}
+
+function SearchShapeBar({ label, value }: { label: string; value: number }) {
+  const hasSignal = value > 0;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] text-[#625A52]">{label}</span>
+        <span className="text-[10px] font-medium text-[#8A8178]">{hasSignal ? value : "missing"}</span>
+      </div>
+      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[#E9E1D8]">
+        <div className={`h-full rounded-full ${hasSignal ? "bg-[#178A52]" : "bg-[#D8CEC2]"}`} style={{ width: `${hasSignal ? clampPercent(value) : 8}%` }} />
+      </div>
+    </div>
   );
 }
 
@@ -1723,6 +2286,22 @@ function readinessBadgeClass(status: SourcingReadiness["readinessStatus"]) {
   if (status === "ready_to_source") return "bg-[#EEF8F1] text-[#108A4B]";
   if (status === "low_confidence_search") return "bg-[#FFF7E8] text-[#9A6A18]";
   return "bg-[#FFF2E8] text-[#A35F2E]";
+}
+
+function brainReadinessLabel(status: BrainState["sourcingReadiness"]) {
+  if (status === "ready") return "Ready for first batch";
+  if (status === "calibration_batch") return "Calibration batch";
+  return "Not ready";
+}
+
+function brainReadinessBadgeClass(status: BrainState["sourcingReadiness"]) {
+  if (status === "ready") return "bg-[#EEF8F1] text-[#108A4B]";
+  if (status === "calibration_batch") return "bg-[#FFF7E8] text-[#9A6A18]";
+  return "bg-[#FFF2E8] text-[#A35F2E]";
+}
+
+function clampPercent(value: number) {
+  return Math.max(0, Math.min(100, Math.round(value)));
 }
 
 function TalentBatchReadCard({ read }: { read: string }) {
@@ -1891,6 +2470,17 @@ function missingSignalForLead(lead: ProfileLead) {
   return "Looks directionally relevant; verify depth, recency, and operating environment.";
 }
 
+function leadEvidenceLine(lead: ProfileLead) {
+  const calibration = lead.calibration;
+  const proof = [
+    calibration?.scope,
+    calibration?.yearsExperience,
+    lead.tags.slice(0, 2).join(", ")
+  ].filter(Boolean).join(" · ");
+
+  return compactLeadText(proof || lead.snippet || lead.fitReason, 150);
+}
+
 function buildTalentBatchRead(items: ProfileLeadItem[]) {
   const leads = items.map((item) => item.lead);
   const count = leads.length;
@@ -1913,6 +2503,17 @@ function buildTalentBatchRead(items: ProfileLeadItem[]) {
       : "This batch is still title-noisy. I’d use it to clarify the lane before messaging anyone.";
 
   return `${qualityLead} It has ${count} ${count === 1 ? "profile" : "profiles"}, mostly from ${sourceMix.join(" and ") || "public sources"}, with ${signal} signals. Treat it as ${confidenceRead}; the next judgment is whether the public evidence proves the actual operating pattern.${companyCaveat}`;
+}
+
+function limitSentences(value: string, maxSentences: number) {
+  const sentences = value.match(/[^.!?]+[.!?]+/g);
+  if (!sentences?.length) return compactLeadText(value, 240);
+  return sentences.slice(0, maxSentences).join(" ").replace(/\s+/g, " ").trim();
+}
+
+function batchReadDetail(value: string) {
+  const sentences = value.match(/[^.!?]+[.!?]+/g) || [];
+  return sentences.find((sentence) => /\b(has|profiles|signals|mostly from)\b/i.test(sentence) && !/\btight enough|useful for calibration|title-noisy\b/i.test(sentence))?.trim() || "";
 }
 
 function buildShortlistRead(items: ProfileLeadItem[]) {
@@ -3179,6 +3780,7 @@ function deriveSourcingStrategy(
   const isOperator = /\b(operator|ops|operations|chief of staff|founder office|bizops)\b/.test(text);
   const isPlant = /\b(plant|factory|manufacturing|industrial|warehouse)\b/.test(text);
   const isSenior = /\b(senior|staff|principal|lead|head|founding)\b/.test(text);
+  const explicitProductRole = /\b(pm|product manager|founding pm|head of product|product lead)\b/.test(text);
   const primaryProfile = profiles[0];
 
   if (isPlant) {
@@ -3208,6 +3810,21 @@ function deriveSourcingStrategy(
       niceToHaveSignals: ["product fluency", "customer proximity", "finance or GTM range"],
       avoidSignals: ["process-first operators", "coordination without judgment", "needs mature ownership lanes"],
       queryTerms: ["founder office", "chief of staff", "bizops", "operator"]
+    };
+  }
+
+  if (isProduct && explicitProductRole) {
+    return {
+      readiness: sourcingReadiness,
+      searchThesis: sourcingReadiness.searchThesis,
+      seek: ["customer signal", "clarity creation", "independent judgment"],
+      targetTitles: [isSenior ? "Founding PM" : "Product Manager", "Product Lead", "Product Operator", "Customer Discovery Lead"],
+      targetCompanyTypes: ["zero-to-one startups", "vertical SaaS", "AI or fintech product teams", "founder-led product teams"],
+      searchLanes: ["startup-native PMs", "customer-discovery operators", "product-minded AI/fintech operators"],
+      mustHaveSignals: ["customer signal", "clarity creation", "prioritization judgment", "low-process execution"],
+      niceToHaveSignals: ["technical fluency", "fintech or AI exposure", "early-stage launches"],
+      avoidSignals: ["roadmap administration", "process-heavy PM work", "infra depth with no product pull"],
+      queryTerms: ["founding PM", "product manager", "fintech product", "AI product"]
     };
   }
 
@@ -3268,6 +3885,43 @@ function deriveSourcingStrategy(
     avoidSignals: ["title match without operating proof", "needs heavy structure", "generic startup enthusiasm"],
     queryTerms: ["startup generalist", "founding operator", "builder", "ownership"]
   };
+}
+
+function buildMissionHeader(messages: TinaMvpMessage[], calibration: LiveCalibration, strategy: SourcingStrategy) {
+  const founderText = messages.filter((message) => message.role === "founder").map((message) => message.content).join(" ").toLowerCase();
+  const allText = messages.map((message) => message.content).join(" ").toLowerCase();
+  const role = compactMissionPart(inferMissionRole(founderText, calibration, strategy));
+  const constraints = [
+    /\b(us|u\.s\.|usa|united states)\b/.test(founderText) && /\bcanada|canadian\b/.test(founderText) ? "US/Canada" : "",
+    /\bremote\b/.test(founderText) ? "remote" : "",
+    /\b(urgent|asap|very fast|move fast)\b/.test(founderText) ? "urgent" : "",
+    /\b(fintech|banking|compliance|fraud|credit|underwriting)\b/.test(allText) ? "fintech" : "",
+    /\b(nlp|document parsing|language model|llm)\b/.test(allText) ? "NLP" : "",
+    isWeb3EngineeringSearch(founderText) ? "web3" : ""
+  ].filter(Boolean);
+
+  return `Finding: ${role}${constraints.length ? ` · ${uniqueStrings(constraints).join(" · ")}` : ""}`;
+}
+
+function inferMissionRole(founderText: string, calibration: LiveCalibration, strategy: SourcingStrategy) {
+  if (/\b(nlp|language model|llm)\b/.test(founderText) && /\b(pm|product manager|product lead)\b/.test(founderText)) return "NLP Product Manager";
+  if (/\b(pm|product manager|founding pm)\b/.test(founderText)) return "Product Manager";
+  if (isWeb3EngineeringSearch(founderText)) return "Smart Contract Engineer";
+
+  return strategy.targetTitles[0] || calibration.roleTitle || "this search";
+}
+
+function isWeb3EngineeringSearch(text: string) {
+  return /\b(solidity|smartcontract|smart contract engineer|protocol engineer|web3 engineer|defi engineer|mainnet engineer)\b/.test(text) ||
+    (/\b(smart contract|web3|defi|protocol|mainnet)\b/.test(text) && /\b(engineer|developer|code|coding|ship code)\b/.test(text));
+}
+
+function compactMissionPart(value: string) {
+  return value
+    .replace(/\s+-\s+LinkedIn$/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 72);
 }
 
 function uniqueStrings(values: Array<string | undefined>) {

@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "eval:retrieval": "npx tsc lib/brain/retrieveBrainContext.ts --module commonjs --target es2019 --esModuleInterop --outDir .tmp/eval-retrieval --skipLibCheck && node scripts/eval-retrieval.mjs",
+    "eval:brain-state": "npx tsc -p tsconfig.brain-state-eval.json && node scripts/eval-brain-state.mjs",
     "start": "next start",
     "lint": "next lint"
   },

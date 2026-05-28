@@ -7,6 +7,11 @@ export type ProfileLead = {
   query: string;
   fitReason: string;
   confidence: "low" | "medium" | "high";
+  validation?: {
+    roleFunctionMatch: boolean;
+    evidenceStrength: "strong" | "medium" | "weak";
+    filteredReason?: string;
+  };
   tags: string[];
   saved: boolean;
   feedback?: "not_relevant";
@@ -19,4 +24,12 @@ export type ProfileLead = {
     niceToHaves: string[];
     compRange: string;
   };
+};
+
+export type SourcingBatchMetadata = {
+  requestedCount: number;
+  returnedCount: number;
+  validCount: number;
+  filteredCount: number;
+  filteredReasons: string[];
 };

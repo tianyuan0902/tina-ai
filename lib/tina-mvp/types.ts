@@ -1,4 +1,4 @@
-import type { ProfileLead } from "@/lib/tina/profile-lead-types";
+import type { ProfileLead, SourcingBatchMetadata } from "@/lib/tina/profile-lead-types";
 import type { SourcingReadiness } from "@/lib/tina/sourcing-readiness";
 
 export type TinaMvpRole = "founder" | "tina";
@@ -8,6 +8,7 @@ export type TinaMvpMessage = {
   role: TinaMvpRole;
   content: string;
   profileLeads?: ProfileLead[];
+  sourcingBatch?: SourcingBatchMetadata;
   sourcingReadiness?: SourcingReadiness;
 };
 

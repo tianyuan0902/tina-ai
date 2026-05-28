@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 
 import { retrieveBrainContext } from "@/lib/brain/retrieveBrainContext";
 import { formatCompanyContext, isCompanyContextMessage, retrieveCompanyContext } from "@/lib/tina/company-context";
-import { getRequestedProfileCount, searchPublicProfileLeads } from "@/lib/tina/public-search";
+import { getRequestedProfileCount, searchPublicProfileBatch } from "@/lib/tina/public-search";
 import { evaluateSourcingReadiness } from "@/lib/tina/sourcing-readiness";
 import { TINA_SYSTEM_PROMPT } from "@/lib/tina-mvp/system-prompt";
+import type { SourcingBatchMetadata } from "@/lib/tina/profile-lead-types";
 import type { TinaMvpMessage } from "@/lib/tina-mvp/types";
 
 export const dynamic = "force-dynamic";
@@ -84,17 +85,19 @@ export async function POST(request: Request) {
     const promisedCount = getRequestedProfileCount(searchTriggerMessage);
     const finalRequestedCount = shouldRunPromisedSourcing ? promisedCount : requestedCount;
     const excludedUrls = collectShownProfileUrls(cleanMessages);
-    const profileLeads = await searchPublicProfileLeads(hiringContext, finalRequestedCount, {
+    const sourcingBatch = await searchPublicProfileBatch(hiringContext, finalRequestedCount, {
       excludedUrls,
       refinement
     });
+    const { profileLeads, metadata } = sourcingBatch;
 
     return NextResponse.json({
       message: {
         id: `tina-public-search-${Date.now()}`,
         role: "tina",
-        content: buildProfileSearchResponse(shouldRunPromisedSourcing ? "this hiring lane" : latestUserMessage.content, profileLeads.length, isRefinementSearch, finalRequestedCount),
+        content: buildProfileSearchResponse(shouldRunPromisedSourcing ? "this hiring lane" : latestUserMessage.content, metadata, isRefinementSearch),
         profileLeads,
+        sourcingBatch: metadata,
         sourcingReadiness: readiness
       },
       source: "public_search"
@@ -108,7 +111,7 @@ export async function POST(request: Request) {
   const instructions = [
     TINA_SYSTEM_PROMPT,
     "If the founder gives company or product context, treat it as hiring calibration input. Infer what kinds of candidates may fit the company, product surface, customer environment, and operating stage. Do not ask why the company context matters.",
-    "For normal chat, keep the answer compact, complete, and human. Sound like you are thinking with the founder in real time. Use contractions. Avoid stiff phrases like 'there are three key dimensions' or 'the optimal approach'. Tina is an AI talent partner: sourcing is the visible output, talent judgment is the engine. Move toward actionable candidates quickly. Ask only the questions needed to improve sourcing quality. If the founder is vague, say what is missing and why it would make candidate quality noisy. Do not over-calibrate before showing candidates. Preserve market intel and calibration as supporting intelligence.",
+    "For normal chat, keep the answer compact, complete, and human. Sound like you are thinking with the founder in real time. Use contractions. Avoid stiff phrases like 'there are three key dimensions' or 'the optimal approach'. Tina is an AI talent partner: sourcing is the visible output, talent judgment is the engine. Move toward actionable candidates quickly. Ask only the questions needed to improve sourcing quality. If the founder is vague, say what is missing and why it would make candidate quality noisy. Do not over-calibrate before showing candidates. Preserve market intel and calibration as supporting intelligence. Do not say you are pulling, sharing, or preparing a candidate list later unless actual profile leads are included in this response.",
     liveJdRequest
       ? "The founder is asking for a JD or role description. Generate a complete draft with compact sections. Do not stop mid-bullet or end with an unfinished sentence."
       : "",
@@ -196,6 +199,46 @@ export async function POST(request: Request) {
     });
   }
 
+  if (isAssistantPromisingProfileList(text)) {
+    const readiness = evaluateSourcingReadiness(cleanMessages);
+
+    if (readiness.readinessStatus !== "needs_calibration") {
+      const requestedCount = getRequestedProfileCount(`${latestUserMessage.content}\n${text}`);
+      const hiringContext = [
+        cleanMessages.map((message) => message.content).join("\n"),
+        `Tina said she was pulling a shortlist; convert that promise into actual public profile sourcing.`,
+        readiness.searchThesis ? `Search thesis:\n${readiness.searchThesis}` : "",
+        `Draft response that triggered sourcing:\n${text}`
+      ].filter(Boolean).join("\n\n");
+      const sourcingBatch = await searchPublicProfileBatch(hiringContext, requestedCount, {
+        excludedUrls: collectShownProfileUrls(cleanMessages)
+      });
+      const { profileLeads, metadata } = sourcingBatch;
+
+      return NextResponse.json({
+        message: {
+          id: `tina-public-search-${Date.now()}`,
+          role: "tina",
+          content: buildProfileSearchResponse("this hiring lane", metadata, false),
+          profileLeads,
+          sourcingBatch: metadata,
+          sourcingReadiness: readiness
+        },
+        source: "public_search"
+      });
+    }
+
+    return NextResponse.json({
+      message: {
+        id: `tina-sourcing-readiness-${Date.now()}`,
+        role: "tina",
+        content: buildSourcingReadinessResponse(readiness),
+        sourcingReadiness: readiness
+      },
+      source: "sourcing_readiness"
+    });
+  }
+
   console.log("[Tina MVP] OpenAI response id:", data.id);
 
   return NextResponse.json({
@@ -209,27 +252,49 @@ export async function POST(request: Request) {
   });
 }
 
-function buildProfileSearchResponse(message: string, count: number, isRefinementSearch = false, requestedCount = count) {
-  if (count === 0) {
-    return "I did not find a novel public profile worth showing from that pass. Better to tighten the lane than recycle weak repeats.";
+function isAssistantPromisingProfileList(message: string) {
+  const text = message.toLowerCase();
+  const promiseLanguage =
+    /\b(i['’]?m pulling|i am pulling|i['’]?ll pull|i will pull|i['’]?ll get you|i will get you|i['’]?ll share|i will share|give me a moment)\b/.test(text);
+  const listLanguage = /\b(shortlist|candidate list|profile list|list of|profiles?|candidates?|people|leads?|batch)\b/.test(text);
+  const onlyOffering = /\b(want me to|would you like me to|should i)\b.*\b(pull|source|find|build|create)\b/.test(text) &&
+    !/\b(i['’]?m pulling|i am pulling)\b/.test(text);
+
+  return promiseLanguage && listLanguage && !onlyOffering;
+}
+
+function buildProfileSearchResponse(message: string, metadata: SourcingBatchMetadata, isRefinementSearch = false) {
+  const { requestedCount, validCount, filteredCount, filteredReasons } = metadata;
+  const mostlyFiltered = filteredCount > validCount;
+  const filteredReason = filteredReasons.join(", ") || "they looked like role/function mismatches";
+
+  if (validCount === 0) {
+    const reason = filteredCount ? ` I filtered out ${filteredCount} false positives because ${filteredReason}.` : "";
+    return `I found some public results, but most did not pass role-fit validation.${reason} Better to tighten the lane than recycle weak matches.`;
   }
 
-  const qualityNote = count < requestedCount
-    ? ` I found ${count} worth reviewing instead of forcing ${requestedCount}. Better a small useful batch than a decorative spreadsheet.`
+  const qualityNote = validCount < requestedCount
+    ? ` I found ${validCount} valid ${validCount === 1 ? "profile" : "profiles"} out of ${requestedCount} requested. Better a small accurate batch than a bigger wrong one.`
+    : "";
+  const filteredNote = filteredCount
+    ? ` I filtered out ${filteredCount} false ${filteredCount === 1 ? "positive" : "positives"} because ${filteredReason}.`
+    : "";
+  const validationLead = mostlyFiltered
+    ? `I found some public results, but most did not pass role-fit validation. I’m showing ${validCount} valid ${validCount === 1 ? "profile" : "profiles"} instead.`
     : "";
 
   if (isRefinementSearch) {
     return [
-      `I pulled ${count} new public ${count === 1 ? "profile" : "profiles"} based on your Talent Pool feedback.`,
-      `Use Yes/No as signal, not final judgment.${qualityNote}`
+      validationLead || `I found ${validCount} new valid public ${validCount === 1 ? "profile" : "profiles"} based on your Talent Pool feedback.`,
+      `Use Yes/No as signal, not final judgment.${qualityNote}${filteredNote}`
     ].join(" ");
   }
 
   const scope = inferRequestedScope(message);
 
   return [
-    `I pulled ${count} public calibration ${count === 1 ? "profile" : "profiles"} for ${scope}.`,
-    `Use Yes/No as signal, not final judgment. After three yeses, Tina has enough pattern to look for similar people.${qualityNote}`
+    validationLead || `I found ${validCount} valid public calibration ${validCount === 1 ? "profile" : "profiles"} for ${scope}.`,
+    `Use Yes/No as signal, not final judgment.${qualityNote}${filteredNote}`
   ].join(" ");
 }
 
