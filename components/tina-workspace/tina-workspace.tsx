@@ -1237,6 +1237,11 @@ function TalentPoolTab({
   const visibleProfiles = profiles.slice(0, calibration.depth >= 3 ? 3 : 2);
   const sourcingStrategy = deriveSourcingStrategy(calibration, profiles, sourcingReadiness);
   const visibleItems = prioritizeLatestProfileLeadItems(profileLeadItems, latestProfileLeadItems);
+  const shortlistedItems = profileLeadItems.filter((item) => profileLeadStatus[item.statusKey]?.action === "saved");
+  const potentialItems = prioritizePotentialCandidateItems(
+    visibleItems.filter((item) => profileLeadStatus[item.statusKey]?.action !== "saved"),
+    profileLeadStatus
+  );
   const hasFeedback = latestProfileLeadItems.some((item) => hasProfileLeadFeedback(profileLeadStatus[item.statusKey]));
   const handleRefineSearch = () => {
     const summary = buildTalentPoolFeedbackSummary(latestProfileLeadItems, profileLeadStatus);
@@ -1272,9 +1277,17 @@ function TalentPoolTab({
 
         <SourcingStrategyCard strategy={sourcingStrategy} />
 
+        {shortlistedItems.length ? (
+          <ShortlistSection
+            items={shortlistedItems}
+            statuses={profileLeadStatus}
+            onRemove={(statusKey) => onProfileLeadStatusChange(statusKey, { action: undefined })}
+          />
+        ) : null}
+
         <TalentBatchReadCard read={latestBatchRead} />
 
-        {visibleItems.map((item) => (
+        {potentialItems.map((item) => (
           <ProfileLeadCard
             key={item.statusKey}
             lead={item.lead}
@@ -1424,6 +1437,77 @@ function ProfileLeadCard({
   );
 }
 
+function ShortlistSection({
+  items,
+  statuses,
+  onRemove
+}: {
+  items: ProfileLeadItem[];
+  statuses: Record<string, ProfileLeadStatus>;
+  onRemove: (statusKey: string) => void;
+}) {
+  return (
+    <section className="rounded-lg border border-[#D7CFC5] bg-white p-3 shadow-[0_12px_34px_rgba(23,23,23,0.035)]">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Shortlist</p>
+          <h3 className="mt-2 text-sm font-semibold text-[#171717]">Saved Candidates</h3>
+        </div>
+        <span className="rounded-full bg-[#EEF8F1] px-2 py-1 text-[11px] font-medium text-[#108A4B]">
+          {items.length} saved
+        </span>
+      </div>
+
+      <ShortlistReadCard read={buildShortlistRead(items)} />
+
+      <div className="mt-3 grid gap-2">
+        {items.map((item) => {
+          const lead = item.lead;
+          const status = statuses[item.statusKey];
+          const outreachReady = lead.confidence === "high" && !missingSignalForLead(lead).toLowerCase().includes("thin");
+
+          return (
+            <article key={item.statusKey} className="rounded-lg border border-[#E7DDD1] bg-[#FBFAF7] p-2.5">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-[#171717]">{lead.title}</p>
+                  <p className="mt-1 text-[11px] text-[#8A8178]">{displayCompanyFromLead(lead)}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onRemove(item.statusKey)}
+                  className="shrink-0 rounded-md border border-[#E3DED7] bg-white px-2 py-1 text-[11px] font-medium text-[#625A52] transition hover:bg-[#F7F4EF]"
+                >
+                  Remove
+                </button>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <span className={`rounded-full px-2 py-0.5 text-[11px] ${outreachReady ? "bg-[#EEF8F1] text-[#108A4B]" : "bg-[#F3EFE8] text-[#6F675E]"}`}>
+                  {outreachReady ? "Outreach-ready signal" : "Calibration signal"}
+                </span>
+                <span className="rounded-full bg-[#F4F1EC] px-2 py-0.5 text-[11px] capitalize text-[#6F675E]">{lead.confidence} confidence</span>
+                {status?.preference === "more_like_this" ? (
+                  <span className="rounded-full bg-[#EEF8F1] px-2 py-0.5 text-[11px] text-[#108A4B]">Pattern to repeat</span>
+                ) : null}
+              </div>
+              <p className="mt-2 text-xs leading-5 text-[#4B453F]">{compactLeadText(lead.fitReason, 130)}</p>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function ShortlistReadCard({ read }: { read: string }) {
+  return (
+    <div className="mt-3 rounded-lg border border-[#E7DDD1] bg-[#FFFCF7] p-2.5">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8A8178]">Tina’s shortlist read</p>
+      <p className="mt-1.5 text-xs leading-5 text-[#4B453F]">{read}</p>
+    </div>
+  );
+}
+
 function SourcingStrategyCard({ strategy }: { strategy: SourcingStrategy }) {
   return (
     <section className="rounded-lg border border-[#DCD3C8] bg-[#FBFAF7] p-3">
@@ -1519,6 +1603,22 @@ function prioritizeLatestProfileLeadItems(profileLeadItems: ProfileLeadItem[], l
     ...latestProfileLeadItems,
     ...profileLeadItems.filter((item) => !latestKeys.has(item.statusKey))
   ];
+}
+
+function prioritizePotentialCandidateItems(items: ProfileLeadItem[], statuses: Record<string, ProfileLeadStatus>) {
+  return [...items].sort((a, b) => {
+    const aRejected = statuses[a.statusKey]?.action === "rejected";
+    const bRejected = statuses[b.statusKey]?.action === "rejected";
+    if (aRejected !== bRejected) return aRejected ? 1 : -1;
+
+    return confidenceRank(b.lead.confidence) - confidenceRank(a.lead.confidence);
+  });
+}
+
+function confidenceRank(confidence: ProfileLead["confidence"]) {
+  if (confidence === "high") return 3;
+  if (confidence === "medium") return 2;
+  return 1;
 }
 
 function hasProfileLeadFeedback(status?: ProfileLeadStatus) {
@@ -1630,6 +1730,41 @@ function buildTalentBatchRead(items: ProfileLeadItem[]) {
       : "This batch is still title-noisy. I’d use it to clarify the lane before messaging anyone.";
 
   return `${qualityLead} It has ${count} ${count === 1 ? "profile" : "profiles"}, mostly from ${sourceMix.join(" and ") || "public sources"}, with ${signal} signals. Treat it as ${confidenceRead}; the next judgment is whether the public evidence proves the actual operating pattern.${companyCaveat}`;
+}
+
+function buildShortlistRead(items: ProfileLeadItem[]) {
+  const leads = items.map((item) => item.lead);
+  const ready = leads.filter((lead) => lead.confidence === "high");
+  const calibrationOnly = leads.filter((lead) => lead.confidence !== "high");
+  const sharedSignals = topValues(leads.flatMap((lead) => lead.tags)).slice(0, 3);
+  const missingProof = topValues(leads.map((lead) => missingSignalTheme(missingSignalForLead(lead)))).slice(0, 2);
+  const readyNames = ready.map((lead) => compactLeadName(lead.title)).slice(0, 2);
+  const calibrationNames = calibrationOnly.map((lead) => compactLeadName(lead.title)).slice(0, 2);
+
+  return [
+    sharedSignals.length ? `Strongest shared signals: ${sharedSignals.join(", ")}.` : "Strongest shared signals are still forming.",
+    missingProof.length ? `Missing proof: ${missingProof.join(", ")}.` : "Missing proof: verify depth and recent ownership.",
+    readyNames.length ? `Ready for outreach review: ${readyNames.join(", ")}.` : "No one is clearly outreach-ready yet.",
+    calibrationNames.length ? `Use for calibration: ${calibrationNames.join(", ")}.` : ""
+  ].filter(Boolean).join(" ");
+}
+
+function missingSignalTheme(value: string) {
+  const text = value.toLowerCase();
+  if (text.includes("shipped ownership")) return "shipped ownership";
+  if (text.includes("customer") || text.includes("product")) return "customer/product proof";
+  if (text.includes("builder")) return "builder proximity";
+  if (text.includes("thin")) return "public evidence depth";
+  return "depth and recency";
+}
+
+function compactLeadName(title: string) {
+  return title
+    .replace(/\s+-\s+LinkedIn$/i, "")
+    .replace(/\s+\|\s+.*$/i, "")
+    .split(/\s+-\s+/)[0]
+    .trim()
+    .slice(0, 42);
 }
 
 function topValues(values: string[]) {
