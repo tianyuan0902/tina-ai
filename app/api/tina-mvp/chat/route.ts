@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { retrieveBrainContext } from "@/lib/brain/retrieveBrainContext";
 import { formatCompanyContext, isCompanyContextMessage, retrieveCompanyContext } from "@/lib/tina/company-context";
 import { getRequestedProfileCount, searchPublicProfileLeads } from "@/lib/tina/public-search";
+import { evaluateSourcingReadiness } from "@/lib/tina/sourcing-readiness";
 import { TINA_SYSTEM_PROMPT } from "@/lib/tina-mvp/system-prompt";
 import type { TinaMvpMessage } from "@/lib/tina-mvp/types";
 
@@ -53,19 +54,42 @@ export async function POST(request: Request) {
 
   if (isPublicProfileSearchRequest(latestUserMessage.content)) {
     const isRefinementSearch = isSourcingRefinementRequest(latestUserMessage.content) && Boolean(refinementSummary);
+    const readiness = evaluateSourcingReadiness(cleanMessages);
+    const allowLowConfidenceSearch = /\b(source anyway|search anyway|pull anyway|continue|go ahead|show me anyway)\b/i.test(latestUserMessage.content);
+
+    if (readiness.readinessStatus === "needs_calibration" || (readiness.readinessStatus === "low_confidence_search" && !allowLowConfidenceSearch)) {
+      return NextResponse.json({
+        message: {
+          id: `tina-sourcing-readiness-${Date.now()}`,
+          role: "tina",
+          content: buildSourcingReadinessResponse(readiness),
+          sourcingReadiness: readiness
+        },
+        source: "sourcing_readiness"
+      });
+    }
+
+    const refinement = isRefinementSearch ? buildSourcingRefinementDebug(refinementSummary, cleanMessages) : undefined;
     const hiringContext = [
       cleanMessages.map((message) => message.content).join("\n"),
-      refinementSummary ? `Talent Pool feedback summary for sourcing refinement:\n${refinementSummary}` : ""
+      readiness.searchThesis ? `Search thesis:\n${readiness.searchThesis}` : "",
+      refinementSummary ? `Talent Pool feedback summary for sourcing refinement:\n${refinementSummary}` : "",
+      refinement ? `Updated sourcing thesis:\n${refinement.updatedSearchThesis}` : ""
     ].filter(Boolean).join("\n\n");
     const requestedCount = getRequestedProfileCount(latestUserMessage.content);
-    const profileLeads = await searchPublicProfileLeads(hiringContext, requestedCount);
+    const excludedUrls = collectShownProfileUrls(cleanMessages);
+    const profileLeads = await searchPublicProfileLeads(hiringContext, requestedCount, {
+      excludedUrls,
+      refinement
+    });
 
     return NextResponse.json({
       message: {
         id: `tina-public-search-${Date.now()}`,
         role: "tina",
-        content: buildProfileSearchResponse(latestUserMessage.content, profileLeads.length, isRefinementSearch),
-        profileLeads
+        content: buildProfileSearchResponse(latestUserMessage.content, profileLeads.length, isRefinementSearch, requestedCount),
+        profileLeads,
+        sourcingReadiness: readiness
       },
       source: "public_search"
     });
@@ -179,11 +203,19 @@ export async function POST(request: Request) {
   });
 }
 
-function buildProfileSearchResponse(message: string, count: number, isRefinementSearch = false) {
+function buildProfileSearchResponse(message: string, count: number, isRefinementSearch = false, requestedCount = count) {
+  if (count === 0) {
+    return "I did not find a novel public profile worth showing from that pass. Better to tighten the lane than recycle weak repeats.";
+  }
+
+  const qualityNote = count < requestedCount
+    ? ` I found ${count} worth reviewing instead of forcing ${requestedCount}. Better a small useful batch than a decorative spreadsheet.`
+    : "";
+
   if (isRefinementSearch) {
     return [
       `I pulled ${count} new public ${count === 1 ? "profile" : "profiles"} based on your Talent Pool feedback.`,
-      "Use Yes/No as signal, not final judgment."
+      `Use Yes/No as signal, not final judgment.${qualityNote}`
     ].join(" ");
   }
 
@@ -191,8 +223,90 @@ function buildProfileSearchResponse(message: string, count: number, isRefinement
 
   return [
     `I pulled ${count} public calibration ${count === 1 ? "profile" : "profiles"} for ${scope}.`,
-    "Use Yes/No as signal, not final judgment. After three yeses, Tina has enough pattern to look for similar people."
+    `Use Yes/No as signal, not final judgment. After three yeses, Tina has enough pattern to look for similar people.${qualityNote}`
   ].join(" ");
+}
+
+function buildSourcingReadinessResponse(readiness: ReturnType<typeof evaluateSourcingReadiness>) {
+  const missing = readiness.missingSignals.slice(0, 2).join(" and ");
+  const questions = readiness.followUpQuestions.slice(0, 2).map((question) => `- ${question}`).join("\n");
+
+  if (readiness.readinessStatus === "low_confidence_search") {
+    return [
+      `I can pull a batch, but it’ll likely be noisy. I’m missing ${missing || "one or two calibration signals"}. Tighten those first?`,
+      questions
+    ].filter(Boolean).join("\n\n");
+  }
+
+  return [
+    `I’d hold off on sourcing. Right now this is still title-shaped, not signal-shaped, so a public search would mostly produce noise.`,
+    questions || "- What would make someone a clear yes in the first 30 days?"
+  ].join("\n\n");
+}
+
+function collectShownProfileUrls(messages: TinaMvpMessage[]) {
+  return messages.flatMap((message) => message.profileLeads || []).map((lead) => lead.url).filter(Boolean);
+}
+
+function buildSourcingRefinementDebug(refinementSummary: string, messages: TinaMvpMessage[]) {
+  const positivePatterns = extractRefinementSections(refinementSummary, "Positive signals");
+  const negativePatterns = extractRefinementSections(refinementSummary, "Negative signals");
+  const excludedUrls = collectShownProfileUrls(messages);
+  const updatedSearchThesis = [
+    positivePatterns.length ? `Bias toward ${compactPatternList(positivePatterns)}.` : "",
+    negativePatterns.length ? `Avoid ${compactPatternList(negativePatterns)}.` : "",
+    "Find novel public profiles only."
+  ].filter(Boolean).join(" ");
+  const queryHints = extractQueryHints([...positivePatterns, updatedSearchThesis]);
+  const updatedQueries = queryHints.length
+    ? queryHints.slice(0, 5).map((hint) => `site:linkedin.com/in "${hint}" "startup"`)
+    : undefined;
+  const debugObject = {
+    positivePatterns,
+    negativePatterns,
+    excludedUrls,
+    updatedSearchThesis,
+    updatedQueries
+  };
+
+  if (process.env.NODE_ENV !== "production") {
+    console.log("[Tina sourcing refinement]", JSON.stringify(debugObject, null, 2));
+  }
+
+  return debugObject;
+}
+
+function extractRefinementSections(summary: string, label: string) {
+  const match = summary.match(new RegExp(`${label}:([\\s\\S]*?)(?:Positive signals:|Negative signals:|$)`, "i"));
+  if (!match?.[1]) return [];
+
+  return match[1]
+    .split("|")
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .slice(0, 6);
+}
+
+function compactPatternList(patterns: string[]) {
+  return patterns
+    .flatMap((pattern) => pattern.split(";"))
+    .map((part) => part.replace(/\b(title|company|source|confidence|tags|fitReason|snippet|scope|mustHaves)=/gi, "").trim())
+    .filter(Boolean)
+    .slice(0, 4)
+    .join(", ");
+}
+
+function extractQueryHints(values: string[]) {
+  const text = values.join(" ").toLowerCase();
+  const hints = [
+    /\b(ai product engineer|applied ai engineer|founding ai engineer)\b/i,
+    /\b(founder office|chief of staff|startup operator|bizops)\b/i,
+    /\b(founding product manager|product operator|product lead)\b/i,
+    /\b(product-minded builder|startup builder|founding engineer)\b/i,
+    /\b(customer-facing|workflow|evals|clarity|ownership)\b/i
+  ];
+
+  return hints.map((pattern) => text.match(pattern)?.[0]).filter((value): value is string => Boolean(value));
 }
 
 function isSourcingRefinementRequest(message: string) {
@@ -203,8 +317,9 @@ function inferRequestedScope(message: string) {
   const cleaned = message
     .replace(/\b(show|send|find|source|pull|give me|search for)\b/gi, "")
     .replace(/\b([1-9]|10|one|two|three|four|five)\b/gi, "")
-    .replace(/\b(profiles?|people|candidates?|leads?|linkedin|public|about|around|for)\b/gi, "")
+    .replace(/\b(profiles?|people|candidates?|leads?|linkedin|public|about|around|for|me|like this)\b/gi, "")
     .replace(/\s+/g, " ")
+    .replace(/[.?!]+$/g, "")
     .trim();
 
   return cleaned || "this hiring lane";
@@ -379,8 +494,9 @@ function isPublicProfileSearchRequest(message: string) {
     /\b(so i can|myself|on my own)\b/.test(text);
   const explicitProfileSearch =
     /\b(show|send|source|sourcing|look up|pull)\b.*\b(profiles?|people|candidates?|leads?|prospects?|targets?|linkedin|github)\b/.test(text) ||
-    /\b(find|look for)\b.*\b(profiles?|linkedin profiles?|github profiles?|public profiles?|people to review|outreach targets|prospects?|leads?)\b/.test(text) ||
-    /\b(who should we reach out to|who should i reach out to|source candidates|source people|find linkedin profiles|show linkedin profiles|public profile leads)\b/.test(text);
+    /\b(find|look for)\b.*\b(profiles?|linkedin profiles?|github profiles?|public profiles?|people to review|people like this|candidates?|outreach targets|prospects?|leads?)\b/.test(text) ||
+    /\b(build|make|create)\b.*\b(list|candidate list|people list|profile list|talent pool)\b/.test(text) ||
+    /\b(show me candidates|show candidates|who should we reach out to|who should i reach out to|source candidates|source people|find candidates|find people|find linkedin profiles|show linkedin profiles|public profile leads)\b/.test(text);
 
   return explicitProfileSearch && !asksForApproach && !asksForSearchHelpOnly;
 }

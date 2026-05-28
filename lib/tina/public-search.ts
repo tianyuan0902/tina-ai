@@ -1,5 +1,5 @@
 import type { ProfileLead } from "@/lib/tina/profile-lead-types";
-import { buildPublicTalentSearchQueries } from "@/lib/tina/search-query-builder";
+import { buildPublicTalentSearchQueries, type PublicTalentSearchRefinement } from "@/lib/tina/search-query-builder";
 
 type TavilyLikeResult = {
   title?: string;
@@ -12,20 +12,31 @@ type TavilyLikeResult = {
 const DEFAULT_PROFILE_BATCH_SIZE = 10;
 const MAX_PROFILE_BATCH_SIZE = 10;
 
-export async function searchPublicProfileLeads(hiringContext: string, requestedCount = DEFAULT_PROFILE_BATCH_SIZE): Promise<ProfileLead[]> {
-  const queries = buildPublicTalentSearchQueries(hiringContext);
+export type PublicProfileSearchOptions = {
+  excludedUrls?: string[];
+  refinement?: PublicTalentSearchRefinement;
+};
+
+export async function searchPublicProfileLeads(
+  hiringContext: string,
+  requestedCount = DEFAULT_PROFILE_BATCH_SIZE,
+  options: PublicProfileSearchOptions = {}
+): Promise<ProfileLead[]> {
+  const queries = buildPublicTalentSearchQueries(hiringContext, options.refinement);
   const batchSize = clampProfileBatchSize(requestedCount);
+  const excludedUrls = new Set((options.excludedUrls || []).map(normalizeUrl).filter(Boolean));
   const results = process.env.TAVILY_API_KEY
     ? await searchWithTavily(queries)
     : mockPublicSearchResults(queries, hiringContext);
   const relevantResults = filterRelevantResults(results, hiringContext);
 
-  return dedupeLeads(
-    dedupeResults(relevantResults.filter(isProfileLikeResult))
+  const leads = dedupeResults(relevantResults.filter(isProfileLikeResult))
+      .filter((result) => !excludedUrls.has(normalizeUrl(result.url || "")))
       .filter((result) => result.url && result.title)
       .slice(0, batchSize)
-      .map((result, index) => mapToProfileLead(result, result.query || queries[index % queries.length], hiringContext, index))
-  );
+      .map((result, index) => mapToProfileLead(result, result.query || queries[index % queries.length], hiringContext, index));
+
+  return dedupeLeads(leads).filter((lead) => lead.confidence !== "low");
 }
 
 async function searchWithTavily(queries: string[]) {
@@ -338,8 +349,9 @@ function dedupeResults(results: TavilyLikeResult[]) {
   const seen = new Set<string>();
 
   return results.filter((result) => {
-    if (!result.url || seen.has(result.url)) return false;
-    seen.add(result.url);
+    const key = normalizeUrl(result.url || "");
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
     return true;
   });
 }
@@ -370,6 +382,10 @@ function isProfileLikeResult(result: TavilyLikeResult) {
   }
 
   return false;
+}
+
+function normalizeUrl(url: string) {
+  return url.trim().replace(/\/+$/, "").toLowerCase();
 }
 
 function filterRelevantResults(results: TavilyLikeResult[], hiringContext: string) {

@@ -7,14 +7,24 @@ const SEARCH_TERMS = {
   gtm: ["founding account executive", "startup gtm", "sales leader", "growth operator"]
 };
 
-export function buildPublicTalentSearchQueries(hiringContext: string) {
+export type PublicTalentSearchRefinement = {
+  positivePatterns?: string[];
+  negativePatterns?: string[];
+  updatedSearchThesis?: string;
+  updatedQueries?: string[];
+};
+
+export function buildPublicTalentSearchQueries(hiringContext: string, refinement?: PublicTalentSearchRefinement) {
+  if (refinement?.updatedQueries?.length) return refinement.updatedQueries.slice(0, 5);
+
   const text = hiringContext.toLowerCase();
   const roleTerms = inferRoleTerms(text);
   const environment = text.includes("startup") || text.includes("founding") ? "startup" : "early stage";
+  const positiveTerm = compactPatternTerm(refinement?.positivePatterns?.[0] || refinement?.updatedSearchThesis || "");
 
   return [
-    `site:linkedin.com/in "${roleTerms[0]}" "${environment}"`,
-    `site:linkedin.com/in "${roleTerms[1] || roleTerms[0]}" "${environment}"`,
+    `site:linkedin.com/in "${roleTerms[0]}" "${environment}"${positiveTerm ? ` "${positiveTerm}"` : ""}`,
+    `site:linkedin.com/in "${roleTerms[1] || roleTerms[0]}" "${environment}"${positiveTerm ? ` "${positiveTerm}"` : ""}`,
     `site:linkedin.com/in "${roleTerms[2] || roleTerms[0]}" "customer-facing" "startup"`,
     buildPublicPortfolioQuery(roleTerms[0], text),
     `site:linkedin.com/in "${roleTerms[3] || roleTerms[0]}" "startup"`
@@ -38,4 +48,15 @@ function buildPublicPortfolioQuery(roleTerm: string, text: string) {
   }
 
   return `site:linkedin.com/in "${roleTerm}" "startup"`;
+}
+
+function compactPatternTerm(value: string) {
+  const cleaned = value
+    .replace(/\b(title|company|source|confidence|tags|fitReason|snippet|scope|mustHaves)=/gi, "")
+    .replace(/[;|]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const match = cleaned.match(/\b(founder(?:[-\s]adjacent)?|customer-facing|product judgment|startup|operator|ai|llm|builder|clarity|ownership|workflow|evals?)\b/i);
+
+  return match?.[0] || "";
 }

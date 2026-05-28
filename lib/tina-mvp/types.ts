@@ -1,4 +1,5 @@
 import type { ProfileLead } from "@/lib/tina/profile-lead-types";
+import type { SourcingReadiness } from "@/lib/tina/sourcing-readiness";
 
 export type TinaMvpRole = "founder" | "tina";
 
@@ -7,6 +8,7 @@ export type TinaMvpMessage = {
   role: TinaMvpRole;
   content: string;
   profileLeads?: ProfileLead[];
+  sourcingReadiness?: SourcingReadiness;
 };
 
 export type TinaCandidateArchetype = {
@@ -24,7 +26,7 @@ export type TinaReasoningResult = {
 
 export type TinaChatApiResponse = {
   message: TinaMvpMessage;
-  source: "openai" | "local_scope_guard" | "local_profile_feedback" | "local_fallback" | "public_search";
+  source: "openai" | "local_scope_guard" | "local_profile_feedback" | "local_fallback" | "public_search" | "sourcing_readiness";
   responseId?: string;
   debugCode?: string;
 };

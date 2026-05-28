@@ -4,7 +4,7 @@
 
 A true founding PM is usually not a “PM” in the traditional sense.
 
-The role is often a temporary bridge between founder intuition, customer ambiguity, product prioritization, and execution chaos.
+The role is often a founder-dependency problem wearing a PM title. The company needs someone who can take messy founder context, make a call, and keep the team moving without pulling the founder into every decision.
 
 The mistake is hiring someone optimized for organizational coordination before the company has enough organizational structure to coordinate.
 
@@ -14,15 +14,16 @@ Most startup PM hiring failures happen because the company actually needs:
 - sharper product judgment
 - customer synthesis
 - prioritization under uncertainty
-- founder translation
+- independent judgment when the founder is not in the room
 - decision compression
+- clarity without process theater
 
 But hires for:
 - roadmap management
 - stakeholder coordination
 - process orchestration
 
-Too early-stage PMs can accidentally create abstraction layers before the company has enough signal density to support them.
+Too early-stage PMs can accidentally create abstraction layers before the company has enough signal density to support them. If the founder is still being pulled into every priority call, the screen is not "can this person own a roadmap?" It is "can this person make good calls from imperfect context?"
 
 ## Signals
 
@@ -32,7 +33,8 @@ Too early-stage PMs can accidentally create abstraction layers before the compan
 - comfortable without perfect requirements
 - asks clarifying questions instinctively
 - creates clarity instead of requesting clarity
-- can operate founder-adjacent without becoming dependent
+- keeps the team moving without constant founder input
+- makes decisions from customer signal and product taste, not process theater
 
 ## Failure Modes
 
@@ -42,6 +44,7 @@ Too early-stage PMs can accidentally create abstraction layers before the compan
 - optimized for communication optics
 - needs organizational scaffolding
 - prioritizes consensus over speed
+- turns into a roadmap owner when the company needs independent judgment
 
 ## Use When
 
@@ -49,9 +52,10 @@ Too early-stage PMs can accidentally create abstraction layers before the compan
 - team has many possible directions but weak prioritization
 - engineering moves faster than product clarity
 - customer signal exists but interpretation quality is weak
+- founder says the team needs to become less dependent on them
 
 ## Recruiting Judgment
 
 The best founding PMs often feel more like product-minded operators than classic PMs.
 
-The role is less about roadmap ownership and more about helping the company think clearly under ambiguity.
+The role is less about roadmap ownership and more about independent judgment: can this person take messy context, make a call, create clarity without adding process theater, and keep the team moving?
