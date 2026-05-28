@@ -26,6 +26,7 @@ type ChatThread = {
   title: string;
   time: string;
   messages: TinaMvpMessage[];
+  manuallyRenamed?: boolean;
 };
 
 const THREAD_STORAGE_KEY = "tina:mvp:threads";
@@ -35,6 +36,14 @@ const BRAIN_STATE_STORAGE_KEY = "tina:mvp:brain-state";
 const MAX_FEEDBACK_SUMMARY_LEADS = 8;
 
 const typingPhrases = ["Shaping the search", "Reading candidate signal", "Tightening the Talent Pool"];
+
+const stableNewRoleThread: ChatThread = {
+  id: "session-new-role",
+  title: "New role",
+  time: "Just now",
+  messages: []
+};
+const MARKET_INTEL_FORMING_TITLE = "Scope forming";
 
 const tabPromptChips = [
   { label: "Source candidates", prompt: "Source candidates for this search." },
@@ -173,9 +182,33 @@ const initialThreads: ChatThread[] = [
 ];
 
 export function TinaWorkspace() {
-  const initialSessionThread = createNewRoleThread();
-  const [threads, setThreads] = useState<ChatThread[]>([initialSessionThread, ...initialThreads.filter((thread) => thread.id !== initialSessionThread.id)]);
-  const [activeThreadId, setActiveThreadId] = useState(initialSessionThread.id);
+  const [hasMounted, setHasMounted] = useState(false);
+
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
+
+  if (!hasMounted) return <TinaWorkspaceLoading />;
+
+  return <TinaWorkspaceInner />;
+}
+
+function TinaWorkspaceLoading() {
+  return (
+    <main className="relative h-screen overflow-hidden bg-white text-[#171717]">
+      <div className="grid h-full place-items-center">
+        <div className="text-center">
+          <p className="font-serif text-2xl font-semibold">Tina</p>
+          <p className="mt-2 text-sm text-[#6F675E]">Market Intel forming.</p>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function TinaWorkspaceInner() {
+  const [threads, setThreads] = useState<ChatThread[]>([stableNewRoleThread, ...initialThreads.filter((thread) => thread.id !== stableNewRoleThread.id)]);
+  const [activeThreadId, setActiveThreadId] = useState(stableNewRoleThread.id);
   const [storageReady, setStorageReady] = useState(false);
   const [latestSynthesis, setLatestSynthesis] = useState(
     "Tina is watching for the difference between a strong title match and a person who actually reduces founder ambiguity."
@@ -271,7 +304,7 @@ export function TinaWorkspace() {
         thread.id === activeThreadId
           ? {
               ...thread,
-              title: shouldAutoRenameThread(thread.title) ? titleFromMessages(messages) : thread.title,
+              title: shouldAutoRenameThread(thread) ? titleFromMessages(messages) : thread.title,
               messages
             }
           : thread
@@ -284,7 +317,7 @@ export function TinaWorkspace() {
     if (!cleanTitle) return;
 
     setThreads((current) =>
-      current.map((thread) => (thread.id === threadId ? { ...thread, title: cleanTitle } : thread))
+      current.map((thread) => (thread.id === threadId ? { ...thread, title: cleanTitle, manuallyRenamed: true } : thread))
     );
   }
 
@@ -318,7 +351,7 @@ export function TinaWorkspace() {
           onRenameThread={renameThread}
           onArchiveThread={archiveThread}
         />
-        <div className="min-h-0 min-w-0 flex-1">
+        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
           <HomeCommandCenter
             activeThread={activeThread}
             onMessagesChange={updateActiveThreadMessages}
@@ -364,7 +397,7 @@ function Sidebar({
   }
 
   return (
-    <aside className="hidden w-36 shrink-0 border-r border-[#E6E0D8] bg-white px-2 py-4 shadow-[14px_0_44px_rgba(23,23,23,0.025)] md:flex md:flex-col lg:w-44 xl:w-52 xl:px-3">
+    <aside className="flex w-32 shrink-0 flex-col border-r border-[#E6E0D8] bg-white px-2 py-4 shadow-[14px_0_44px_rgba(23,23,23,0.025)] md:w-36 lg:w-44 xl:w-52 xl:px-3">
       <div className="mb-5 px-2">
         <p className="font-serif text-xl font-semibold tracking-normal xl:text-2xl">Tina</p>
       </div>
@@ -460,6 +493,7 @@ function HomeCommandCenter({
   const [profileLeadStatus, setProfileLeadStatus] = useState<Record<string, ProfileLeadStatus>>({});
   const [storedBrainStates, setStoredBrainStates] = useState<Record<string, BrainState>>({});
   const [showFullConversation, setShowFullConversation] = useState(false);
+  const [isClientMounted, setIsClientMounted] = useState(false);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
   const messages = activeThread.messages;
   const hasConversation = messages.some((message) => message.role === "founder");
@@ -534,6 +568,7 @@ function HomeCommandCenter({
   }, [activeThread.id, hasCandidateResults]);
 
   useEffect(() => {
+    setIsClientMounted(true);
     setProfileLeadStatus(readProfileLeadStatus());
     setStoredBrainStates(readStoredBrainStates());
   }, []);
@@ -593,7 +628,7 @@ function HomeCommandCenter({
   }
 
   return (
-    <div className={`grid h-screen min-h-0 w-full grid-cols-1 gap-3 overflow-hidden px-3 pb-3 pt-6 md:grid-cols-[minmax(0,1fr)_minmax(260px,0.5fr)] md:pb-4 md:pt-8 lg:grid-cols-[minmax(0,1fr)_minmax(300px,0.46fr)] xl:gap-[clamp(14px,1.25vw,22px)] xl:px-[clamp(14px,1.4vw,22px)] ${hasConversation ? "xl:pt-7" : "xl:pt-14"} ${hasCandidateResults ? "xl:grid-cols-[minmax(0,2fr)_minmax(340px,0.86fr)]" : "xl:grid-cols-[minmax(0,2fr)_minmax(300px,0.9fr)]"}`}>
+    <div className={`grid h-screen min-h-0 w-full max-w-full grid-cols-1 gap-3 overflow-hidden px-3 pb-3 pt-6 md:grid-cols-[minmax(0,1fr)_minmax(240px,280px)] md:pb-4 md:pt-8 lg:grid-cols-[minmax(0,1fr)_minmax(280px,320px)] xl:grid-cols-[minmax(0,1fr)_minmax(320px,380px)] xl:gap-[clamp(14px,1.25vw,22px)] xl:px-[clamp(14px,1.4vw,22px)] ${hasConversation ? "xl:pt-7" : "xl:pt-14"}`}>
       <section className="flex min-h-0 flex-col overflow-hidden">
         <header className={`shrink-0 pt-1 ${hasConversation ? "mb-2 text-left" : "mb-3 text-center xl:mb-5 xl:pt-2"}`}>
           {hasConversation ? (
@@ -621,9 +656,9 @@ function HomeCommandCenter({
         <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-[#E7E3DD] bg-white shadow-[0_22px_70px_rgba(23,23,23,0.055)]">
           <div className="shrink-0 border-b border-[#ECE7E1] bg-white px-4 py-3">
             <div className="flex items-center justify-between gap-3">
-              <div>
+              <div className="min-w-0">
                 <p className="text-[13px] font-semibold">Tina</p>
-                  <p className="mt-0.5 text-xs text-[#6F675E]">{hasCandidateResults ? "Talent Pool updated on the right. Keep refining here." : "Talent Pool first. Calibration and market intel support the search."}</p>
+                  <p className="mt-0.5 text-xs text-[#6F675E]">{hasCandidateResults ? "Market Intel updated on the right. Keep refining here." : "Chat first. Market Intel updates as Tina learns."}</p>
               </div>
               {hasCandidateResults && hiddenMessageCount > 0 ? (
                 <button
@@ -690,6 +725,7 @@ function HomeCommandCenter({
         feedbackRead={feedbackRead}
         hasFeedback={hasFeedback}
         refineLabel={refineLabel}
+        isClientMounted={isClientMounted}
       />
     </div>
   );
@@ -804,22 +840,20 @@ function ChatMessage({ message, signals, animate }: { message: TinaMvpMessage; s
 
 function SourcingResultArtifact({ leads, sourcingBatch }: { leads: ProfileLead[]; sourcingBatch?: SourcingBatchMetadata }) {
   const highCount = leads.filter((lead) => lead.confidence === "high").length;
-  const weakCount = leads.filter((lead) => lead.confidence !== "high").length;
   const topTags = topValues(leads.flatMap((lead) => lead.tags)).slice(0, 2);
   const missingThemes = topValues(leads.map((lead) => missingSignalTheme(missingSignalForLead(lead)))).slice(0, 1);
 
   return (
-    <div className="mt-3 rounded-lg border border-[#E1D8CE] bg-[#FFFCF7] p-3 shadow-[0_12px_32px_rgba(23,23,23,0.04)]">
+    <div className="mt-3 max-w-full overflow-hidden rounded-lg border border-[#E1D8CE] bg-[#FFFCF7] p-3 shadow-[0_12px_32px_rgba(23,23,23,0.04)]">
       <div className="flex flex-wrap items-center gap-2">
         <span className="rounded-full bg-[#EEF8F1] px-2.5 py-1 text-[11px] font-semibold text-[#108A4B]">Talent Pool updated</span>
         <span className="text-xs font-medium text-[#625A52]">{leads.length} {leads.length === 1 ? "profile" : "profiles"}</span>
-        <span className="text-xs text-[#8A8178]">{highCount} strong · {weakCount} calibration</span>
-        {sourcingBatch ? <span className="text-xs text-[#8A8178]">{sourcingBatch.requestedCount} requested · {sourcingBatch.filteredCount} filtered</span> : null}
+        {highCount ? <span className="text-xs text-[#8A8178]">{highCount} strong</span> : null}
       </div>
-      <p className="mt-2 text-xs leading-5 text-[#4B453F]">
-        I found {leads.length} possible {leads.length === 1 ? "profile" : "profiles"}. Best signal: {topTags.join(", ") || "role adjacency"}. Weakness: {missingThemes.join(", ") || "proof still needs review"}.
+      <p className="mt-2 break-words text-xs leading-5 text-[#4B453F]">
+        I found {leads.length} possible {leads.length === 1 ? "profile" : "profiles"} and updated Market Intel on the right. Best signal: {topTags.join(", ") || "role adjacency"}. Weakness: {missingThemes.join(", ") || "proof still needs review"}.
       </p>
-      <p className="mt-1 text-[11px] text-[#8A8178]">Review and train the Talent Pool on the right.</p>
+      <p className="mt-1 text-[11px] text-[#8A8178]">Review compact profiles in Market Intel.</p>
     </div>
   );
 }
@@ -934,12 +968,12 @@ function titleFromMessages(messages: TinaMvpMessage[]) {
   return title.charAt(0).toUpperCase() + title.slice(1);
 }
 
-function shouldAutoRenameThread(title: string) {
-  return isProvisionalThreadTitle(title);
+function shouldAutoRenameThread(thread: ChatThread) {
+  return !thread.manuallyRenamed && isProvisionalThreadTitle(thread.title);
 }
 
 function displayThreadTitle(thread: ChatThread) {
-  return isProvisionalThreadTitle(thread.title) ? titleFromMessages(thread.messages) : thread.title;
+  return shouldAutoRenameThread(thread) ? titleFromMessages(thread.messages) : thread.title;
 }
 
 function collectProfileLeadItems(threadId: string, messages: TinaMvpMessage[]) {
@@ -1059,6 +1093,7 @@ function isChatThread(value: unknown): value is ChatThread {
     typeof thread.id === "string" &&
     typeof thread.title === "string" &&
     typeof thread.time === "string" &&
+    (typeof thread.manuallyRenamed === "undefined" || typeof thread.manuallyRenamed === "boolean") &&
     Array.isArray(thread.messages) &&
     thread.messages.every(isTinaMessage)
   );
@@ -1078,6 +1113,10 @@ function isTinaMessage(value: unknown): value is TinaMvpMessage {
 function createNewRoleThread(): ChatThread {
   const threadId = `thread-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
+  return createNewRoleThreadWithId(threadId);
+}
+
+function createNewRoleThreadWithId(threadId: string): ChatThread {
   return {
     id: threadId,
     title: "New role",
@@ -1088,6 +1127,7 @@ function createNewRoleThread(): ChatThread {
 
 function isBlankNewRoleThread(thread: ChatThread) {
   return (
+    !thread.manuallyRenamed &&
     isProvisionalThreadTitle(thread.title) &&
     (
       thread.messages.length === 0 ||
@@ -1209,7 +1249,8 @@ function RightIntelligenceRail({
   sourcingBatch,
   feedbackRead,
   hasFeedback,
-  refineLabel
+  refineLabel,
+  isClientMounted
 }: {
   sourcingStrategy: SourcingStrategy;
   brainState: BrainState;
@@ -1223,42 +1264,474 @@ function RightIntelligenceRail({
   feedbackRead: string;
   hasFeedback: boolean;
   refineLabel: string;
+  isClientMounted: boolean;
 }) {
-  const visibleItems = prioritizeLatestProfileLeadItems(profileLeadItems, latestProfileLeadItems);
-  const hasProfiles = visibleItems.length > 0;
+  const visibleItems = isClientMounted ? prioritizeLatestProfileLeadItems(profileLeadItems, latestProfileLeadItems) : [];
 
   return (
-    <aside className="hidden h-full min-h-0 min-w-0 overflow-y-auto md:block md:pt-2 xl:pt-3">
+    <aside className="hidden h-full min-h-0 min-w-0 max-w-full overflow-y-auto md:block md:pt-2 xl:pt-3">
       <section className="min-h-[calc(100%-0.75rem)] min-w-0 overflow-hidden rounded-xl border border-[#E7E3DD] bg-white shadow-[0_22px_70px_rgba(23,23,23,0.055)]">
         <div className="border-b border-[#ECE7E1] bg-white px-3 py-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">{hasProfiles ? "Talent Pool" : "Sourcing Signal"}</p>
-          <h2 className="mt-1 text-base font-semibold text-[#171717]">{hasProfiles ? "Potential candidates" : "Tina’s brain"}</h2>
-          <p className="mt-1 text-xs leading-5 text-[#625A52]">{hasProfiles ? "Compact profile review and taste training." : "Working memory from the conversation."}</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Market Intel</p>
+          <h2 className="mt-1 text-base font-semibold text-[#171717]">Hiring market read</h2>
+          <p className="mt-1 text-xs leading-5 text-[#625A52]">Updated as Tina learns.</p>
         </div>
 
-        <div className="p-3">
-          {hasProfiles ? (
-            <TalentPoolRail
-              brainState={brainState}
-              sourcingStrategy={sourcingStrategy}
-              items={visibleItems}
-              latestItems={latestProfileLeadItems}
-              statuses={profileLeadStatus}
-              onProfileLeadStatusChange={onProfileLeadStatusChange}
-              onRefineSearch={onRefineSearch}
-              batchRead={batchRead}
-              sourcingBatch={sourcingBatch}
-              feedbackRead={feedbackRead}
-              hasFeedback={hasFeedback}
-              refineLabel={refineLabel}
-            />
-          ) : (
-            <SourcingStrategyCard strategy={sourcingStrategy} brainState={brainState} />
-          )}
+        <div className="min-w-0 overflow-hidden p-3">
+          <MarketIntelRail
+            brainState={brainState}
+            sourcingStrategy={sourcingStrategy}
+            items={visibleItems}
+            latestItems={latestProfileLeadItems}
+            statuses={profileLeadStatus}
+            onProfileLeadStatusChange={onProfileLeadStatusChange}
+            onRefineSearch={onRefineSearch}
+            feedbackRead={feedbackRead}
+            hasFeedback={hasFeedback}
+            refineLabel={refineLabel}
+            isClientMounted={isClientMounted}
+          />
         </div>
       </section>
     </aside>
   );
+}
+
+function MarketIntelRail({
+  brainState,
+  sourcingStrategy,
+  items,
+  latestItems,
+  statuses,
+  onProfileLeadStatusChange,
+  onRefineSearch,
+  feedbackRead,
+  hasFeedback,
+  refineLabel,
+  isClientMounted
+}: {
+  brainState: BrainState;
+  sourcingStrategy: SourcingStrategy;
+  items: ProfileLeadItem[];
+  latestItems: ProfileLeadItem[];
+  statuses: Record<string, ProfileLeadStatus>;
+  onProfileLeadStatusChange: (leadId: string, status: ProfileLeadStatus) => void;
+  onRefineSearch: () => void;
+  feedbackRead: string;
+  hasFeedback: boolean;
+  refineLabel: string;
+  isClientMounted: boolean;
+}) {
+  const sortedItems = isClientMounted ? prioritizePotentialCandidateItems(items, statuses) : [];
+  const latestKeys = new Set(isClientMounted ? latestItems.map((item) => item.statusKey) : []);
+  const intel = isClientMounted ? buildMarketIntelSnapshot(brainState, sourcingStrategy, sortedItems) : emptyMarketIntelSnapshot();
+
+  return (
+    <div className="grid gap-3">
+      <CalibratedScopeCard intel={intel} />
+      <TalentPoolSnapshotCard intel={intel} />
+
+      <section className="rounded-lg border border-[#E2D8CD] bg-white p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Profiles</p>
+            <p className="mt-1 text-sm font-semibold text-[#171717]">
+              {sortedItems.length ? `${sortedItems.length} ${sortedItems.length === 1 ? "profile" : "profiles"}` : "Talent Pool pending"}
+            </p>
+          </div>
+          {hasFeedback ? (
+            <button
+              type="button"
+              onClick={onRefineSearch}
+              className="shrink-0 rounded-md bg-[#171717] px-2.5 py-1.5 text-[11px] font-medium text-white"
+            >
+              {refineLabel}
+            </button>
+          ) : null}
+        </div>
+
+        {feedbackRead ? <p className="mt-2 rounded-md bg-[#F4FAF5] px-2 py-1.5 text-[11px] leading-4 text-[#4A6A4D]">{feedbackRead}</p> : null}
+
+        <div className="mt-3 grid gap-2">
+          {sortedItems.length ? sortedItems.slice(0, 8).map((item) => (
+            <MarketProfileRow
+              key={item.statusKey}
+              item={item}
+              isLatest={latestKeys.has(item.statusKey)}
+              status={statuses[item.statusKey]}
+              onStatusChange={(status) => onProfileLeadStatusChange(item.statusKey, status)}
+            />
+          )) : (
+            <p className="rounded-lg border border-dashed border-[#DED5CA] bg-[#FFFCF7] px-3 py-4 text-center text-xs text-[#8A8178]">
+              Profiles will appear here after Tina finds role-fit matches.
+            </p>
+          )}
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-[#D7CFC5] bg-[#1E1E1E] p-3 text-white shadow-[0_16px_42px_rgba(23,23,23,0.12)]">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#CFC7BD]">Founder Takeaway</p>
+        <p className="mt-2 text-sm leading-5">{intel.founderTakeaway}</p>
+      </section>
+    </div>
+  );
+}
+
+function CalibratedScopeCard({ intel }: { intel: MarketIntelSnapshot }) {
+  return (
+    <section className="rounded-lg border border-[#E2D8CD] bg-[#FFFCF7] p-3">
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Calibrated Scope</p>
+      <h3 className="mt-2 text-base font-semibold leading-5 text-[#171717]">{intel.scopeTitle}</h3>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {intel.nonNegotiables.length ? intel.nonNegotiables.map((signal) => (
+          <span key={signal} className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-[#4B453F] ring-1 ring-[#E5DCD1]">
+            {signal}
+          </span>
+        )) : (
+          <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-[#8A8178] ring-1 ring-[#E5DCD1]">{MARKET_INTEL_FORMING_TITLE}</span>
+        )}
+      </div>
+      {intel.driftLine ? <p className="mt-2 text-[11px] text-[#8A8178]">Drift: {intel.driftLine}</p> : null}
+    </section>
+  );
+}
+
+function TalentPoolSnapshotCard({ intel }: { intel: MarketIntelSnapshot }) {
+  return (
+    <section className="rounded-lg border border-[#E2D8CD] bg-white p-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Talent Pool Snapshot</p>
+        <span className="rounded-full bg-[#F4F1EC] px-2 py-1 text-[10px] font-medium text-[#6F675E]">{intel.dataLabel}</span>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <MiniStat label="Pool" value={intel.poolSize} />
+        <MiniStat label="Comp" value={intel.compRange} />
+      </div>
+
+      <div className="mt-3 grid gap-2">
+        <MarketDonut title="Location mix" emptyLabel="Location mix forming" segments={intel.locationMix} />
+        <MarketDonut title="Seniority mix" emptyLabel="Seniority mix forming" segments={intel.seniorityMix} />
+      </div>
+
+      <div className="mt-3">
+        <MiniStat label="TTF" value={intel.timeToFill} />
+      </div>
+    </section>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-[#E8E1D8] bg-[#FFFCF7] px-3 py-2">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8A8178]">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-[#171717]">{value}</p>
+    </div>
+  );
+}
+
+function MarketDonut({ title, emptyLabel, segments }: { title: string; emptyLabel: string; segments: MarketSegment[] }) {
+  const hasSegments = segments.length > 0;
+  const gradient = hasSegments ? donutGradient(segments) : "#E9E1D8";
+
+  return (
+    <div className="rounded-lg border border-[#E8E1D8] bg-[#FFFCF7] p-2.5">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8A8178]">{title}</p>
+      <div className="mt-2 flex items-center gap-3">
+        <div
+          className="grid h-14 w-14 shrink-0 place-items-center rounded-full"
+          style={{ background: hasSegments ? `conic-gradient(${gradient})` : gradient }}
+        >
+          <div className="h-8 w-8 rounded-full bg-[#FFFCF7]" />
+        </div>
+        <div className="min-w-0 flex-1">
+          {hasSegments ? segments.map((segment) => (
+            <div key={segment.label} className="mb-1 flex items-center justify-between gap-2 text-[11px]">
+              <span className="truncate text-[#625A52]">{segment.label}</span>
+              <span className="font-medium text-[#171717]">{segment.value}%</span>
+            </div>
+          )) : (
+            <p className="text-xs text-[#8A8178]">{emptyLabel}</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MarketProfileRow({
+  item,
+  isLatest,
+  status,
+  onStatusChange
+}: {
+  item: ProfileLeadItem;
+  isLatest: boolean;
+  status?: ProfileLeadStatus;
+  onStatusChange: (status: ProfileLeadStatus) => void;
+}) {
+  const lead = item.lead;
+  const name = compactLeadName(lead.title);
+  const match = profileMatchScore(lead);
+  const isSaved = status?.action === "saved";
+  const isRejected = status?.action === "rejected";
+
+  return (
+    <details className={`min-w-0 overflow-hidden rounded-lg border bg-white ${isRejected ? "border-[#E2D6CC] opacity-70" : "border-[#E8E1D8]"} ${isLatest ? "ring-1 ring-[#E7DDD1]" : ""}`}>
+      <summary className="cursor-pointer list-none p-2.5">
+        <div className="flex items-start gap-2.5">
+          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#EEF8F1] text-[11px] font-semibold text-[#108A4B]">
+            {initialsForName(name)}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2">
+              <p className="truncate text-sm font-semibold text-[#171717]">{name}</p>
+              <span className="shrink-0 rounded-full bg-[#F3EFE8] px-2 py-0.5 text-[10px] font-semibold text-[#4B453F]">{match}%</span>
+            </div>
+            <p className="mt-1 truncate text-xs text-[#625A52]">{profileSignalLine(lead)}</p>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              <span className="rounded-full bg-[#F7F4EF] px-2 py-0.5 text-[10px] capitalize text-[#6F675E]">{lead.source.replace("_", " ")}</span>
+              {isSaved ? <span className="rounded-full bg-[#EEF8F1] px-2 py-0.5 text-[10px] text-[#108A4B]">Saved</span> : null}
+              {isRejected ? <span className="rounded-full bg-[#FFF2E8] px-2 py-0.5 text-[10px] text-[#A35F2E]">Rejected</span> : null}
+            </div>
+          </div>
+        </div>
+      </summary>
+
+      <div className="border-t border-[#EFE8DF] px-2.5 py-3 text-xs leading-5 text-[#4B453F]">
+        <p className="break-words"><span className="font-semibold">Source:</span> <a href={lead.url} target="_blank" rel="noreferrer" className="text-[#4B28C9]">Open profile</a></p>
+        <p className="mt-1 break-words"><span className="font-semibold">Why surfaced:</span> {lead.fitReason}</p>
+        <p className="mt-1 break-words"><span className="font-semibold">Evidence/proof:</span> {leadEvidenceLine(lead)}</p>
+        <p className="mt-1 break-words"><span className="font-semibold">Missing proof:</span> {missingSignalForLead(lead)}</p>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {lead.tags.slice(0, 5).map((tag) => (
+            <span key={tag} className="rounded-md bg-[#F4F1EC] px-2 py-1 text-[11px] text-[#625A52]">{tag}</span>
+          ))}
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-1.5">
+          <button type="button" onClick={() => onStatusChange({ action: isSaved ? undefined : "saved" })} className={`rounded-md border px-2 py-1.5 text-[11px] font-medium ${isSaved ? "border-[#171717] bg-[#171717] text-white" : "border-[#E3DED7] text-[#4B453F]"}`}>{isSaved ? "Saved" : "Save"}</button>
+          <button type="button" onClick={() => onStatusChange({ action: isRejected ? undefined : "rejected" })} className={`rounded-md border px-2 py-1.5 text-[11px] font-medium ${isRejected ? "border-[#A35F2E] bg-[#FFF2E8] text-[#A35F2E]" : "border-[#E3DED7] text-[#4B453F]"}`}>{isRejected ? "Rejected" : "Reject"}</button>
+          <button type="button" onClick={() => onStatusChange({ preference: status?.preference === "more_like_this" ? undefined : "more_like_this" })} className={`rounded-md border px-2 py-1.5 text-[11px] font-medium ${status?.preference === "more_like_this" ? "border-[#108A4B] bg-[#EEF8F1] text-[#108A4B]" : "border-[#E3DED7] text-[#4B453F]"}`}>More like this</button>
+          <button type="button" onClick={() => onStatusChange({ preference: status?.preference === "less_like_this" ? undefined : "less_like_this" })} className={`rounded-md border px-2 py-1.5 text-[11px] font-medium ${status?.preference === "less_like_this" ? "border-[#B87A4A] bg-[#FFF2E8] text-[#A35F2E]" : "border-[#E3DED7] text-[#4B453F]"}`}>Less like this</button>
+        </div>
+      </div>
+    </details>
+  );
+}
+
+type MarketSegment = {
+  label: string;
+  value: number;
+  color: string;
+};
+
+type MarketIntelSnapshot = {
+  scopeTitle: string;
+  nonNegotiables: string[];
+  driftLine: string;
+  poolSize: "Broad" | "Moderate" | "Narrow" | "Forming";
+  dataLabel: "Directional" | "Early read" | "Pending";
+  locationMix: MarketSegment[];
+  seniorityMix: MarketSegment[];
+  compRange: string;
+  timeToFill: string;
+  founderTakeaway: string;
+};
+
+function emptyMarketIntelSnapshot(): MarketIntelSnapshot {
+  return {
+    scopeTitle: MARKET_INTEL_FORMING_TITLE,
+    nonNegotiables: [],
+    driftLine: "",
+    poolSize: "Forming",
+    dataLabel: "Pending",
+    locationMix: [],
+    seniorityMix: [],
+    compRange: "Comp forming",
+    timeToFill: "TTF forming",
+    founderTakeaway: "Founder takeaway forming."
+  };
+}
+
+function buildMarketIntelSnapshot(
+  brainState: BrainState,
+  sourcingStrategy: SourcingStrategy,
+  items: ProfileLeadItem[]
+): MarketIntelSnapshot {
+  const leads = items.map((item) => item.lead);
+  const hasMarketSignal = leads.length > 0 || brainState.sourcingReadiness !== "not_ready" || brainState.readinessScore > 20;
+
+  if (!hasMarketSignal) {
+    return emptyMarketIntelSnapshot();
+  }
+
+  const scopeTitle = marketScopeTitle(brainState, sourcingStrategy);
+  const nonNegotiables = uniqueStrings([
+    ...sourcingStrategy.mustHaveSignals,
+    ...brainState.seekSignals,
+    ...sourcingStrategy.seek
+  ]).slice(0, 3);
+  const poolSize = inferPoolSize(brainState, leads, sourcingStrategy);
+  const locationMix = buildLocationMix(leads);
+  const seniorityMix = buildSeniorityMix(leads, sourcingStrategy);
+  const compRange = inferMarketCompRange(leads, sourcingStrategy);
+  const timeToFill = inferTimeToFill(poolSize, seniorityMix, brainState);
+  const dataLabel = leads.length >= 3 ? "Directional" : leads.length ? "Early read" : "Pending";
+
+  return {
+    scopeTitle,
+    nonNegotiables,
+    driftLine: inferScopeDrift(sourcingStrategy),
+    poolSize,
+    dataLabel,
+    locationMix,
+    seniorityMix,
+    compRange,
+    timeToFill,
+    founderTakeaway: buildFounderTakeaway(poolSize, locationMix, seniorityMix, compRange, timeToFill, leads)
+  };
+}
+
+function marketScopeTitle(brainState: BrainState, sourcingStrategy: SourcingStrategy) {
+  const title = sourcingStrategy.targetTitles[0] || brainState.likelyTitles[0] || "";
+  if (title) return compactLeadText(title, 48);
+  if (brainState.roleThesis && brainState.roleThesis !== MARKET_INTEL_FORMING_TITLE && brainState.roleThesis !== "Role draft forming") return compactLeadText(brainState.roleThesis, 48);
+  return MARKET_INTEL_FORMING_TITLE;
+}
+
+function inferScopeDrift(sourcingStrategy: SourcingStrategy) {
+  const titles = sourcingStrategy.targetTitles.filter(Boolean);
+  if (titles.length < 2) return "";
+  const first = compactLeadText(titles[0], 26);
+  const second = compactLeadText(titles[1], 26);
+  if (!first || !second || first === second) return "";
+  return `${first} > ${second}`;
+}
+
+function inferPoolSize(brainState: BrainState, leads: ProfileLead[], sourcingStrategy: SourcingStrategy): MarketIntelSnapshot["poolSize"] {
+  if (!leads.length && brainState.sourcingReadiness === "not_ready") return "Forming";
+  const text = `${brainState.roleThesis} ${sourcingStrategy.searchThesis} ${sourcingStrategy.mustHaveSignals.join(" ")} ${sourcingStrategy.queryTerms.join(" ")}`.toLowerCase();
+  const narrowSignals = [
+    /\bfounding|principal|staff|solidity|smart contract|nlp|security|compliance|fintech\b/.test(text),
+    brainState.missingSignals.length >= 2,
+    leads.length > 0 && leads.length < 5
+  ].filter(Boolean).length;
+  if (narrowSignals >= 2) return "Narrow";
+  if (leads.length >= 8 || brainState.readinessScore > 82) return "Moderate";
+  return leads.length || brainState.readinessScore > 55 ? "Moderate" : "Forming";
+}
+
+function buildLocationMix(leads: ProfileLead[]): MarketSegment[] {
+  if (!leads.length) return [];
+  const buckets = leads.map((lead) => inferLocationBucket(lead)).filter(Boolean);
+  return valuesToSegments(buckets, ["#178A52", "#7D6BF2", "#D58B39"]).slice(0, 3);
+}
+
+function inferLocationBucket(lead: ProfileLead) {
+  const text = `${lead.title} ${lead.snippet} ${lead.calibration?.location || ""}`.toLowerCase();
+  if (/\b(sf|san francisco|bay area|palo alto|menlo park|mountain view|san jose)\b/.test(text)) return "SF";
+  if (/\b(nyc|new york|brooklyn|manhattan)\b/.test(text)) return "NYC";
+  if (/\b(seattle|bellevue)\b/.test(text)) return "Seattle";
+  if (/\b(austin)\b/.test(text)) return "Austin";
+  if (/\b(boston|cambridge)\b/.test(text)) return "Boston";
+  if (/\b(canada|toronto|vancouver|montreal)\b/.test(text)) return "Canada";
+  if (/\b(remote|distributed)\b/.test(text)) return "Remote";
+  return "Remote/Other";
+}
+
+function buildSeniorityMix(leads: ProfileLead[], sourcingStrategy: SourcingStrategy): MarketSegment[] {
+  const values = leads.length ? leads.map(inferSeniorityBucket) : [];
+  return valuesToSegments(values.filter(Boolean), ["#178A52", "#D58B39", "#7D6BF2"]).slice(0, 3);
+}
+
+function inferSeniorityBucket(lead: ProfileLead) {
+  const text = `${lead.title} ${lead.snippet} ${lead.fitReason} ${lead.tags.join(" ")}`.toLowerCase();
+  return inferSeniorityBucketFromText(text);
+}
+
+function inferSeniorityBucketFromText(value: string) {
+  const text = value.toLowerCase();
+  if (/\b(chief|vp|c-level|cfo|cto|coo|exec|head of)\b/.test(text)) return "Exec";
+  if (/\b(founding|principal|staff)\b/.test(text)) return "Founding / Principal";
+  if (/\b(senior|lead|manager|architect)\b/.test(text)) return "Senior";
+  if (/\b(junior|associate|entry)\b/.test(text)) return "Junior";
+  return "Mid";
+}
+
+function valuesToSegments(values: string[], colors: string[]): MarketSegment[] {
+  if (!values.length) return [];
+  const counts = values.reduce<Record<string, number>>((acc, value) => {
+    acc[value] = (acc[value] || 0) + 1;
+    return acc;
+  }, {});
+  const total = values.length;
+
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([label, count], index) => ({
+      label,
+      value: Math.max(8, Math.round((count / total) * 100)),
+      color: colors[index % colors.length]
+    }));
+}
+
+function inferMarketCompRange(leads: ProfileLead[], sourcingStrategy: SourcingStrategy) {
+  const leadComp = leads.map((lead) => lead.calibration?.compRange).find(Boolean);
+  if (leadComp) return `${leadComp} · Directional`;
+  const text = `${sourcingStrategy.searchThesis} ${sourcingStrategy.targetTitles.join(" ")}`.toLowerCase();
+  if (/\b(staff|principal|founding|head|senior)\b/.test(text)) return "$220k-$300k+ · Directional";
+  if (/\bengineer|product manager|pm|designer\b/.test(text)) return "$160k-$240k · Directional";
+  return "Comp: pending";
+}
+
+function inferTimeToFill(poolSize: MarketIntelSnapshot["poolSize"], seniorityMix: MarketSegment[], brainState: BrainState) {
+  const seniorHeavy = seniorityMix.some((segment) => /founding|principal|exec/i.test(segment.label) && segment.value >= 25);
+  if (poolSize === "Forming" || brainState.sourcingReadiness === "not_ready") return "TTF forming";
+  if (poolSize === "Narrow" || seniorHeavy) return "10-16 wks · Directional";
+  if (poolSize === "Moderate") return "8-12 wks · Directional";
+  return "6-10 wks · Directional";
+}
+
+function buildFounderTakeaway(
+  poolSize: MarketIntelSnapshot["poolSize"],
+  locationMix: MarketSegment[],
+  seniorityMix: MarketSegment[],
+  compRange: string,
+  timeToFill: string,
+  leads: ProfileLead[]
+) {
+  if (!leads.length) return "Market Intel is pending until Tina has enough role signal or public profiles.";
+  const topLocations = locationMix.slice(0, 2).map((segment) => segment.label).join(" + ");
+  const senior = seniorityMix[0]?.label || "Senior";
+  if (poolSize === "Narrow") return `${topLocations || "Remote"} looks strongest; budget and timeline need room for ${senior.toLowerCase()} proof.`;
+  if (compRange.includes("pending")) return `${topLocations || "Remote"} is the first market to test; comp still needs calibration.`;
+  return `${topLocations || "Remote"} is the cleanest first lane; ${timeToFill.replace("TTF: ", "").replace(" · Directional", "")} is a realistic early read.`;
+}
+
+function donutGradient(segments: MarketSegment[]) {
+  let cursor = 0;
+  return segments.map((segment) => {
+    const start = cursor;
+    cursor += segment.value;
+    return `${segment.color} ${start}% ${Math.min(cursor, 100)}%`;
+  }).join(", ");
+}
+
+function profileMatchScore(lead: ProfileLead) {
+  if (lead.confidence === "high") return 92;
+  if (lead.confidence === "medium") return 84;
+  return 72;
+}
+
+function profileSignalLine(lead: ProfileLead) {
+  const tags = lead.tags.slice(0, 2).join(" ");
+  if (tags) return compactLeadText(`${tags} signal`, 56);
+  return compactLeadText(lead.fitReason || lead.snippet, 56);
+}
+
+function initialsForName(name: string) {
+  const parts = name.replace(/[^A-Za-z\s]/g, " ").split(/\s+/).filter(Boolean);
+  return (parts[0]?.[0] || "T") + (parts[1]?.[0] || "");
 }
 
 function TalentPoolRail({
@@ -1294,7 +1767,7 @@ function TalentPoolRail({
 
   return (
     <div className="grid gap-3">
-      <section className="rounded-lg border border-[#DCD3C8] bg-[#FFFCF7] p-3">
+      <section className="min-w-0 overflow-hidden rounded-lg border border-[#DCD3C8] bg-[#FFFCF7] p-3">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Batch read</p>
@@ -1382,7 +1855,7 @@ function TalentPoolLeadRow({
   const missingSignal = compactLeadText(missingSignalForLead(lead), 92);
 
   return (
-    <details className={`rounded-lg border bg-white p-3 ${isRejected ? "border-[#E2D6CC] opacity-70" : "border-[#E5E2DD]"} ${isLatest ? "ring-1 ring-[#E7DDD1]" : ""}`}>
+    <details className={`min-w-0 overflow-hidden rounded-lg border bg-white p-3 ${isRejected ? "border-[#E2D6CC] opacity-70" : "border-[#E5E2DD]"} ${isLatest ? "ring-1 ring-[#E7DDD1]" : ""}`}>
       <summary className="cursor-pointer list-none">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
@@ -1395,8 +1868,8 @@ function TalentPoolLeadRow({
             </div>
           </div>
         </div>
-        <p className="mt-2 text-xs leading-5 text-[#4B453F]">{whySurfaced}</p>
-        <p className="mt-1 text-[11px] leading-4 text-[#8A8178]">{missingSignal}</p>
+        <p className="mt-2 break-words text-xs leading-5 text-[#4B453F]">{whySurfaced}</p>
+        <p className="mt-1 break-words text-[11px] leading-4 text-[#8A8178]">{missingSignal}</p>
         <div className="mt-2 grid grid-cols-2 gap-1.5">
           <button
             type="button"
@@ -1421,17 +1894,17 @@ function TalentPoolLeadRow({
         </div>
       </summary>
 
-      <div className="mt-3 border-t border-[#EFE8DF] pt-3 text-xs leading-5 text-[#4B453F]">
-        <p><span className="font-semibold">Why surfaced:</span> {lead.fitReason}</p>
-        <p className="mt-1"><span className="font-semibold">Evidence/proof:</span> {leadEvidenceLine(lead)}</p>
-        <p className="mt-1"><span className="font-semibold">Missing signal:</span> {missingSignalForLead(lead)}</p>
+      <div className="mt-3 min-w-0 border-t border-[#EFE8DF] pt-3 text-xs leading-5 text-[#4B453F]">
+        <p className="break-words"><span className="font-semibold">Why surfaced:</span> {lead.fitReason}</p>
+        <p className="mt-1 break-words"><span className="font-semibold">Evidence/proof:</span> {leadEvidenceLine(lead)}</p>
+        <p className="mt-1 break-words"><span className="font-semibold">Missing signal:</span> {missingSignalForLead(lead)}</p>
         <div className="mt-2 flex flex-wrap gap-1.5">
           {lead.tags.slice(0, 5).map((tag) => (
             <span key={tag} className="rounded-md bg-[#F4F1EC] px-2 py-1 text-[11px] text-[#625A52]">{tag}</span>
           ))}
         </div>
         <p className="mt-2 break-words"><span className="font-semibold">Query:</span> {lead.query}</p>
-        <div className="mt-3 grid grid-cols-2 gap-1.5">
+        <div className="mt-3 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
           <a href={lead.url} target="_blank" rel="noreferrer" className="rounded-md border border-[#E3DED7] px-2 py-1.5 text-center text-[11px] font-medium text-[#4B453F]">Open</a>
           <button type="button" onClick={() => onStatusChange({ preference: status?.preference === "more_like_this" ? undefined : "more_like_this" })} className={`rounded-md border px-2 py-1.5 text-[11px] font-medium ${status?.preference === "more_like_this" ? "border-[#108A4B] bg-[#EEF8F1] text-[#108A4B]" : "border-[#E3DED7] text-[#4B453F]"}`}>More like this</button>
           <button type="button" onClick={() => onStatusChange({ preference: status?.preference === "less_like_this" ? undefined : "less_like_this" })} className={`rounded-md border px-2 py-1.5 text-[11px] font-medium ${status?.preference === "less_like_this" ? "border-[#B87A4A] bg-[#FFF2E8] text-[#A35F2E]" : "border-[#E3DED7] text-[#4B453F]"}`}>Less like this</button>
