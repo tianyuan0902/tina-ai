@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -45,14 +45,6 @@ const leadingQuestions = [
   { label: "Build search lanes", prompt: "Build search lanes for this hire." },
   { label: "Find people like this", prompt: "Find people like this profile." }
 ];
-
-const intelligenceTabs = [
-  { id: "talentPool", label: "Talent Pool" },
-  { id: "calibration", label: "Calibration" },
-  { id: "market", label: "Market Intel" }
-] as const;
-
-type IntelligenceTab = (typeof intelligenceTabs)[number]["id"];
 
 type ProfileLeadStatus = {
   action?: "saved" | "rejected";
@@ -472,7 +464,6 @@ function HomeCommandCenter({
   const calibration = useMemo(() => deriveLiveCalibration(messages), [messages]);
   const pipeline = useMemo(() => derivePipelineIntelligence(messages), [messages]);
   const latestTinaMessageId = useMemo(() => [...messages].reverse().find((message) => message.role === "tina")?.id, [messages]);
-  const [activeIntelligenceTab, setActiveIntelligenceTab] = useState<IntelligenceTab>("talentPool");
   const [profileLeadStatus, setProfileLeadStatus] = useState<Record<string, ProfileLeadStatus>>({});
 
   useEffect(() => {
@@ -486,10 +477,6 @@ function HomeCommandCenter({
   useEffect(() => {
     window.localStorage.setItem(PROFILE_LEAD_STATUS_STORAGE_KEY, JSON.stringify(profileLeadStatus));
   }, [profileLeadStatus]);
-
-  useEffect(() => {
-    if (profileLeadItems.length) setActiveIntelligenceTab("talentPool");
-  }, [activeThread.id, profileLeadItems.length]);
 
   async function sendMessage(content: string, options?: { sourcingRefinementSummary?: string }) {
     if (!content.trim() || isThinking) return;
@@ -520,7 +507,6 @@ function HomeCommandCenter({
       const finalMessages = [...nextMessages, data.message];
       onMessagesChange(finalMessages);
       onSynthesis(data.message.content);
-      if (data.message.profileLeads?.length) setActiveIntelligenceTab("talentPool");
     } catch {
       const errorMessage: TinaMvpMessage = {
         id: `tina-error-${Date.now()}`,
@@ -607,8 +593,6 @@ function HomeCommandCenter({
         sourcingReadiness={sourcingReadiness}
         pipeline={pipeline}
         latestSynthesis={latestSynthesis}
-        activeTab={activeIntelligenceTab}
-        onActiveTabChange={setActiveIntelligenceTab}
       />
     </div>
   );
@@ -1051,9 +1035,7 @@ function RightIntelligenceRail({
   calibration,
   sourcingReadiness,
   pipeline,
-  latestSynthesis,
-  activeTab,
-  onActiveTabChange
+  latestSynthesis
 }: {
   hasConversation: boolean;
   profiles: ReturnType<typeof deriveCalibrationProfiles>;
@@ -1066,55 +1048,32 @@ function RightIntelligenceRail({
   sourcingReadiness: SourcingReadiness;
   pipeline: PipelineIntelligence;
   latestSynthesis: string;
-  activeTab: IntelligenceTab;
-  onActiveTabChange: (tab: IntelligenceTab) => void;
 }) {
   const snapshot = pipeline.snapshots[pipeline.defaultState];
 
   return (
     <aside className="hidden h-full min-h-0 min-w-0 overflow-y-auto md:block md:pt-2 xl:pt-3">
       <section className="min-h-[calc(100%-0.75rem)] min-w-0 overflow-hidden rounded-xl border border-[#E7E3DD] bg-white shadow-[0_22px_70px_rgba(23,23,23,0.055)]">
-        <div className="grid grid-cols-3 border-b border-[#ECE7E1] bg-white">
-          {intelligenceTabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => onActiveTabChange(tab.id)}
-              className={`min-w-0 truncate whitespace-nowrap border-b-2 px-1 py-2.5 text-[10px] font-medium leading-none transition xl:px-1.5 xl:py-3 xl:text-[12px] ${
-                activeTab === tab.id
-                  ? "border-[#5B35D5] text-[#4B28C9]"
-                  : "border-transparent text-[#625A52] hover:bg-[#F8F6FF] hover:text-[#171717]"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+        <div className="border-b border-[#ECE7E1] bg-white px-3 py-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Sourcing Mission</p>
+          <h2 className="mt-1 text-base font-semibold text-[#171717]">Talent Pool</h2>
+          <p className="mt-1 text-xs leading-5 text-[#625A52]">Tell Tina who you need. She’ll find you people.</p>
         </div>
 
         <div className="p-3">
-          {activeTab === "calibration" ? (
-            <CalibrationIntelligenceTab
-              hasConversation={hasConversation}
-              calibration={calibration}
-              latestSynthesis={latestSynthesis}
-              snapshot={snapshot}
-            />
-          ) : null}
-          {activeTab === "market" ? (
-            <MarketIntelTab calibration={calibration} profiles={profiles} snapshot={snapshot} />
-          ) : null}
-          {activeTab === "talentPool" ? (
-            <TalentPoolTab
-              profiles={profiles}
-              calibration={calibration}
-              sourcingReadiness={sourcingReadiness}
-              profileLeadItems={profileLeadItems}
-              latestProfileLeadItems={latestProfileLeadItems}
-              profileLeadStatus={profileLeadStatus}
-              onProfileLeadStatusChange={onProfileLeadStatusChange}
-              onRefineSearch={onRefineSearch}
-            />
-          ) : null}
+          <TalentPoolTab
+            hasConversation={hasConversation}
+            profiles={profiles}
+            calibration={calibration}
+            sourcingReadiness={sourcingReadiness}
+            profileLeadItems={profileLeadItems}
+            latestProfileLeadItems={latestProfileLeadItems}
+            profileLeadStatus={profileLeadStatus}
+            onProfileLeadStatusChange={onProfileLeadStatusChange}
+            onRefineSearch={onRefineSearch}
+            latestSynthesis={latestSynthesis}
+            snapshot={snapshot}
+          />
         </div>
       </section>
     </aside>
@@ -1219,6 +1178,7 @@ function MarketIntelTab({
 }
 
 function TalentPoolTab({
+  hasConversation,
   profiles,
   calibration,
   sourcingReadiness,
@@ -1226,8 +1186,11 @@ function TalentPoolTab({
   latestProfileLeadItems,
   profileLeadStatus,
   onProfileLeadStatusChange,
-  onRefineSearch
+  onRefineSearch,
+  latestSynthesis,
+  snapshot
 }: {
+  hasConversation: boolean;
   profiles: ReturnType<typeof deriveCalibrationProfiles>;
   calibration: LiveCalibration;
   sourcingReadiness: SourcingReadiness;
@@ -1236,6 +1199,8 @@ function TalentPoolTab({
   profileLeadStatus: Record<string, ProfileLeadStatus>;
   onProfileLeadStatusChange: (leadId: string, status: ProfileLeadStatus) => void;
   onRefineSearch: (summary: string) => void;
+  latestSynthesis: string;
+  snapshot: PipelineSnapshot;
 }) {
   const visibleProfiles = profiles.slice(0, calibration.depth >= 3 ? 3 : 2);
   const sourcingStrategy = deriveSourcingStrategy(calibration, profiles, sourcingReadiness);
@@ -1246,6 +1211,8 @@ function TalentPoolTab({
     profileLeadStatus
   );
   const hasFeedback = latestProfileLeadItems.some((item) => hasProfileLeadFeedback(profileLeadStatus[item.statusKey]));
+  const feedbackRead = buildFeedbackLearningRead(latestProfileLeadItems, profileLeadStatus);
+  const refineLabel = shortlistedItems.length ? "Find more like saved candidates" : "Refine Talent Pool";
   const handleRefineSearch = () => {
     const summary = buildTalentPoolFeedbackSummary(latestProfileLeadItems, profileLeadStatus);
     if (summary) onRefineSearch(summary);
@@ -1256,69 +1223,65 @@ function TalentPoolTab({
 
     return (
       <div className="grid gap-3">
-        <section className="rounded-lg border border-[#E5E2DD] bg-white p-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Talent Pool</p>
-          <div className="mt-2 flex items-start justify-between gap-3">
-            <h3 className="text-sm font-semibold text-[#171717]">Potential Candidates</h3>
-            <div className="flex shrink-0 items-center gap-1.5">
-              {hasFeedback ? (
-                <button
-                  type="button"
-                  onClick={handleRefineSearch}
-                  className="rounded-md border border-[#CFC4B8] bg-[#171717] px-2 py-1 text-[11px] font-medium text-white transition hover:bg-[#2A2724]"
-                >
-                  Refine search
-                </button>
-              ) : null}
-              <span className="rounded-full bg-[#F3EFE8] px-2 py-1 text-[11px] font-medium text-[#6F675E]">
-                {latestProfileLeadItems.length || visibleItems.length} {(latestProfileLeadItems.length || visibleItems.length) === 1 ? "lead" : "leads"}
-              </span>
-            </div>
-          </div>
-          <p className="mt-1 text-xs leading-5 text-[#625A52]">Actionable candidates from public signals. Review before outreach.</p>
-        </section>
-
         <SourcingStrategyCard strategy={sourcingStrategy} />
 
-        <TalentBatchReadCard read={latestBatchRead} />
+        <CandidateResultsSection
+          count={latestProfileLeadItems.length || visibleItems.length}
+          hasFeedback={hasFeedback}
+          refineLabel={refineLabel}
+          onRefineSearch={handleRefineSearch}
+          batchRead={latestBatchRead}
+          feedbackRead={feedbackRead}
+        >
+          {potentialItems.map((item) => (
+            <ProfileLeadCard
+              key={item.statusKey}
+              lead={item.lead}
+              status={profileLeadStatus[item.statusKey]}
+              onStatusChange={(status) => onProfileLeadStatusChange(item.statusKey, status)}
+            />
+          ))}
+        </CandidateResultsSection>
 
-        {potentialItems.map((item) => (
-          <ProfileLeadCard
-            key={item.statusKey}
-            lead={item.lead}
-            status={profileLeadStatus[item.statusKey]}
-            onStatusChange={(status) => onProfileLeadStatusChange(item.statusKey, status)}
-          />
-        ))}
+        <ShortlistSection
+          items={shortlistedItems}
+          statuses={profileLeadStatus}
+          onRemove={(statusKey) => onProfileLeadStatusChange(statusKey, { action: undefined })}
+        />
 
-        {shortlistedItems.length ? (
-          <ShortlistSection
-            items={shortlistedItems}
-            statuses={profileLeadStatus}
-            onRemove={(statusKey) => onProfileLeadStatusChange(statusKey, { action: undefined })}
-          />
-        ) : null}
+        <RoleMemorySection calibration={calibration} strategy={sourcingStrategy} latestSynthesis={latestSynthesis} defaultOpen={hasConversation && calibration.depth >= 3} />
 
-        <RoleMemorySection calibration={calibration} strategy={sourcingStrategy} />
+        <MarketRealitySection calibration={calibration} profiles={profiles} strategy={sourcingStrategy} snapshot={snapshot} defaultOpen={false} />
       </div>
     );
   }
 
   return (
     <div className="grid gap-3">
-      <section className="rounded-lg border border-[#E5E2DD] bg-white p-3">
-        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Talent Pool</p>
-        <h3 className="mt-2 text-sm font-semibold text-[#171717]">Search Lanes</h3>
-        <p className="mt-1 text-xs leading-5 text-[#625A52]">The candidate map forms before Tina pulls profiles.</p>
-      </section>
-
       <SourcingStrategyCard strategy={sourcingStrategy} />
 
-      {visibleProfiles.map((profile) => (
-        <ArchetypeCalibrationCard key={profile.title} profile={profile} />
-      ))}
+      <EmptyCandidateResults />
 
-      <RoleMemorySection calibration={calibration} strategy={sourcingStrategy} />
+      <details className="rounded-lg border border-[#E5E2DD] bg-white p-3">
+        <summary className="cursor-pointer text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178] marker:text-[#8A8178]">
+          Search lane examples
+        </summary>
+        <div className="mt-3 grid gap-3">
+          {visibleProfiles.map((profile) => (
+            <ArchetypeCalibrationCard key={profile.title} profile={profile} />
+          ))}
+        </div>
+      </details>
+
+      <ShortlistSection
+        items={shortlistedItems}
+        statuses={profileLeadStatus}
+        onRemove={(statusKey) => onProfileLeadStatusChange(statusKey, { action: undefined })}
+      />
+
+      <RoleMemorySection calibration={calibration} strategy={sourcingStrategy} latestSynthesis={latestSynthesis} defaultOpen={false} />
+
+      <MarketRealitySection calibration={calibration} profiles={profiles} strategy={sourcingStrategy} snapshot={snapshot} defaultOpen={false} />
     </div>
   );
 }
@@ -1444,12 +1407,84 @@ function ProfileLeadCard({
   );
 }
 
+function CandidateResultsSection({
+  count,
+  hasFeedback,
+  refineLabel,
+  onRefineSearch,
+  batchRead,
+  feedbackRead,
+  children
+}: {
+  count: number;
+  hasFeedback: boolean;
+  refineLabel: string;
+  onRefineSearch: () => void;
+  batchRead: string;
+  feedbackRead: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="rounded-lg border border-[#E5E2DD] bg-white p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Candidate Results</p>
+          <h3 className="mt-2 text-sm font-semibold text-[#171717]">Potential Candidates</h3>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {hasFeedback ? (
+            <button
+              type="button"
+              onClick={onRefineSearch}
+              className="rounded-md border border-[#CFC4B8] bg-[#171717] px-2 py-1 text-[11px] font-medium text-white transition hover:bg-[#2A2724]"
+            >
+              {refineLabel}
+            </button>
+          ) : null}
+          <span className="rounded-full bg-[#F3EFE8] px-2 py-1 text-[11px] font-medium text-[#6F675E]">
+            {count} {count === 1 ? "lead" : "leads"}
+          </span>
+        </div>
+      </div>
+      <p className="mt-1 text-xs leading-5 text-[#625A52]">Actionable candidates from public signals. Review before outreach.</p>
+      <TalentBatchReadCard read={batchRead} />
+      {feedbackRead ? <FeedbackLearningCard read={feedbackRead} /> : null}
+      <div className="mt-3 grid gap-3">{children}</div>
+    </section>
+  );
+}
+
+function EmptyCandidateResults() {
+  return (
+    <section className="rounded-lg border border-dashed border-[#D8CEC2] bg-white p-3">
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Candidate Results</p>
+      <h3 className="mt-2 text-sm font-semibold text-[#171717]">No candidates yet.</h3>
+      <p className="mt-1 text-xs leading-5 text-[#625A52]">
+        Tell Tina who you need, and she’ll build a search brief before pulling profiles.
+      </p>
+    </section>
+  );
+}
+
+function FeedbackLearningCard({ read }: { read: string }) {
+  return (
+    <div className="mt-3 rounded-lg border border-[#DDE9D8] bg-[#F5FBF6] p-2.5">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5F7A61]">Taste signal</p>
+      <p className="mt-1.5 text-xs leading-5 text-[#405A43]">{read}</p>
+    </div>
+  );
+}
+
 function RoleMemorySection({
   calibration,
-  strategy
+  strategy,
+  latestSynthesis,
+  defaultOpen
 }: {
   calibration: LiveCalibration;
   strategy: SourcingStrategy;
+  latestSynthesis: string;
+  defaultOpen: boolean;
 }) {
   const hasSignal = calibration.depth > 0;
   const openQuestions = strategy.readiness.followUpQuestions.length
@@ -1457,7 +1492,8 @@ function RoleMemorySection({
     : [calibration.nextAction];
 
   return (
-    <section className="rounded-lg border border-[#E5E2DD] bg-[#FFFCF7] p-3">
+    <details open={defaultOpen} className="rounded-lg border border-[#E5E2DD] bg-[#FFFCF7] p-3">
+      <summary className="cursor-pointer list-none">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Role Memory</p>
@@ -1467,10 +1503,16 @@ function RoleMemorySection({
           {hasSignal ? "Evolving" : "Waiting"}
         </span>
       </div>
+      </summary>
 
       <div className="mt-3 rounded-lg border border-[#E7DDD1] bg-white p-2.5">
         <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8A8178]">Role thesis</p>
         <p className="mt-1.5 text-xs leading-5 text-[#4B453F]">{strategy.searchThesis}</p>
+      </div>
+
+      <div className="mt-3 rounded-lg border border-[#E7DDD1] bg-white p-2.5">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8A8178]">Hiring tension</p>
+        <p className="mt-1.5 text-xs leading-5 text-[#4B453F]">{latestSynthesis || calibration.clarityLabel}</p>
       </div>
 
       <div className="mt-3 grid gap-2">
@@ -1491,7 +1533,7 @@ function RoleMemorySection({
           </p>
         </div>
       </details>
-    </section>
+    </details>
   );
 }
 
@@ -1505,7 +1547,8 @@ function ShortlistSection({
   onRemove: (statusKey: string) => void;
 }) {
   return (
-    <section className="rounded-lg border border-[#D7CFC5] bg-white p-3 shadow-[0_12px_34px_rgba(23,23,23,0.035)]">
+    <details open={items.length > 0} className="rounded-lg border border-[#D7CFC5] bg-white p-3 shadow-[0_12px_34px_rgba(23,23,23,0.035)]">
+      <summary className="cursor-pointer list-none">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Shortlist</p>
@@ -1515,10 +1558,15 @@ function ShortlistSection({
           {items.length} saved
         </span>
       </div>
+      </summary>
 
-      <ShortlistReadCard read={buildShortlistRead(items)} />
+      {items.length ? (
+        <ShortlistReadCard read={buildShortlistRead(items)} />
+      ) : (
+        <p className="mt-3 text-xs leading-5 text-[#625A52]">Saved candidates will collect here when Tina finds profiles worth returning to.</p>
+      )}
 
-      <div className="mt-3 grid gap-2">
+      {items.length ? <div className="mt-3 grid gap-2">
         {items.map((item) => {
           const lead = item.lead;
           const status = statuses[item.statusKey];
@@ -1552,9 +1600,68 @@ function ShortlistSection({
             </article>
           );
         })}
-      </div>
-    </section>
+      </div> : null}
+    </details>
   );
+}
+
+function MarketRealitySection({
+  calibration,
+  profiles,
+  strategy,
+  snapshot,
+  defaultOpen
+}: {
+  calibration: LiveCalibration;
+  profiles: ReturnType<typeof deriveCalibrationProfiles>;
+  strategy: SourcingStrategy;
+  snapshot: PipelineSnapshot;
+  defaultOpen: boolean;
+}) {
+  const primaryProfile = profiles[0];
+  const compRange = primaryProfile?.comp || calibration.marketPressure;
+  const talentSupply = calibration.poolImpact || snapshot.briefing.marketReality;
+  const timeToFill = estimateTimeToFill(calibration, profiles);
+  const keywords = uniqueStrings([...strategy.queryTerms, ...calibration.keywords]).slice(0, 6);
+
+  return (
+    <details open={defaultOpen} className="rounded-lg border border-[#E5E2DD] bg-white p-3">
+      <summary className="cursor-pointer list-none">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Market Reality</p>
+            <h3 className="mt-2 text-sm font-semibold text-[#171717]">Supply behind the search</h3>
+          </div>
+          <span className="rounded-full bg-[#F3EFE8] px-2 py-1 text-[11px] font-medium text-[#6F675E]">Support</span>
+        </div>
+      </summary>
+
+      <div className="mt-3 grid gap-2">
+        <MarketRealityRow label="Market pressure" value={calibration.marketPressure} />
+        <MarketRealityRow label="Talent supply" value={talentSupply} />
+        <MarketRealityRow label="Comp range" value={compRange} />
+        <MarketRealityRow label="Time to fill" value={timeToFill} />
+        <StrategyRow label="Sourcing keywords" items={keywords} />
+      </div>
+    </details>
+  );
+}
+
+function MarketRealityRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-[#E7DDD1] bg-[#FBFAF7] p-2">
+      <p className="text-[10px] font-medium uppercase tracking-[0.1em] text-[#8A8178]">{label}</p>
+      <p className="mt-1 text-xs leading-5 text-[#4B453F]">{value}</p>
+    </div>
+  );
+}
+
+function estimateTimeToFill(calibration: LiveCalibration, profiles: ReturnType<typeof deriveCalibrationProfiles>) {
+  const text = `${calibration.roleTitle} ${calibration.jdSummary} ${calibration.marketPressure}`.toLowerCase();
+  if (/\b(ai|llm|solidity|smart contract|staff|principal|founding)\b/.test(text)) return "Likely 6-10 weeks if the bar is real.";
+  if (profiles[0]?.marketDensity === "low") return "Likely 5-8 weeks; pool is narrow.";
+  if (profiles[0]?.marketDensity === "high") return "Likely 3-5 weeks with a tight lane.";
+  return "Likely 4-7 weeks, depending on compensation and specificity.";
 }
 
 function ShortlistReadCard({ read }: { read: string }) {
@@ -1571,7 +1678,7 @@ function SourcingStrategyCard({ strategy }: { strategy: SourcingStrategy }) {
     <section className="rounded-lg border border-[#DCD3C8] bg-[#FBFAF7] p-3">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Search Plan</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Search Brief</p>
           <h3 className="mt-2 text-sm font-semibold text-[#171717]">How Tina is thinking.</h3>
         </div>
         <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold ${readinessBadgeClass(strategy.readiness.readinessStatus)}`}>
@@ -1585,7 +1692,7 @@ function SourcingStrategyCard({ strategy }: { strategy: SourcingStrategy }) {
         <StrategyRow label="Seek" items={strategy.seek.slice(0, 5)} />
         <StrategyRow label="Avoid" items={strategy.avoidSignals.slice(0, 5)} tone="warning" />
         <StrategyRow label="Likely titles" items={strategy.targetTitles.slice(0, 5)} />
-        <StrategyRow label="Where to look" items={strategy.targetCompanyTypes.slice(0, 5)} />
+        <StrategyRow label="Source lanes" items={strategy.targetCompanyTypes.slice(0, 5)} />
       </div>
 
       <details className="mt-3 rounded-lg border border-[#E7DDD1] bg-white">
@@ -1707,6 +1814,24 @@ function buildTalentPoolFeedbackSummary(items: ProfileLeadItem[], statuses: Reco
   if (negative.length) sections.push(`Negative signals: ${negative.slice(0, MAX_FEEDBACK_SUMMARY_LEADS).join(" | ")}`);
 
   return sections.join(" ");
+}
+
+function buildFeedbackLearningRead(items: ProfileLeadItem[], statuses: Record<string, ProfileLeadStatus>) {
+  const positiveTags = items
+    .filter((item) => statuses[item.statusKey]?.action === "saved" || statuses[item.statusKey]?.preference === "more_like_this")
+    .flatMap((item) => item.lead.tags);
+  const negativeTags = items
+    .filter((item) => statuses[item.statusKey]?.action === "rejected" || statuses[item.statusKey]?.preference === "less_like_this")
+    .flatMap((item) => item.lead.tags);
+  const positive = topValues(positiveTags).slice(0, 2);
+  const negative = topValues(negativeTags).slice(0, 2);
+
+  if (!positive.length && !negative.length) return "";
+
+  return [
+    positive.length ? `I’m learning you prefer ${positive.join(" and ")} signals` : "",
+    negative.length ? `and want to avoid ${negative.join(" and ")} noise` : ""
+  ].filter(Boolean).join(" ").replace(/\s+/g, " ").trim() + ".";
 }
 
 function summarizeProfileLeadForRefinement(lead: ProfileLead) {
