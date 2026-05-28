@@ -216,6 +216,7 @@ function scopeForTarget(target: string) {
     operator: "Founder-adjacent operating leverage across messy priorities",
     design: "Product design under ambiguity with close engineering proximity",
     gtm: "Early GTM motion, customer learning, and revenue ownership",
+    web3: "Solidity and smart contract delivery with recent mainnet or DeFi proof",
     general: "Broad startup ownership where the exact lane is still forming"
   };
 
@@ -266,6 +267,7 @@ function mustHavesForTarget(target: string) {
     operator: ["High trust", "Ambiguity tolerance", "Closes loops without process weight"],
     design: ["Product taste", "Customer empathy", "Engineering proximity"],
     gtm: ["Customer learning", "Founder-led selling comfort", "Pipeline ownership"],
+    web3: ["Solidity depth", "Recent mainnet or DeFi work", "Security instincts"],
     general: ["High agency", "Ownership density", "Ambiguity tolerance"]
   };
 
@@ -280,6 +282,7 @@ function niceToHavesForTarget(target: string) {
     operator: ["Founder office", "BizOps", "Technical product context"],
     design: ["Design systems", "AI tool experience", "0-to-1 product work"],
     gtm: ["Fintech or AI market", "Outbound motion", "Founder network"],
+    web3: ["Audit exposure", "Protocol engineering", "End-to-end delivery"],
     general: ["Domain familiarity", "Early-stage references", "Low-ego range"]
   };
 
@@ -295,6 +298,7 @@ function compRangeForTarget(target: string, hiringContext: string) {
       operator: "$140k-$230k base + equity",
       design: "$150k-$230k base + equity",
       gtm: "$140k-$220k base + variable/equity",
+      web3: "$180k-$300k base + equity/token upside",
       general: "$140k-$230k base + equity"
     };
 
@@ -308,6 +312,7 @@ function compRangeForTarget(target: string, hiringContext: string) {
     operator: "$120k-$200k base + equity",
     design: "$130k-$210k base + equity",
     gtm: "$120k-$200k base + variable/equity",
+    web3: "$160k-$280k base + equity/token upside",
     general: "$120k-$210k base + equity"
   };
 
@@ -327,6 +332,10 @@ function buildFitReason(hiringContext: string, snippet: string) {
     return "Possible fit because the public result points toward founder-adjacent operating work.";
   }
 
+  if (/\b(solidity|smart contract|smartcontract|web3|defi|protocol|mainnet)\b/i.test(hiringContext)) {
+    return "Possible fit because the public result overlaps with Solidity, smart contract, DeFi, or protocol engineering language.";
+  }
+
   if (snippet.toLowerCase().includes("founding")) return "Founding-stage language suggests early ambiguity and ownership may be present.";
 
   return "Possible fit based on public language, but needs manual review.";
@@ -341,6 +350,7 @@ function buildTags(hiringContext: string, snippet: string) {
   if (/\b(startup|founding|early)\b/.test(text)) tags.push("startup");
   if (/\b(eval|quality|reliability)\b/.test(text)) tags.push("quality");
   if (/\b(operator|ops|operations)\b/.test(text)) tags.push("operator");
+  if (/\b(solidity|smart contract|smartcontract|web3|defi|protocol|mainnet)\b/.test(text)) tags.push("web3");
 
   return tags.slice(0, 4);
 }
@@ -403,6 +413,7 @@ function inferTargetLane(hiringContext: string) {
 
   if (/\b(operator|ops|operations|chief of staff|founder office)\b/.test(text)) return "operator";
   if (/\b(gtm|sales|account executive|ae|growth|revenue)\b/.test(text)) return "gtm";
+  if (/\b(solidity|smart contract|smartcontract|web3|defi|protocol|mainnet)\b/.test(text)) return "web3";
   if (/\b(pm|product manager|head of product|product lead)\b/.test(text)) return "product";
   if (/\b(design|designer)\b/.test(text)) return "design";
   if (/\b(ai|llm|machine learning|ml|model|agent)\b/.test(text)) return "ai";
@@ -421,6 +432,7 @@ function scoreResult(result: TavilyLikeResult, target: string) {
     operator: [/\b(operator|operations|chief of staff|founder office|bizops|business operations)\b/],
     design: [/\b(product designer|founding designer|design lead|ux|ui)\b/],
     gtm: [/\b(gtm|sales|account executive|revenue|growth|go-to-market)\b/],
+    web3: [/\b(solidity|smart contract|smartcontract|web3|defi|protocol|mainnet|ethereum)\b/, /\b(engineer|developer|security|audit)\b/],
     general: [/\b(startup|founding|early stage|builder|operator)\b/]
   };
 

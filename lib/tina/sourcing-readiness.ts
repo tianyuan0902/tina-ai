@@ -30,7 +30,7 @@ export function evaluateSourcingReadiness(messages: TinaMvpMessage[] | string): 
     {
       label: "role outcome",
       points: 20,
-      present: /\b(solve|own|owns|responsible|outcome|first 30|first 60|first 90|problem|bottleneck|reduce|improve|ship|build|clarity|customer|revenue|quality|execution)\b/i.test(text),
+      present: /\b(solve|own|owns|responsible|outcome|first 30|first 60|first 90|problem|bottleneck|reduce|improve|ship|build|deliver|delivery|mainnet|production|clarity|customer|revenue|quality|execution)\b/i.test(text),
       question: "What would make this hire a clear yes in the first 30-60 days?"
     },
     {
@@ -48,7 +48,7 @@ export function evaluateSourcingReadiness(messages: TinaMvpMessage[] | string): 
     {
       label: "company lane",
       points: 14,
-      present: /\b(startup|seed|series [abc]|early stage|vertical saas|devtools|marketplace|fintech|healthcare|ai company|founder-led|big company|faang|agency|consulting|company types?|from companies?|worked at)\b/i.test(text),
+      present: /\b(startup|seed|series [abc]|early stage|vertical saas|devtools|marketplace|fintech|healthcare|ai company|founder-led|big company|faang|agency|consulting|company types?|from companies?|worked at|defi|web3|crypto|protocol|mainnet|smart contract|smartcontract)\b/i.test(text),
       question: "What company environments should we search from or avoid?"
     },
     {
@@ -74,7 +74,7 @@ export function evaluateSourcingReadiness(messages: TinaMvpMessage[] | string): 
   const readinessScore = dimensions.reduce((score, dimension) => score + (dimension.present ? dimension.points : 0), 0);
   const missingSignals = dimensions.filter((dimension) => !dimension.present).map((dimension) => dimension.label);
   const readinessStatus: SourcingReadinessStatus =
-    readinessScore >= 80 ? "ready_to_source" : readinessScore >= 55 ? "low_confidence_search" : "needs_calibration";
+    readinessScore >= 70 ? "ready_to_source" : readinessScore >= 45 ? "low_confidence_search" : "needs_calibration";
 
   return {
     readinessStatus,
@@ -89,7 +89,7 @@ export function evaluateSourcingReadiness(messages: TinaMvpMessage[] | string): 
 }
 
 function inferRoleFamily(text: string) {
-  if (/\b(ai|llm|ml|machine learning|model|agent|engineer|developer|backend|frontend|full stack|full-stack|infra|platform)\b/.test(text)) return "engineering";
+  if (/\b(ai|llm|ml|machine learning|model|agent|engineer|developer|backend|frontend|full stack|full-stack|infra|platform|solidity|smart contract|smartcontract|web3|defi|protocol)\b/.test(text)) return "engineering";
   if (/\b(pm|product manager|head of product|product lead|product operator|product)\b/.test(text)) return "product";
   if (/\b(operator|ops|operations|chief of staff|founder office|bizops)\b/.test(text)) return "operator";
   if (/\b(designer|design|ux|ui)\b/.test(text)) return "design";
@@ -105,6 +105,10 @@ function buildSearchThesis(text: string, roleFamily: string) {
 
   if (roleFamily === "engineering" && /\b(ai|llm|model|agent)\b/.test(text)) {
     return "Applied AI builder with product judgment, shipped workflow evidence, and startup pace.";
+  }
+
+  if (roleFamily === "engineering" && /\b(solidity|smart contract|smartcontract|web3|defi|protocol|mainnet)\b/.test(text)) {
+    return "Solidity engineer with recent mainnet or DeFi proof, security instincts, and end-to-end delivery.";
   }
 
   if (roleFamily === "operator") {

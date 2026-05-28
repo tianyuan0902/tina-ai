@@ -4,7 +4,8 @@ const SEARCH_TERMS = {
   backend: ["senior backend engineer", "distributed systems engineer"],
   operator: ["startup operator", "founder office operator"],
   design: ["founding product designer", "product designer"],
-  gtm: ["founding account executive", "startup gtm", "sales leader", "growth operator"]
+  gtm: ["founding account executive", "startup gtm", "sales leader", "growth operator"],
+  web3: ["Solidity engineer", "smart contract engineer", "DeFi engineer", "protocol engineer"]
 };
 
 export type PublicTalentSearchRefinement = {
@@ -34,6 +35,7 @@ export function buildPublicTalentSearchQueries(hiringContext: string, refinement
 function inferRoleTerms(text: string) {
   if (/\b(operator|ops|operations|chief of staff|founder office)\b/.test(text)) return SEARCH_TERMS.operator;
   if (/\b(gtm|sales|account executive|ae|growth|revenue)\b/.test(text)) return SEARCH_TERMS.gtm;
+  if (/\b(solidity|smart contract|smartcontract|web3|defi|protocol|mainnet)\b/.test(text)) return SEARCH_TERMS.web3;
   if (/\b(pm|product manager|head of product|product lead)\b/.test(text)) return SEARCH_TERMS.product;
   if (/\b(design|designer)\b/.test(text)) return SEARCH_TERMS.design;
   if (/\b(backend|infra|infrastructure|systems|platform)\b/.test(text)) return SEARCH_TERMS.backend;

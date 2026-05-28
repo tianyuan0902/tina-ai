@@ -31,26 +31,25 @@ const ACTIVE_THREAD_STORAGE_KEY = "tina:mvp:active-thread-id";
 const PROFILE_LEAD_STATUS_STORAGE_KEY = "tina:mvp:profile-lead-status";
 const MAX_FEEDBACK_SUMMARY_LEADS = 8;
 
-const typingPhrases = ["Reading the signal", "Shaping the role", "Tightening the market read"];
+const typingPhrases = ["Shaping the search", "Reading candidate signal", "Tightening the Talent Pool"];
 
 const tabPromptChips = [
-  { label: "Calibration", prompt: "Help me calibrate this role" },
-  { label: "Market Intel", prompt: "What is the market reality for this hire?" },
-  { label: "Talent Pool", prompt: "What candidate archetypes should I consider?" },
-  { label: "Live JD", prompt: "Draft the live JD from what we know so far" }
+  { label: "Source candidates", prompt: "Source candidates for this search." },
+  { label: "Build search lanes", prompt: "Build search lanes for this hire." },
+  { label: "Find people like this", prompt: "Find people like this profile." },
+  { label: "Refine Talent Pool", prompt: "Refine this search based on my Talent Pool feedback. Find another batch." }
 ];
 
 const leadingQuestions = [
-  { label: "Raise/lower the level", prompt: "Help me figure out whether this should be a senior, staff, or founding-level hire." },
-  { label: "Add/remove must-haves", prompt: "Help me separate must-haves from nice-to-haves for this role." },
-  { label: "What’s the market like?", prompt: "What is the market reality for this kind of hire?" }
+  { label: "Source candidates", prompt: "Source candidates for this hire." },
+  { label: "Build search lanes", prompt: "Build search lanes for this hire." },
+  { label: "Find people like this", prompt: "Find people like this profile." }
 ];
 
 const intelligenceTabs = [
-  { id: "calibration", label: "Calibration" },
-  { id: "market", label: "Market Intel" },
   { id: "talentPool", label: "Talent Pool" },
-  { id: "liveJd", label: "Live JD" }
+  { id: "calibration", label: "Calibration" },
+  { id: "market", label: "Market Intel" }
 ] as const;
 
 type IntelligenceTab = (typeof intelligenceTabs)[number]["id"];
@@ -257,9 +256,16 @@ export function TinaWorkspace() {
   }
 
   function startNewThread() {
+    if (activeThread && isBlankNewRoleThread(activeThread)) {
+      setThreads((current) => current.filter((thread) => thread.id === activeThread.id || !isBlankNewRoleThread(thread)));
+      setActiveThreadId(activeThread.id);
+      setLatestSynthesis("Tina is watching for the difference between a strong title match and a person who actually reduces founder ambiguity.");
+      return;
+    }
+
     const nextThread = createNewRoleThread();
 
-    setThreads((current) => [nextThread, ...current]);
+    setThreads((current) => [nextThread, ...current.filter((thread) => !isBlankNewRoleThread(thread))]);
     setActiveThreadId(nextThread.id);
     setLatestSynthesis("Tina is watching for the difference between a strong title match and a person who actually reduces founder ambiguity.");
   }
@@ -466,7 +472,7 @@ function HomeCommandCenter({
   const calibration = useMemo(() => deriveLiveCalibration(messages), [messages]);
   const pipeline = useMemo(() => derivePipelineIntelligence(messages), [messages]);
   const latestTinaMessageId = useMemo(() => [...messages].reverse().find((message) => message.role === "tina")?.id, [messages]);
-  const [activeIntelligenceTab, setActiveIntelligenceTab] = useState<IntelligenceTab>("calibration");
+  const [activeIntelligenceTab, setActiveIntelligenceTab] = useState<IntelligenceTab>("talentPool");
   const [profileLeadStatus, setProfileLeadStatus] = useState<Record<string, ProfileLeadStatus>>({});
 
   useEffect(() => {
@@ -535,10 +541,10 @@ function HomeCommandCenter({
           <div className="mx-auto max-w-xl xl:max-w-2xl">
             <p className="mb-2 flex items-center justify-center gap-2 text-[11px] text-[#6B6259] xl:mb-3">
               <Sparkles className="h-3.5 w-3.5 text-[#178A52]" />
-              Hiring intelligence before the search begins
+              Founder-grade sourcing, powered by hiring judgment.
             </p>
             <h1 className="font-serif text-[clamp(1.45rem,1.9vw,2.1rem)] font-semibold leading-[1.05] tracking-normal text-[#171717] xl:text-[clamp(1.75rem,2.15vw,2.35rem)]">
-              Tell Tina what you’re hiring for.
+              Your AI talent partner for hard startup hires.
             </h1>
           </div>
         </header>
@@ -546,7 +552,7 @@ function HomeCommandCenter({
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[#E7E3DD] bg-white shadow-[0_22px_70px_rgba(23,23,23,0.055)]">
           <div className="shrink-0 border-b border-[#ECE7E1] bg-white px-4 py-3">
             <p className="text-[13px] font-semibold">Tina</p>
-            <p className="mt-0.5 text-xs text-[#6F675E]">Conversation first. Calibration forms alongside it.</p>
+            <p className="mt-0.5 text-xs text-[#6F675E]">Talent Pool first. Calibration and market intel support the search.</p>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto bg-white px-4 py-4">
@@ -565,7 +571,7 @@ function HomeCommandCenter({
                   <div>
                     <p className="text-sm font-semibold">Tina</p>
                     <TypingStatus />
-                    <InlineSignalRows signals={["Live calibration updating", "Market read forming"]} />
+                    <InlineSignalRows signals={["Search plan forming", "Talent Pool tightening"]} />
                   </div>
                 </div>
               ) : null}
@@ -1068,7 +1074,7 @@ function RightIntelligenceRail({
   return (
     <aside className="hidden h-full min-h-0 min-w-0 overflow-y-auto md:block md:pt-2 xl:pt-3">
       <section className="min-h-[calc(100%-0.75rem)] min-w-0 overflow-hidden rounded-xl border border-[#E7E3DD] bg-white shadow-[0_22px_70px_rgba(23,23,23,0.055)]">
-        <div className="grid grid-cols-4 border-b border-[#ECE7E1] bg-white">
+        <div className="grid grid-cols-3 border-b border-[#ECE7E1] bg-white">
           {intelligenceTabs.map((tab) => (
             <button
               key={tab.id}
@@ -1108,9 +1114,6 @@ function RightIntelligenceRail({
               onProfileLeadStatusChange={onProfileLeadStatusChange}
               onRefineSearch={onRefineSearch}
             />
-          ) : null}
-          {activeTab === "liveJd" ? (
-            <LiveJdTab calibration={calibration} profiles={profiles} />
           ) : null}
         </div>
       </section>
@@ -1272,18 +1275,10 @@ function TalentPoolTab({
               </span>
             </div>
           </div>
-          <p className="mt-1 text-xs leading-5 text-[#625A52]">Public profile signals only — review before outreach.</p>
+          <p className="mt-1 text-xs leading-5 text-[#625A52]">Actionable candidates from public signals. Review before outreach.</p>
         </section>
 
         <SourcingStrategyCard strategy={sourcingStrategy} />
-
-        {shortlistedItems.length ? (
-          <ShortlistSection
-            items={shortlistedItems}
-            statuses={profileLeadStatus}
-            onRemove={(statusKey) => onProfileLeadStatusChange(statusKey, { action: undefined })}
-          />
-        ) : null}
 
         <TalentBatchReadCard read={latestBatchRead} />
 
@@ -1295,6 +1290,16 @@ function TalentPoolTab({
             onStatusChange={(status) => onProfileLeadStatusChange(item.statusKey, status)}
           />
         ))}
+
+        {shortlistedItems.length ? (
+          <ShortlistSection
+            items={shortlistedItems}
+            statuses={profileLeadStatus}
+            onRemove={(statusKey) => onProfileLeadStatusChange(statusKey, { action: undefined })}
+          />
+        ) : null}
+
+        <RoleMemorySection calibration={calibration} strategy={sourcingStrategy} />
       </div>
     );
   }
@@ -1303,8 +1308,8 @@ function TalentPoolTab({
     <div className="grid gap-3">
       <section className="rounded-lg border border-[#E5E2DD] bg-white p-3">
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Talent Pool</p>
-        <h3 className="mt-2 text-sm font-semibold text-[#171717]">Candidate Archetypes</h3>
-        <p className="mt-1 text-xs leading-5 text-[#625A52]">Strategic lanes, not fake candidate identities.</p>
+        <h3 className="mt-2 text-sm font-semibold text-[#171717]">Search Lanes</h3>
+        <p className="mt-1 text-xs leading-5 text-[#625A52]">The candidate map forms before Tina pulls profiles.</p>
       </section>
 
       <SourcingStrategyCard strategy={sourcingStrategy} />
@@ -1312,6 +1317,8 @@ function TalentPoolTab({
       {visibleProfiles.map((profile) => (
         <ArchetypeCalibrationCard key={profile.title} profile={profile} />
       ))}
+
+      <RoleMemorySection calibration={calibration} strategy={sourcingStrategy} />
     </div>
   );
 }
@@ -1437,6 +1444,57 @@ function ProfileLeadCard({
   );
 }
 
+function RoleMemorySection({
+  calibration,
+  strategy
+}: {
+  calibration: LiveCalibration;
+  strategy: SourcingStrategy;
+}) {
+  const hasSignal = calibration.depth > 0;
+  const openQuestions = strategy.readiness.followUpQuestions.length
+    ? strategy.readiness.followUpQuestions
+    : [calibration.nextAction];
+
+  return (
+    <section className="rounded-lg border border-[#E5E2DD] bg-[#FFFCF7] p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Role Memory</p>
+          <h3 className="mt-2 text-sm font-semibold text-[#171717]">Current Role Brief</h3>
+        </div>
+        <span className="rounded-full bg-white px-2 py-1 text-[11px] font-medium text-[#6F675E] ring-1 ring-[#E5E2DD]">
+          {hasSignal ? "Evolving" : "Waiting"}
+        </span>
+      </div>
+
+      <div className="mt-3 rounded-lg border border-[#E7DDD1] bg-white p-2.5">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8A8178]">Role thesis</p>
+        <p className="mt-1.5 text-xs leading-5 text-[#4B453F]">{strategy.searchThesis}</p>
+      </div>
+
+      <div className="mt-3 grid gap-2">
+        <StrategyRow label="Must-have signals" items={strategy.mustHaveSignals.slice(0, 5)} />
+        <StrategyRow label="Nice-to-have signals" items={strategy.niceToHaveSignals.slice(0, 5)} />
+        <StrategyRow label="Avoid signals" items={strategy.avoidSignals.slice(0, 5)} tone="warning" />
+        <StrategyRow label="Open questions" items={openQuestions.slice(0, 3)} tone={strategy.readiness.followUpQuestions.length ? "warning" : "default"} />
+      </div>
+
+      <details className="mt-3 rounded-lg border border-[#E7DDD1] bg-white">
+        <summary className="cursor-pointer px-2.5 py-2 text-[11px] font-medium text-[#5A524A] marker:text-[#8A8178]">
+          Living JD / Current Role Brief
+        </summary>
+        <div className="border-t border-[#EFE8DF] p-2.5">
+          <h4 className="text-sm font-semibold leading-5 text-[#171717]">{titleForLiveJd(calibration)}</h4>
+          <p className="mt-2 whitespace-pre-line text-xs leading-5 text-[#4B453F]">
+            {hasSignal ? calibration.fullJd : "Waiting to gather more information. Share the outcome, scope, must-haves, and tradeoffs, then Tina will turn it into a working role brief."}
+          </p>
+        </div>
+      </details>
+    </section>
+  );
+}
+
 function ShortlistSection({
   items,
   statuses,
@@ -1513,8 +1571,8 @@ function SourcingStrategyCard({ strategy }: { strategy: SourcingStrategy }) {
     <section className="rounded-lg border border-[#DCD3C8] bg-[#FBFAF7] p-3">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Sourcing Strategy</p>
-          <h3 className="mt-2 text-sm font-semibold text-[#171717]">How Tina is shaping the search.</h3>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Search Plan</p>
+          <h3 className="mt-2 text-sm font-semibold text-[#171717]">How Tina is thinking.</h3>
         </div>
         <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold ${readinessBadgeClass(strategy.readiness.readinessStatus)}`}>
           {readinessLabel(strategy.readiness.readinessStatus)}

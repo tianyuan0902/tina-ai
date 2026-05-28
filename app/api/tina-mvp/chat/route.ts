@@ -52,10 +52,14 @@ export async function POST(request: Request) {
     });
   }
 
-  if (isPublicProfileSearchRequest(latestUserMessage.content)) {
+  const promisedSourcingMessage = getPromisedSourcingMessage(cleanMessages);
+  const shouldRunPromisedSourcing = isSourcingConfirmationRequest(cleanMessages);
+
+  if (isPublicProfileSearchRequest(latestUserMessage.content) || shouldRunPromisedSourcing) {
+    const searchTriggerMessage = shouldRunPromisedSourcing ? promisedSourcingMessage || "this hiring lane" : latestUserMessage.content;
     const isRefinementSearch = isSourcingRefinementRequest(latestUserMessage.content) && Boolean(refinementSummary);
     const readiness = evaluateSourcingReadiness(cleanMessages);
-    const allowLowConfidenceSearch = /\b(source anyway|search anyway|pull anyway|continue|go ahead|show me anyway)\b/i.test(latestUserMessage.content);
+    const allowLowConfidenceSearch = shouldRunPromisedSourcing || /\b(source anyway|search anyway|pull anyway|continue|go ahead|show me anyway)\b/i.test(latestUserMessage.content);
 
     if (readiness.readinessStatus === "needs_calibration" || (readiness.readinessStatus === "low_confidence_search" && !allowLowConfidenceSearch)) {
       return NextResponse.json({
@@ -77,8 +81,10 @@ export async function POST(request: Request) {
       refinement ? `Updated sourcing thesis:\n${refinement.updatedSearchThesis}` : ""
     ].filter(Boolean).join("\n\n");
     const requestedCount = getRequestedProfileCount(latestUserMessage.content);
+    const promisedCount = getRequestedProfileCount(searchTriggerMessage);
+    const finalRequestedCount = shouldRunPromisedSourcing ? promisedCount : requestedCount;
     const excludedUrls = collectShownProfileUrls(cleanMessages);
-    const profileLeads = await searchPublicProfileLeads(hiringContext, requestedCount, {
+    const profileLeads = await searchPublicProfileLeads(hiringContext, finalRequestedCount, {
       excludedUrls,
       refinement
     });
@@ -87,7 +93,7 @@ export async function POST(request: Request) {
       message: {
         id: `tina-public-search-${Date.now()}`,
         role: "tina",
-        content: buildProfileSearchResponse(latestUserMessage.content, profileLeads.length, isRefinementSearch, requestedCount),
+        content: buildProfileSearchResponse(shouldRunPromisedSourcing ? "this hiring lane" : latestUserMessage.content, profileLeads.length, isRefinementSearch, finalRequestedCount),
         profileLeads,
         sourcingReadiness: readiness
       },
@@ -102,7 +108,7 @@ export async function POST(request: Request) {
   const instructions = [
     TINA_SYSTEM_PROMPT,
     "If the founder gives company or product context, treat it as hiring calibration input. Infer what kinds of candidates may fit the company, product surface, customer environment, and operating stage. Do not ask why the company context matters.",
-    "For normal chat, keep the answer compact, complete, and human. Sound like you are thinking with the founder in real time. Use contractions. Avoid stiff phrases like 'there are three key dimensions' or 'the optimal approach'. If the user asks for a sourcing strategy, give 2-3 sharp moves and one next question. If the answer needs more detail, invite expansion instead of dumping everything.",
+    "For normal chat, keep the answer compact, complete, and human. Sound like you are thinking with the founder in real time. Use contractions. Avoid stiff phrases like 'there are three key dimensions' or 'the optimal approach'. Tina is an AI talent partner: sourcing is the visible output, talent judgment is the engine. Move toward actionable candidates quickly. Ask only the questions needed to improve sourcing quality. If the founder is vague, say what is missing and why it would make candidate quality noisy. Do not over-calibrate before showing candidates. Preserve market intel and calibration as supporting intelligence.",
     liveJdRequest
       ? "The founder is asking for a JD or role description. Generate a complete draft with compact sections. Do not stop mid-bullet or end with an unfinished sentence."
       : "",
@@ -233,13 +239,13 @@ function buildSourcingReadinessResponse(readiness: ReturnType<typeof evaluateSou
 
   if (readiness.readinessStatus === "low_confidence_search") {
     return [
-      `I can pull a batch, but it’ll likely be noisy. I’m missing ${missing || "one or two calibration signals"}. Tighten those first?`,
-      questions
+      `I can source a calibration batch, but it’ll likely be noisy because I’m missing ${missing || "one or two search signals"}. That usually means weaker candidates and more title-matches.`,
+      questions || "- What signal would make someone worth reviewing?"
     ].filter(Boolean).join("\n\n");
   }
 
   return [
-    `I’d hold off on sourcing. Right now this is still title-shaped, not signal-shaped, so a public search would mostly produce noise.`,
+    `I’d hold off on sourcing for one beat. Right now this is still title-shaped, not signal-shaped, so the Talent Pool would mostly be noise.`,
     questions || "- What would make someone a clear yes in the first 30 days?"
   ].join("\n\n");
 }
@@ -311,6 +317,30 @@ function extractQueryHints(values: string[]) {
 
 function isSourcingRefinementRequest(message: string) {
   return /\b(refine|another batch|talent pool feedback|based on my.*feedback|based on.*feedback)\b/i.test(message);
+}
+
+function isSourcingConfirmationRequest(messages: TinaMvpMessage[]) {
+  const latest = [...messages].reverse().find((message) => message.role === "founder");
+  if (!latest || !/^\s*(yes|yep|yeah|sure|ok|okay|please do|go ahead|sounds good|do it)\s*[.!?]*\s*$/i.test(latest.content)) {
+    return false;
+  }
+
+  const promised = getPromisedSourcingMessage(messages);
+
+  return Boolean(promised);
+}
+
+function getPromisedSourcingMessage(messages: TinaMvpMessage[]) {
+  const latestFounderIndex = [...messages].map((message, index) => ({ message, index })).reverse().find((item) => item.message.role === "founder")?.index;
+  const priorMessages = typeof latestFounderIndex === "number" ? messages.slice(0, latestFounderIndex) : messages;
+  const previousTina = [...priorMessages].reverse().find((message) => message.role === "tina");
+  const content = previousTina?.content || "";
+  const promisedList =
+    /\b(give me a moment|i['’]?ll share|i will share|i['’]?ll get you|i can pull|i['’]?ll pull|curated shortlist|shortlist|share the list|pull a batch|get a batch)\b/i.test(content) &&
+    /\b(shortlist|profiles?|candidates?|people|engineers?|leads?|list|batch)\b/i.test(content);
+  const calibrationQuestion = /\b(tighten those first|hold off|would be noisy|title-shaped|what would make|what role family|should we bias)\b/i.test(content);
+
+  return promisedList && !calibrationQuestion ? content : "";
 }
 
 function inferRequestedScope(message: string) {
