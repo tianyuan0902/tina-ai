@@ -1622,7 +1622,7 @@ function inferPoolSize(brainState: BrainState, leads: ProfileLead[], sourcingStr
 }
 
 function buildLocationMix(leads: ProfileLead[]): MarketSegment[] {
-  if (!leads.length) return [];
+  if (leads.length < 3) return [];
   const buckets = leads.map((lead) => inferLocationBucket(lead)).filter(Boolean);
   return valuesToSegments(buckets, ["#178A52", "#7D6BF2", "#D58B39"]).slice(0, 3);
 }
@@ -1640,6 +1640,8 @@ function inferLocationBucket(lead: ProfileLead) {
 }
 
 function buildSeniorityMix(leads: ProfileLead[], sourcingStrategy: SourcingStrategy): MarketSegment[] {
+  void sourcingStrategy;
+  if (leads.length < 3) return [];
   const values = leads.length ? leads.map(inferSeniorityBucket) : [];
   return valuesToSegments(values.filter(Boolean), ["#178A52", "#D58B39", "#7D6BF2"]).slice(0, 3);
 }
@@ -1701,6 +1703,7 @@ function buildFounderTakeaway(
   leads: ProfileLead[]
 ) {
   if (!leads.length) return "Market Intel is pending until Tina has enough role signal or public profiles.";
+  if (!locationMix.length || !seniorityMix.length) return "Market mix is still forming; this batch is useful for calibration, not market conclusions.";
   const topLocations = locationMix.slice(0, 2).map((segment) => segment.label).join(" + ");
   const senior = seniorityMix[0]?.label || "Senior";
   if (poolSize === "Narrow") return `${topLocations || "Remote"} looks strongest; budget and timeline need room for ${senior.toLowerCase()} proof.`;
