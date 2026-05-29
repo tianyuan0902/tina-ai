@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 
+import { buildCanonicalSearchState, formatCanonicalSearchStateForPrompt, type CanonicalSearchState } from "@/lib/brain/canonicalSearchState";
 import { retrieveBrainContext } from "@/lib/brain/retrieveBrainContext";
 import { formatCompanyContext, isCompanyContextMessage, retrieveCompanyContext } from "@/lib/tina/company-context";
 import { getRequestedProfileCount, searchPublicProfileBatch } from "@/lib/tina/public-search";
 import { evaluateSourcingReadiness } from "@/lib/tina/sourcing-readiness";
 import { TINA_SYSTEM_PROMPT } from "@/lib/tina-mvp/system-prompt";
-import type { SourcingBatchMetadata } from "@/lib/tina/profile-lead-types";
+import type { ProfileLead, SourcingBatchMetadata } from "@/lib/tina/profile-lead-types";
 import type { TinaMvpMessage } from "@/lib/tina-mvp/types";
 
 export const dynamic = "force-dynamic";
@@ -19,25 +20,41 @@ type OpenAIInputMessage = {
 };
 
 export async function POST(request: Request) {
-  const { messages, sourcingRefinementSummary } = (await request.json()) as {
+  const { messages, sourcingRefinementSummary, canonicalSearchState: requestCanonicalSearchState } = (await request.json()) as {
     messages?: TinaMvpMessage[];
     sourcingRefinementSummary?: string;
+    canonicalSearchState?: CanonicalSearchState;
   };
   const cleanMessages = normalizeMessages(messages);
   const latestUserMessage = [...cleanMessages].reverse().find((message) => message.role === "founder");
   const refinementSummary = typeof sourcingRefinementSummary === "string" ? sourcingRefinementSummary.trim() : "";
+  const computedCanonicalSearchState = buildCanonicalSearchState({
+    messages: cleanMessages,
+    profileLeads: cleanMessages.flatMap((message) => message.profileLeads || [])
+  });
+  const canonicalSearchState = shouldUseRequestCanonicalState(latestUserMessage?.content || "", computedCanonicalSearchState, requestCanonicalSearchState)
+    ? requestCanonicalSearchState!
+    : computedCanonicalSearchState;
+  const canonicalSearchStateText = formatCanonicalSearchStateForPrompt(canonicalSearchState);
 
   if (!cleanMessages.length || !latestUserMessage) {
     return NextResponse.json({ error: "No founder message was provided." }, { status: 400 });
   }
 
-  if (isClearlyOffTopic(latestUserMessage.content)) {
+  const promisedSourcingMessage = getPromisedSourcingMessage(cleanMessages);
+  const shouldRunPromisedSourcing = isSourcingConfirmationRequest(cleanMessages);
+  const shouldRunAdjacentLane = isAdjacentLaneConfirmationRequest(cleanMessages);
+  const shouldContinueSourcing = isSourcingContinuationRequest(cleanMessages);
+  const shouldRunProfileSearch = isPublicProfileSearchRequest(latestUserMessage.content) || shouldRunPromisedSourcing || shouldRunAdjacentLane || shouldContinueSourcing;
+
+  if (!shouldRunProfileSearch && isClearlyOffTopic(latestUserMessage.content)) {
     return NextResponse.json({
       message: {
         id: `tina-scope-${Date.now()}`,
         role: "tina",
-        content: "I’m going to keep this tied to hiring and talent. How is that relevant to the role, team, candidate, or founder question you’re working through?"
+        content: "That’s outside Tina’s lane. Bring me back to the hire, the team, or the talent question and I’ll be useful."
       },
+      canonicalSearchState,
       source: "local_scope_guard"
     });
   }
@@ -49,21 +66,59 @@ export async function POST(request: Request) {
         role: "tina",
         content: "Got it. I’ll treat those as the wrong lane. What should I bias toward instead: PM, operator, GTM, designer, founder-adjacent generalist, or something more specific?"
       },
+      canonicalSearchState,
       source: "local_profile_feedback"
     });
   }
 
-  const promisedSourcingMessage = getPromisedSourcingMessage(cleanMessages);
-  const shouldRunPromisedSourcing = isSourcingConfirmationRequest(cleanMessages);
-  const shouldRunAdjacentLane = isAdjacentLaneConfirmationRequest(cleanMessages);
+  if (!shouldRunProfileSearch && isFounderUncertain(latestUserMessage.content)) {
+    return NextResponse.json({
+      message: {
+        id: `tina-uncertain-${Date.now()}`,
+        role: "tina",
+        content: buildFounderUncertainResponse(canonicalSearchState)
+      },
+      canonicalSearchState,
+      source: "local_conversation_move"
+    });
+  }
 
-  if (isPublicProfileSearchRequest(latestUserMessage.content) || shouldRunPromisedSourcing || shouldRunAdjacentLane) {
-    const searchTriggerMessage = shouldRunPromisedSourcing || shouldRunAdjacentLane ? promisedSourcingMessage || getPreviousTinaMessage(cleanMessages) || "this hiring lane" : latestUserMessage.content;
+  if (!shouldRunProfileSearch && isHardSearchSignal(latestUserMessage.content)) {
+    return NextResponse.json({
+      message: {
+        id: `tina-hard-search-${Date.now()}`,
+        role: "tina",
+        content: buildHardSearchResponse(canonicalSearchState)
+      },
+      canonicalSearchState,
+      source: "local_conversation_move"
+    });
+  }
+
+  const initialReadiness = evaluateSourcingReadiness(cleanMessages);
+
+  if (isBareCalibrationRequest(latestUserMessage.content) && initialReadiness.readinessStatus === "needs_calibration") {
+    return NextResponse.json({
+      message: {
+        id: `tina-sourcing-readiness-${Date.now()}`,
+        role: "tina",
+        content: buildSourcingReadinessResponse(initialReadiness),
+        sourcingReadiness: initialReadiness
+      },
+      canonicalSearchState,
+      source: "sourcing_readiness"
+    });
+  }
+
+  if (shouldRunProfileSearch) {
+    const searchTriggerMessage = shouldRunPromisedSourcing || shouldRunAdjacentLane || shouldContinueSourcing ? promisedSourcingMessage || getPreviousTinaMessage(cleanMessages) || "this hiring lane" : latestUserMessage.content;
     const isRefinementSearch = isSourcingRefinementRequest(latestUserMessage.content) && Boolean(refinementSummary);
-    const readiness = evaluateSourcingReadiness(cleanMessages);
-    const allowLowConfidenceSearch = shouldRunPromisedSourcing || shouldRunAdjacentLane || /\b(source anyway|search anyway|pull anyway|continue|go ahead|show me anyway)\b/i.test(latestUserMessage.content);
+    const readiness = initialReadiness;
+    const explicitSourceRequest = isPublicProfileSearchRequest(latestUserMessage.content) || shouldRunPromisedSourcing || shouldRunAdjacentLane || shouldContinueSourcing;
+    const allowCalibrationBatch = explicitSourceRequest && canRunCalibrationBatch(canonicalSearchState);
+    const allowLowConfidenceSearch = allowCalibrationBatch || shouldRunPromisedSourcing || shouldRunAdjacentLane || shouldContinueSourcing || /\b(source anyway|search anyway|pull anyway|continue|go ahead|show me anyway)\b/i.test(latestUserMessage.content);
 
-    if (readiness.readinessStatus === "needs_calibration" || (readiness.readinessStatus === "low_confidence_search" && !allowLowConfidenceSearch)) {
+    if ((readiness.readinessStatus === "needs_calibration" && !allowCalibrationBatch) || (readiness.readinessStatus === "low_confidence_search" && !allowLowConfidenceSearch)) {
       return NextResponse.json({
         message: {
           id: `tina-sourcing-readiness-${Date.now()}`,
@@ -71,6 +126,7 @@ export async function POST(request: Request) {
           content: buildSourcingReadinessResponse(readiness),
           sourcingReadiness: readiness
         },
+        canonicalSearchState,
         source: "sourcing_readiness"
       });
     }
@@ -81,6 +137,7 @@ export async function POST(request: Request) {
         ? buildAdjacentLaneRefinement(cleanMessages)
         : undefined;
     const hiringContext = [
+      `Canonical search state:\n${canonicalSearchStateText}`,
       cleanMessages.map((message) => message.content).join("\n"),
       readiness.searchThesis ? `Search thesis:\n${readiness.searchThesis}` : "",
       refinementSummary ? `Talent Pool feedback summary for sourcing refinement:\n${refinementSummary}` : "",
@@ -88,13 +145,18 @@ export async function POST(request: Request) {
     ].filter(Boolean).join("\n\n");
     const requestedCount = getRequestedProfileCount(latestUserMessage.content);
     const promisedCount = getRequestedProfileCount(searchTriggerMessage);
-    const finalRequestedCount = shouldRunPromisedSourcing ? promisedCount : requestedCount;
+    const recentRequestedCount = getRecentExplicitProfileRequestCount(cleanMessages);
+    const finalRequestedCount = shouldRunPromisedSourcing || shouldContinueSourcing
+      ? recentRequestedCount || promisedCount
+      : requestedCount;
     const excludedUrls = collectShownProfileUrls(cleanMessages);
     const sourcingBatch = await searchPublicProfileBatch(hiringContext, finalRequestedCount, {
       excludedUrls,
       refinement
     });
     const { profileLeads, metadata } = sourcingBatch;
+
+    const responseCanonicalSearchState = buildCanonicalSearchStateWithProfiles(canonicalSearchState, cleanMessages, profileLeads);
 
     return NextResponse.json({
       message: {
@@ -105,6 +167,8 @@ export async function POST(request: Request) {
         sourcingBatch: metadata,
         sourcingReadiness: readiness
       },
+      canonicalSearchState: responseCanonicalSearchState,
+      profileLeads,
       source: "public_search"
     });
   }
@@ -116,7 +180,9 @@ export async function POST(request: Request) {
   const instructions = [
     TINA_SYSTEM_PROMPT,
     "If the founder gives company or product context, treat it as hiring calibration input. Infer what kinds of candidates may fit the company, product surface, customer environment, and operating stage. Do not ask why the company context matters.",
-    "For normal chat, keep the answer compact, complete, and human. Sound like you are thinking with the founder in real time. Use contractions. Avoid stiff phrases like 'there are three key dimensions' or 'the optimal approach'. Tina is an AI talent partner: sourcing is the visible output, talent judgment is the engine. Move toward actionable candidates quickly. Ask only the questions needed to improve sourcing quality. If the founder is vague, say what is missing and why it would make candidate quality noisy. Do not over-calibrate before showing candidates. Preserve market intel and calibration as supporting intelligence. Do not say you are pulling, sharing, or preparing a candidate list later unless actual profile leads are included in this response.",
+    "For normal chat, keep the answer compact, complete, and human. Sound like you are thinking with the founder in real time. Use contractions. Avoid stiff phrases like 'there are three key dimensions' or 'the optimal approach'. Tina is an AI talent partner: sourcing is the visible output, talent judgment is the engine. If the founder gives enough signal for a useful first pass, act first and state your working assumptions. Ask only when the missing information would make the search useless. Ask at most one question per response, never a multi-part intake question. Do not ask permission for the obvious next move; make a recommendation like a Head of Talent. If the founder asks for candidates, profiles, people, top schools, top companies, SF, fintech, AI infra, PM, or Product Eng, treat it as hiring/sourcing work. Use 'I have enough for a first pass,' 'I’ll make a working assumption,' 'I’ll filter hard,' 'I’d widen title before geography,' or 'This is too thin to source well yet — give me one proof signal.' Do not say 'How is this relevant?', 'I’m missing role outcome', 'must-have signals are required', 'please provide', 'source lanes', 'calibration status', or 'canonical state'. Do not over-calibrate before showing candidates. Preserve market intel and calibration as supporting intelligence. Do not say you are pulling, sharing, or preparing a candidate list later unless actual profile leads are included in this response.",
+    "The structured search state is the current internal truth. If it conflicts with older messages, trust that state and the founder's latest correction. Do not mention the state object. Do not describe a different role family, location, seniority, or market lane.",
+    canonicalSearchStateText,
     liveJdRequest
       ? "The founder is asking for a JD or role description. Generate a complete draft with compact sections. Do not stop mid-bullet or end with an unfinished sentence."
       : "",
@@ -163,6 +229,7 @@ export async function POST(request: Request) {
     console.error("[Tina MVP] OPENAI_API_KEY is missing.");
     return NextResponse.json({
       message: buildLocalFallbackMessage(cleanMessages, "missing_api_key"),
+      canonicalSearchState,
       source: "local_fallback",
       debugCode: "missing_api_key"
     });
@@ -174,6 +241,7 @@ export async function POST(request: Request) {
     console.error("[Tina MVP] OpenAI network request failed:", networkError);
     return NextResponse.json({
       message: buildLocalFallbackMessage(cleanMessages, "network_error"),
+      canonicalSearchState,
       source: "local_fallback",
       debugCode: "network_error"
     });
@@ -188,6 +256,7 @@ export async function POST(request: Request) {
     const debugCode = getOpenAIDebugCode(data);
     return NextResponse.json({
       message: buildLocalFallbackMessage(cleanMessages, debugCode),
+      canonicalSearchState,
       source: "local_fallback",
       debugCode
     });
@@ -199,26 +268,32 @@ export async function POST(request: Request) {
     console.error("[Tina MVP] OpenAI response had no text:", data);
     return NextResponse.json({
       message: buildLocalFallbackMessage(cleanMessages, "empty_response"),
+      canonicalSearchState,
       source: "local_fallback",
       debugCode: "empty_response"
     });
   }
 
-  if (isAssistantPromisingProfileList(text)) {
+  const advisorText = enforceAdvisorTone(text, canonicalSearchState);
+
+  if (isAssistantPromisingProfileList(advisorText)) {
     const readiness = evaluateSourcingReadiness(cleanMessages);
 
     if (readiness.readinessStatus !== "needs_calibration") {
-      const requestedCount = getRequestedProfileCount(`${latestUserMessage.content}\n${text}`);
+      const requestedCount = getRequestedProfileCount(`${latestUserMessage.content}\n${advisorText}`);
       const hiringContext = [
+        `Canonical search state:\n${canonicalSearchStateText}`,
         cleanMessages.map((message) => message.content).join("\n"),
         `Tina said she was pulling a shortlist; convert that promise into actual public profile sourcing.`,
         readiness.searchThesis ? `Search thesis:\n${readiness.searchThesis}` : "",
-        `Draft response that triggered sourcing:\n${text}`
+        `Draft response that triggered sourcing:\n${advisorText}`
       ].filter(Boolean).join("\n\n");
       const sourcingBatch = await searchPublicProfileBatch(hiringContext, requestedCount, {
         excludedUrls: collectShownProfileUrls(cleanMessages)
       });
       const { profileLeads, metadata } = sourcingBatch;
+
+      const responseCanonicalSearchState = buildCanonicalSearchStateWithProfiles(canonicalSearchState, cleanMessages, profileLeads);
 
       return NextResponse.json({
         message: {
@@ -229,6 +304,8 @@ export async function POST(request: Request) {
           sourcingBatch: metadata,
           sourcingReadiness: readiness
         },
+        canonicalSearchState: responseCanonicalSearchState,
+        profileLeads,
         source: "public_search"
       });
     }
@@ -240,6 +317,7 @@ export async function POST(request: Request) {
         content: buildSourcingReadinessResponse(readiness),
         sourcingReadiness: readiness
       },
+      canonicalSearchState,
       source: "sourcing_readiness"
     });
   }
@@ -250,8 +328,9 @@ export async function POST(request: Request) {
     message: {
       id: data.id || `tina-${Date.now()}`,
       role: "tina",
-      content: text
+      content: advisorText
     },
+    canonicalSearchState,
     source: "openai",
     responseId: data.id
   });
@@ -268,43 +347,169 @@ function isAssistantPromisingProfileList(message: string) {
   return promiseLanguage && listLanguage && !onlyOffering;
 }
 
+function shouldUseRequestCanonicalState(
+  latestUserMessage: string,
+  computed: CanonicalSearchState,
+  provided?: CanonicalSearchState
+) {
+  if (!provided) return false;
+  if (!isPublicProfileSearchRequest(latestUserMessage) && !/^\s*(yes|sure|go ahead|ok|okay|do it)\s*[.!?]*\s*$/i.test(latestUserMessage)) return false;
+  if (computed.roleFamily !== "other" && computed.roleTitle !== "Role forming") return false;
+  return provided.roleFamily !== "other" && provided.roleTitle !== "Role forming";
+}
+
+function canRunCalibrationBatch(state: CanonicalSearchState) {
+  return state.roleFamily !== "other" &&
+    state.roleTitle !== "Role forming" &&
+    (
+      state.location !== "Location forming" ||
+      state.mustHaveSignals.length > 0 ||
+      state.sourceCompanyLanes.length > 0
+    );
+}
+
+function isBareCalibrationRequest(message: string) {
+  const text = message.toLowerCase().trim();
+  if (isPublicProfileSearchRequest(message) || isSourcingRefinementRequest(message)) return false;
+  if (text.length > 90) return false;
+  return /\b(find|need|hire|looking for)\b.*\b(pm|product manager|engineer|designer|operator|sales|gtm|recruiter|finance|legal|manager)\b/.test(text);
+}
+
+function buildCanonicalSearchStateWithProfiles(
+  currentState: CanonicalSearchState,
+  messages: TinaMvpMessage[],
+  profileLeads: ProfileLead[]
+): CanonicalSearchState {
+  const rebuilt = buildCanonicalSearchState({ messages, profileLeads });
+  const currentHasRole = currentState.roleFamily !== "other" && currentState.roleTitle !== "Role forming";
+  const rebuiltLostRole = rebuilt.roleFamily === "other" || rebuilt.roleTitle === "Role forming";
+  const candidateProfiles = rebuilt.candidateProfiles.length ? rebuilt.candidateProfiles : profileLeads;
+
+  if (!currentHasRole || !rebuiltLostRole) {
+    return {
+      ...rebuilt,
+      candidateProfiles,
+      evidenceLevel: candidateProfiles.length ? rebuilt.evidenceLevel === "none" ? "public_unverified" : rebuilt.evidenceLevel : rebuilt.evidenceLevel,
+      calibrationStatus: candidateProfiles.length ? "ready_to_source" : rebuilt.calibrationStatus
+    };
+  }
+
+  return {
+    ...currentState,
+    candidateProfiles,
+    evidenceLevel: candidateProfiles.length ? "public_unverified" : rebuilt.evidenceLevel,
+    talentPoolSize: candidateProfiles.length ? rebuilt.talentPoolSize : currentState.talentPoolSize,
+    timeToFill: rebuilt.timeToFill,
+    calibrationStatus: candidateProfiles.length ? "ready_to_source" : currentState.calibrationStatus,
+    lastUpdatedReason: currentState.lastUpdatedReason
+  };
+}
+
+function enforceAdvisorTone(text: string, state: CanonicalSearchState) {
+  const permissionPattern = /(?:\n\s*)?(?:Next move:\s*)?(?:Want me to|Should I|Would you like me to|Do you want me to)\s+[^?]*\?/gi;
+  let cleaned = text.replace(permissionPattern, `\n\n${buildAdvisorNextMove(state)}`).trim();
+  cleaned = cleaned.replace(/\bNot surprising\b/gi, "It is a hard search");
+  cleaned = cleaned.replace(/\bNext move:\s*/gi, "");
+
+  if (hasUsefulFirstPassState(state)) {
+    cleaned = cleaned.replace(
+      /\n\n(?:What(?:'|’)?s|What is|Which|Should I|Want me to|Would you like me to|Do you want me to)[\s\S]*$/i,
+      `\n\n${buildAdvisorNextMove(state)}`
+    );
+  }
+
+  return cleaned.replace(/\n{3,}/g, "\n\n");
+}
+
+function hasUsefulFirstPassState(state: CanonicalSearchState) {
+  return state.roleFamily !== "other" &&
+    state.roleTitle !== "Role forming" &&
+    (
+      state.location !== "Location forming" ||
+      state.mustHaveSignals.length > 0 ||
+      state.sourceCompanyLanes.length > 0 ||
+      state.niceToHaveSignals.length > 0
+    );
+}
+
+function buildAdvisorNextMove(state: CanonicalSearchState) {
+  const location = state.location && state.location !== "Location forming" ? state.location : "the strongest available market";
+  const title = state.roleTitle.toLowerCase();
+
+  if (state.roleFamily === "engineering" && /\b(smart contract|solidity|web3|protocol)\b/.test(title)) {
+    return `I’d keep the first pass anchored on shipped smart-contract or protocol work, then widen from exact Solidity titles to security-minded backend engineers if the batch is thin.`;
+  }
+
+  if (state.roleFamily === "engineering" && /\b(ai|infrastructure|platform|software|engineer)\b/.test(title)) {
+    return `I’d run the first pass in ${location} around the closest proof-bearing engineering lane, then widen title before geography if the batch is thin.`;
+  }
+
+  if (state.roleFamily === "product") {
+    return `I’d start with product leaders who have created clarity from messy customer signal, then compare them against operator-shaped PMs if the first lane is too polished.`;
+  }
+
+  if (state.roleFamily === "manufacturing operations") {
+    return `I’d keep the first pass close to people who have run the actual floor in the target market, then widen title before loosening regulated-environment proof.`;
+  }
+
+  if (state.roleFamily === "gtm") {
+    return `I’d start with people who have sold the earliest version of a product themselves, then widen industry before loosening ownership proof.`;
+  }
+
+  return `I’d start with the closest proof-bearing lane, then loosen one surface constraint at a time instead of broadening everything at once.`;
+}
+
 function buildProfileSearchResponse(message: string, metadata: SourcingBatchMetadata, isRefinementSearch = false) {
   const { requestedCount, validCount, filteredCount, filteredReasons } = metadata;
   const mostlyFiltered = filteredCount > validCount;
   const filteredReason = filteredReasons.join(", ") || "they looked like role/function mismatches";
+  const sourceNote = buildSearchSourceNote(metadata);
+
+  if (metadata.searchStatus === "failed") {
+    return [
+      "I tried to run the public profile search, but Tavily did not return usable results.",
+      "That is a search plumbing problem, not a talent-market read.",
+      "I’d check the Tavily key/server logs first, then rerun the same lane."
+    ].join(" ");
+  }
 
   if (validCount === 0) {
+    const expanded = metadata.audit?.queriesRun.length ? " I tried the exact lane, then expanded to adjacent titles and broader company/domain lanes." : "";
     const reason = filteredCount ? ` I filtered out ${filteredCount} false positives because ${filteredReason}.` : "";
     return [
-      `I found public results, but I wouldn’t put them in front of you as candidates.${reason}`,
+      `I ran a first pass, but I don’t want to put weak profiles in front of you.${sourceNote}${expanded}${reason}`,
       buildSecondBestLaneRecommendation(message),
-      `The tradeoff is worth being explicit about: stay local and accept a slightly adjacent title, or keep the exact title and widen geography. I’d start with the first one.`
+      `I’d widen geography or loosen title next while keeping the real proof strict.`
     ].join(" ");
   }
 
   const qualityNote = validCount < requestedCount
-    ? ` I found ${validCount} valid ${validCount === 1 ? "profile" : "profiles"} out of ${requestedCount} requested. Better a small accurate batch than a bigger wrong one.`
+    ? ` I found ${validCount} worth reviewing out of the requested ${requestedCount}; I’m not padding this with weak matches.`
     : "";
   const filteredNote = filteredCount
-    ? ` I filtered out ${filteredCount} false ${filteredCount === 1 ? "positive" : "positives"} because ${filteredReason}.`
+    ? ` I filtered out the rest because ${filteredReason}.`
     : "";
   const validationLead = mostlyFiltered
-    ? `I found some public results, but most did not pass role-fit validation. I’m showing ${validCount} valid ${validCount === 1 ? "profile" : "profiles"} instead.`
+    ? `Yeah — I ran a first pass and kept only the ${validCount} ${validCount === 1 ? "profile" : "profiles"} with real signal.`
     : "";
 
   if (isRefinementSearch) {
     return [
-      validationLead || `I found ${validCount} new valid public ${validCount === 1 ? "profile" : "profiles"} based on your Talent Pool feedback.`,
-      `Use Yes/No as signal, not final judgment.${qualityNote}${filteredNote}`
+      validationLead || `Yeah — I ran another pass from your Talent Pool feedback and found ${validCount} new ${validCount === 1 ? "profile" : "profiles"} worth reviewing.`,
+      `I added ${validCount === 1 ? "it" : "them"} to Talent Pool.${sourceNote}${qualityNote}${filteredNote} Tell me what feels closer or off and I’ll adjust the search from there.`
     ].join(" ");
   }
 
-  const scope = inferRequestedScope(message);
-
   return [
-    validationLead || `I found ${validCount} valid public calibration ${validCount === 1 ? "profile" : "profiles"} for ${scope}.`,
-    `Use Yes/No as signal, not final judgment.${qualityNote}${filteredNote}`
+    validationLead || `Yeah — I ran a first pass and found ${validCount} ${validCount === 1 ? "profile" : "profiles"} worth reviewing.`,
+    `I added ${validCount === 1 ? "it" : "them"} to Talent Pool.${sourceNote}${qualityNote}${filteredNote} Use these for calibration first; tell me what feels on or off and I’ll iterate from there.`
   ].join(" ");
+}
+
+function buildSearchSourceNote(metadata: SourcingBatchMetadata) {
+  if (metadata.searchProvider === "mock") return " This is using fallback mock search because Tavily is not configured on the server.";
+  if (metadata.searchStatus === "partial_failure") return " Tavily returned partial results; some query lanes failed.";
+  return "";
 }
 
 function buildSecondBestLaneRecommendation(message: string) {
@@ -326,20 +531,57 @@ function buildSecondBestLaneRecommendation(message: string) {
 }
 
 function buildSourcingReadinessResponse(readiness: ReturnType<typeof evaluateSourcingReadiness>) {
-  const missing = readiness.missingSignals.slice(0, 2).join(" and ");
-  const questions = readiness.followUpQuestions.slice(0, 2).map((question) => `- ${question}`).join("\n");
+  const missing = (readiness.blockingMissing?.length ? readiness.blockingMissing : readiness.missingSignals).slice(0, 2).join(" and ");
+  const questions = readiness.followUpQuestions.slice(0, 1).join(" ");
 
   if (readiness.readinessStatus === "low_confidence_search") {
     return [
-      `I can source a calibration batch, but it’ll likely be noisy because I’m missing ${missing || "one or two search signals"}. That usually means weaker candidates and more title-matches.`,
-      questions || "- What signal would make someone worth reviewing?"
+      `I have enough for a first pass. I’ll make a working assumption, filter hard, and return fewer candidates if the evidence is weak.`,
+      readiness.usefulButNotBlocking?.length ? `We can tighten the softer parts after we see what the market gives us.` : ""
     ].filter(Boolean).join("\n\n");
   }
 
   return [
-    `I’d hold off on sourcing for one beat. Right now this is still title-shaped, not signal-shaped, so the Talent Pool would mostly be noise.`,
-    questions || "- What would make someone a clear yes in the first 30 days?"
+    `That’s okay — I can start with a few assumptions, but I need one anchor so the first pass is not just decorative title matching.`,
+    questions || `What is the role/function, location, or one proof signal that would make someone worth reviewing?`
   ].join("\n\n");
+}
+
+function isFounderUncertain(message: string) {
+  return /\b(i don['’]?t know yet|not sure yet|unsure|haven['’]?t figured it out|still figuring it out|no idea yet)\b/i.test(message);
+}
+
+function isHardSearchSignal(message: string) {
+  return /\b(hard to find|hard finding|been hard|difficult to find|struggling to find|can['’]?t find|haven['’]?t found|search has been hard|sourcing.*hard)\b/i.test(message);
+}
+
+function buildFounderUncertainResponse(state: CanonicalSearchState) {
+  const role = readableRole(state);
+  const location = state.location !== "Location forming" ? ` in ${state.location}` : "";
+  const proof = state.mustHaveSignals[0] || state.niceToHaveSignals[0] || "evidence they have done the hard part before";
+
+  return [
+    `That’s okay — we don’t need the perfect spec yet.`,
+    `I’d start with a few working assumptions for ${role}${location}: strong ownership, ${proof}, and enough startup pace to operate without a lot of hand-holding.`,
+    `The two things I’d clarify first: what this person must make easier in the first 60 days, and what kind of background you already know is probably wrong.`
+  ].join("\n\n");
+}
+
+function buildHardSearchResponse(state: CanonicalSearchState) {
+  const role = readableRole(state);
+  const location = state.location !== "Location forming" ? ` in ${state.location}` : "";
+
+  return [
+    `It is a hard search — ${role}${location} is exactly the kind of lane where title match can look useful and still miss the real proof.`,
+    `Tell me what you’ve found so far: are you seeing too few people, the wrong seniority, weak evidence, comp mismatch, or people just not responding?`,
+    `Also, how long has the search been running? That tells me whether we should tighten the bar, widen the market, or change the pitch.`
+  ].join("\n\n");
+}
+
+function readableRole(state: CanonicalSearchState) {
+  if (state.roleTitle && state.roleTitle !== "Role forming") return state.roleTitle;
+  if (state.roleFamily !== "other") return `${state.roleFamily} hire`;
+  return "this hire";
 }
 
 function collectShownProfileUrls(messages: TinaMvpMessage[]) {
@@ -429,7 +671,44 @@ function isAdjacentLaneConfirmationRequest(messages: TinaMvpMessage[]) {
   }
 
   const previous = getPreviousTinaMessage(messages).toLowerCase();
+  if (/\bi found public results\b|\brole-fit validation\b|\bfiltered out \d+ false/i.test(previous)) return false;
   return /\b(better next option|adjacent title|nearby markets|surface constraint|driving range|exact title and widen geography|operations director|manufacturing manager|quality operations)\b/.test(previous);
+}
+
+function isSourcingContinuationRequest(messages: TinaMvpMessage[]) {
+  const latest = [...messages].reverse().find((message) => message.role === "founder");
+  if (!latest || !/^\s*(yes|yep|yeah|sure|ok|okay|please do|go ahead|sounds good|do it)\s*[.!?]*\s*$/i.test(latest.content)) {
+    return false;
+  }
+
+  const latestFounderIndex = messages.map((message, index) => ({ message, index })).reverse().find((item) => item.message.role === "founder")?.index;
+  const priorMessages = typeof latestFounderIndex === "number" ? messages.slice(0, latestFounderIndex) : messages;
+  const recentFounderAskedForProfiles = priorMessages
+    .filter((message) => message.role === "founder")
+    .slice(-3)
+    .some((message) => isPublicProfileSearchRequest(message.content));
+  const previousTina = getPreviousTinaMessage(messages).toLowerCase();
+  const permissionPrompt = /\b(want me to|should i|would you like me to|i can)\b.*\b(source|pull|find|share|show)\b/.test(previousTina) ||
+    /\bexamples?|archetypes?|search strings?|boolean\b/.test(previousTina);
+
+  return recentFounderAskedForProfiles && permissionPrompt;
+}
+
+function getRecentExplicitProfileRequestCount(messages: TinaMvpMessage[]) {
+  const latestFounderIndex = messages.map((message, index) => ({ message, index })).reverse().find((item) => item.message.role === "founder")?.index;
+  const priorMessages = typeof latestFounderIndex === "number" ? messages.slice(0, latestFounderIndex) : messages;
+  const explicitRequest = [...priorMessages]
+    .reverse()
+    .find((message) => message.role === "founder" && isPublicProfileSearchRequest(message.content));
+
+  if (!explicitRequest) return undefined;
+  const explicitNumber = explicitRequest.content.match(/\b([1-9]|10)\b(?:\s+\w+){0,4}\s+(profiles?|people|leads?|candidates?|targets?)\b/i);
+  const explicitWord = explicitRequest.content.match(/\b(one|two|three|four|five)\b(?:\s+\w+){0,4}\s+(profiles?|people|leads?|candidates?|targets?)\b/i);
+  const wordCounts: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
+
+  if (explicitNumber) return Number(explicitNumber[1]);
+  if (explicitWord) return wordCounts[explicitWord[1].toLowerCase()];
+  return undefined;
 }
 
 function buildAdjacentLaneRefinement(messages: TinaMvpMessage[]) {
@@ -640,9 +919,10 @@ function toOpenAIInputMessage(message: TinaMvpMessage): OpenAIInputMessage {
 function isClearlyOffTopic(message: string) {
   const text = message.toLowerCase();
   if (isCompanyContextMessage(message)) return false;
+  if (isPublicProfileSearchRequest(message)) return false;
 
   const hiringSignal =
-    /\b(hire|hiring|recruit|recruiting|candidate|talent|people|team|founder|startup|role|job|interview|sourcing|comp|compensation|salary|equity|offer|operator|engineer|designer|pm|product manager|sales|gtm|exec|executive|manager|leadership|org|organization|culture|market map|calibration|profile|archetype|resume|background|company|customer|market|industry)\b/.test(text);
+    /\b(hire|hiring|recruit|recruiting|candidate|candidates|talent|people|team|founder|startup|role|job|interview|sourcing|source|comp|compensation|salary|equity|offer|operator|engineer|eng|designer|pm|product manager|sales|gtm|exec|executive|manager|leadership|org|organization|culture|market map|calibration|profile|profiles|archetype|resume|background|company|customer|market|industry)\b/.test(text);
 
   if (hiringSignal) return false;
 

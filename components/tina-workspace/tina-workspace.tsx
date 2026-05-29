@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 
 import { buildBrainState } from "@/lib/brain/buildBrainState";
+import { buildCanonicalSearchState, type CanonicalSearchState } from "@/lib/brain/canonicalSearchState";
 import type { BrainState } from "@/lib/brain/types";
 import type { ProfileLead, SourcingBatchMetadata } from "@/lib/tina/profile-lead-types";
 import { evaluateSourcingReadiness, type SourcingReadiness } from "@/lib/tina/sourcing-readiness";
@@ -33,6 +34,7 @@ const THREAD_STORAGE_KEY = "tina:mvp:threads";
 const ACTIVE_THREAD_STORAGE_KEY = "tina:mvp:active-thread-id";
 const PROFILE_LEAD_STATUS_STORAGE_KEY = "tina:mvp:profile-lead-status";
 const BRAIN_STATE_STORAGE_KEY = "tina:mvp:brain-state";
+const CANONICAL_SEARCH_STATE_STORAGE_KEY = "tina:mvp:canonical-search-state";
 const MAX_FEEDBACK_SUMMARY_LEADS = 8;
 
 const typingPhrases = ["Shaping the search", "Reading candidate signal", "Tightening the Talent Pool"];
@@ -47,15 +49,14 @@ const MARKET_INTEL_FORMING_TITLE = "Scope forming";
 
 const tabPromptChips = [
   { label: "Source candidates", prompt: "Source candidates for this search." },
-  { label: "Build search lanes", prompt: "Build search lanes for this hire." },
+  { label: "Build search lanes", prompt: "Recommend the strongest search lanes for this hire and the first pass you would run." },
   { label: "Find people like this", prompt: "Find people like this profile." },
   { label: "Refine Talent Pool", prompt: "Refine this search based on my Talent Pool feedback. Find another batch." }
 ];
 
 const leadingQuestions = [
   { label: "Source candidates", prompt: "Source candidates for this hire." },
-  { label: "Build search lanes", prompt: "Build search lanes for this hire." },
-  { label: "Find people like this", prompt: "Find people like this profile." }
+  { label: "Build search lanes", prompt: "Recommend the strongest search lanes for this hire and the first pass you would run." }
 ];
 
 type ProfileLeadStatus = {
@@ -298,13 +299,17 @@ function TinaWorkspaceInner() {
     setLatestSynthesis("Tina is watching for the difference between a strong title match and a person who actually reduces founder ambiguity.");
   }
 
-  function updateActiveThreadMessages(messages: TinaMvpMessage[]) {
+  function updateActiveThreadMessages(messages: TinaMvpMessage[], titleOverride?: string) {
     setThreads((current) =>
       current.map((thread) =>
         thread.id === activeThreadId
           ? {
               ...thread,
-              title: shouldAutoRenameThread(thread) ? titleFromMessages(messages) : thread.title,
+              title: !thread.manuallyRenamed && titleOverride
+                ? titleOverride
+                : shouldAutoRenameThread(thread)
+                  ? titleFromMessages(messages)
+                  : thread.title,
               messages
             }
           : thread
@@ -485,15 +490,17 @@ function HomeCommandCenter({
   onSynthesis
 }: {
   activeThread: ChatThread;
-  onMessagesChange: (messages: TinaMvpMessage[]) => void;
+  onMessagesChange: (messages: TinaMvpMessage[], titleOverride?: string) => void;
   latestSynthesis: string;
   onSynthesis: (value: string) => void;
 }) {
   const [isThinking, setIsThinking] = useState(false);
   const [profileLeadStatus, setProfileLeadStatus] = useState<Record<string, ProfileLeadStatus>>({});
   const [storedBrainStates, setStoredBrainStates] = useState<Record<string, BrainState>>({});
+  const [storedCanonicalSearchStates, setStoredCanonicalSearchStates] = useState<Record<string, CanonicalSearchState>>({});
   const [showFullConversation, setShowFullConversation] = useState(false);
   const [isClientMounted, setIsClientMounted] = useState(false);
+  const [pendingActionText, setPendingActionText] = useState("");
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
   const messages = activeThread.messages;
   const hasConversation = messages.some((message) => message.role === "founder");
@@ -501,6 +508,33 @@ function HomeCommandCenter({
   const sourcingReadiness = useMemo(() => latestSourcingReadiness(messages) || evaluateSourcingReadiness(messages), [messages]);
   const profileLeadItems = useMemo(() => collectProfileLeadItems(activeThread.id, messages), [activeThread.id, messages]);
   const latestProfileLeadItems = useMemo(() => collectLatestProfileLeadItems(activeThread.id, messages), [activeThread.id, messages]);
+  const fallbackCanonicalSearchState = useMemo(
+    () => buildCanonicalSearchState({
+      messages,
+      profileLeads: (latestProfileLeadItems.length ? latestProfileLeadItems : profileLeadItems).map((item) => item.lead)
+    }),
+    [messages, latestProfileLeadItems, profileLeadItems]
+  );
+  const storedCanonicalSearchState = storedCanonicalSearchStates[activeThread.id];
+  const canonicalSearchState = storedCanonicalSearchState && isStoredCanonicalStateFresh(storedCanonicalSearchState, fallbackCanonicalSearchState)
+    ? storedCanonicalSearchState
+    : fallbackCanonicalSearchState;
+  const canonicalProfileIds = useMemo(
+    () => new Set(canonicalSearchState.candidateProfiles.map((lead) => lead.id)),
+    [canonicalSearchState]
+  );
+  const currentProfileLeadItems = useMemo(
+    () => canonicalSearchState.candidateProfiles.length
+      ? profileLeadItems.filter((item) => canonicalProfileIds.has(item.lead.id))
+      : [],
+    [canonicalSearchState.candidateProfiles.length, profileLeadItems, canonicalProfileIds]
+  );
+  const currentLatestProfileLeadItems = useMemo(
+    () => canonicalSearchState.candidateProfiles.length
+      ? latestProfileLeadItems.filter((item) => canonicalProfileIds.has(item.lead.id))
+      : [],
+    [canonicalSearchState.candidateProfiles.length, latestProfileLeadItems, canonicalProfileIds]
+  );
   const latestSourcingBatch = useMemo(() => collectLatestSourcingBatch(messages), [messages]);
   const calibration = useMemo(() => deriveLiveCalibration(messages), [messages]);
   const pipeline = useMemo(() => derivePipelineIntelligence(messages), [messages]);
@@ -509,8 +543,8 @@ function HomeCommandCenter({
     () => buildBrainState({
       messages,
       sourcingReadiness,
-      profileLeads: (latestProfileLeadItems.length ? latestProfileLeadItems : profileLeadItems).map((item) => item.lead),
-      feedback: profileLeadItems.map((item) => ({
+      profileLeads: (currentLatestProfileLeadItems.length ? currentLatestProfileLeadItems : currentProfileLeadItems).map((item) => item.lead),
+      feedback: currentProfileLeadItems.map((item) => ({
         lead: item.lead,
         status: profileLeadStatus[item.statusKey]
       })),
@@ -524,16 +558,16 @@ function HomeCommandCenter({
         ...sourcingStrategy.queryTerms
       ]
     }),
-    [messages, sourcingReadiness, latestProfileLeadItems, profileLeadItems, profileLeadStatus, sourcingStrategy]
+    [messages, sourcingReadiness, currentLatestProfileLeadItems, currentProfileLeadItems, profileLeadStatus, sourcingStrategy]
   );
   const latestTinaMessageId = useMemo(() => [...messages].reverse().find((message) => message.role === "tina")?.id, [messages]);
   const visibleProfileLeadItems = useMemo(
-    () => prioritizeLatestProfileLeadItems(profileLeadItems, latestProfileLeadItems),
-    [profileLeadItems, latestProfileLeadItems]
+    () => prioritizeLatestProfileLeadItems(currentProfileLeadItems, currentLatestProfileLeadItems),
+    [currentProfileLeadItems, currentLatestProfileLeadItems]
   );
   const shortlistedItems = useMemo(
-    () => profileLeadItems.filter((item) => profileLeadStatus[item.statusKey]?.action === "saved"),
-    [profileLeadItems, profileLeadStatus]
+    () => currentProfileLeadItems.filter((item) => profileLeadStatus[item.statusKey]?.action === "saved"),
+    [currentProfileLeadItems, profileLeadStatus]
   );
   const potentialItems = useMemo(
     () => prioritizePotentialCandidateItems(
@@ -543,15 +577,15 @@ function HomeCommandCenter({
     [visibleProfileLeadItems, profileLeadStatus]
   );
   const hasCandidateResults = visibleProfileLeadItems.length > 0;
-  const hasFeedback = latestProfileLeadItems.some((item) => hasProfileLeadFeedback(profileLeadStatus[item.statusKey]));
-  const feedbackRead = buildFeedbackLearningRead(latestProfileLeadItems, profileLeadStatus);
+  const hasFeedback = currentLatestProfileLeadItems.some((item) => hasProfileLeadFeedback(profileLeadStatus[item.statusKey]));
+  const feedbackRead = buildFeedbackLearningRead(currentLatestProfileLeadItems, profileLeadStatus);
   const refineLabel = shortlistedItems.length ? "Find more like saved candidates" : "Refine Talent Pool";
-  const latestBatchRead = buildTalentBatchRead(latestProfileLeadItems.length ? latestProfileLeadItems : visibleProfileLeadItems);
+  const latestBatchRead = buildTalentBatchRead(currentLatestProfileLeadItems.length ? currentLatestProfileLeadItems : visibleProfileLeadItems);
   const displayedMessages = hasCandidateResults && !showFullConversation ? latestConversationExchange(messages) : messages;
   const hiddenMessageCount = Math.max(0, messages.length - displayedMessages.length);
-  const missionHeader = buildMissionHeader(messages, calibration, sourcingStrategy);
+  const missionHeader = buildMissionHeader(canonicalSearchState, messages);
   const handleRefineSearch = () => {
-    const summary = buildTalentPoolFeedbackSummary(latestProfileLeadItems, profileLeadStatus);
+    const summary = buildTalentPoolFeedbackSummary(currentLatestProfileLeadItems, profileLeadStatus);
     if (summary) {
       sendMessage("Refine this search based on my Talent Pool feedback. Find another batch.", {
         sourcingRefinementSummary: summary
@@ -571,6 +605,7 @@ function HomeCommandCenter({
     setIsClientMounted(true);
     setProfileLeadStatus(readProfileLeadStatus());
     setStoredBrainStates(readStoredBrainStates());
+    setStoredCanonicalSearchStates(readStoredCanonicalSearchStates());
   }, []);
 
   useEffect(() => {
@@ -585,6 +620,17 @@ function HomeCommandCenter({
     });
   }, [activeThread.id, brainState]);
 
+  useEffect(() => {
+    const stored = storedCanonicalSearchStates[activeThread.id];
+    if (stored && isStoredCanonicalStateFresh(stored, fallbackCanonicalSearchState)) return;
+
+    setStoredCanonicalSearchStates((current) => {
+      const next = { ...current, [activeThread.id]: fallbackCanonicalSearchState };
+      window.localStorage.setItem(CANONICAL_SEARCH_STATE_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, [activeThread.id, fallbackCanonicalSearchState, storedCanonicalSearchStates]);
+
   async function sendMessage(content: string, options?: { sourcingRefinementSummary?: string }) {
     if (!content.trim() || isThinking) return;
 
@@ -597,7 +643,9 @@ function HomeCommandCenter({
 
     onMessagesChange(nextMessages);
     setIsThinking(true);
-    onSynthesis("Tina is translating the ask into a market and profile read...");
+    const actionText = actionProgressText(content);
+    setPendingActionText(actionText);
+    onSynthesis(actionText);
 
     try {
       const response = await fetch("/api/tina-mvp/chat", {
@@ -605,14 +653,22 @@ function HomeCommandCenter({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: nextMessages,
-          sourcingRefinementSummary: options?.sourcingRefinementSummary
+          sourcingRefinementSummary: options?.sourcingRefinementSummary,
+          canonicalSearchState
         })
       });
       const data = (await response.json()) as TinaChatApiResponse | { error?: string };
 
       if (!response.ok || !("message" in data)) throw new Error("Tina lost context.");
       const finalMessages = [...nextMessages, data.message];
-      onMessagesChange(finalMessages);
+      if (data.canonicalSearchState) {
+        setStoredCanonicalSearchStates((current) => {
+          const next = { ...current, [activeThread.id]: data.canonicalSearchState! };
+          window.localStorage.setItem(CANONICAL_SEARCH_STATE_STORAGE_KEY, JSON.stringify(next));
+          return next;
+        });
+      }
+      onMessagesChange(finalMessages, data.canonicalSearchState ? titleFromCanonicalSearchState(data.canonicalSearchState) : undefined);
       onSynthesis(data.message.content);
     } catch {
       const errorMessage: TinaMvpMessage = {
@@ -624,6 +680,7 @@ function HomeCommandCenter({
       onSynthesis("Tina lost context for a second. Try again.");
     } finally {
       setIsThinking(false);
+      setPendingActionText("");
     }
   }
 
@@ -675,7 +732,7 @@ function HomeCommandCenter({
           <div className={`min-h-0 flex-1 overflow-y-auto bg-white px-4 ${hasCandidateResults ? "py-3" : "py-4"}`}>
             <div className="mx-auto grid w-full max-w-3xl gap-3">
               {hasCandidateResults ? (
-                <SourcingResultArtifact leads={(latestProfileLeadItems.length ? latestProfileLeadItems : visibleProfileLeadItems).map((item) => item.lead)} sourcingBatch={latestSourcingBatch} />
+                <SourcingResultArtifact leads={(currentLatestProfileLeadItems.length ? currentLatestProfileLeadItems : visibleProfileLeadItems).map((item) => item.lead)} sourcingBatch={latestSourcingBatch} />
               ) : null}
               {displayedMessages.map((message) => (
                 <ChatMessage
@@ -690,8 +747,8 @@ function HomeCommandCenter({
                   <TinaMark />
                   <div>
                     <p className="text-sm font-semibold">Tina</p>
-                    <TypingStatus />
-                    <InlineSignalRows signals={["Search plan forming", "Talent Pool tightening"]} />
+                    <TypingStatus label={pendingActionText} />
+                    <InlineSignalRows signals={[pendingActionText || "Market Intel updating", "Talent Pool tightening"]} />
                   </div>
                 </div>
               ) : null}
@@ -701,7 +758,7 @@ function HomeCommandCenter({
           </div>
 
           <div className="shrink-0 border-t border-[#ECE7E1] bg-[#FAF8F5] p-3">
-            <CommandInput onSubmit={sendMessage} isThinking={isThinking} />
+            <CommandInput onSubmit={sendMessage} isThinking={isThinking} hasTasteSignal={hasCandidateResults || hasFeedback} />
           </div>
         </div>
         </div>
@@ -710,8 +767,8 @@ function HomeCommandCenter({
       <RightIntelligenceRail
         sourcingStrategy={sourcingStrategy}
         brainState={brainState}
-        profileLeadItems={profileLeadItems}
-        latestProfileLeadItems={latestProfileLeadItems}
+        profileLeadItems={currentProfileLeadItems}
+        latestProfileLeadItems={currentLatestProfileLeadItems}
         profileLeadStatus={profileLeadStatus}
         onProfileLeadStatusChange={(statusKey, status) =>
           setProfileLeadStatus((current) => ({
@@ -727,13 +784,15 @@ function HomeCommandCenter({
         refineLabel={refineLabel}
         isClientMounted={isClientMounted}
         messages={messages}
+        canonicalSearchState={canonicalSearchState}
       />
     </div>
   );
 }
 
-function CommandInput({ onSubmit, isThinking }: { onSubmit: (value: string) => void; isThinking: boolean }) {
+function CommandInput({ onSubmit, isThinking, hasTasteSignal }: { onSubmit: (value: string) => void; isThinking: boolean; hasTasteSignal: boolean }) {
   const [value, setValue] = useState("");
+  const visibleChips = hasTasteSignal ? tabPromptChips : tabPromptChips.filter((chip) => chip.label !== "Find people like this");
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -766,7 +825,7 @@ function CommandInput({ onSubmit, isThinking }: { onSubmit: (value: string) => v
       />
       <div className="mt-3 flex flex-col gap-3 border-t border-[#ECE7E1] pt-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap gap-2">
-          {tabPromptChips.map((chip) => (
+          {visibleChips.map((chip) => (
             <button
               key={chip.label}
               type="button"
@@ -843,6 +902,11 @@ function SourcingResultArtifact({ leads, sourcingBatch }: { leads: ProfileLead[]
   const highCount = leads.filter((lead) => lead.confidence === "high").length;
   const topTags = topValues(leads.flatMap((lead) => lead.tags)).slice(0, 2);
   const missingThemes = topValues(leads.map((lead) => missingSignalTheme(missingSignalForLead(lead)))).slice(0, 1);
+  const evidenceSummary = leads.some((lead) => lead.evidenceLevel === "synthetic")
+    ? "Synthetic examples"
+    : leads.length
+      ? "Unverified public leads"
+      : "";
 
   return (
     <div className="mt-3 max-w-full overflow-hidden rounded-lg border border-[#E1D8CE] bg-[#FFFCF7] p-3 shadow-[0_12px_32px_rgba(23,23,23,0.04)]">
@@ -850,12 +914,42 @@ function SourcingResultArtifact({ leads, sourcingBatch }: { leads: ProfileLead[]
         <span className="rounded-full bg-[#EEF8F1] px-2.5 py-1 text-[11px] font-semibold text-[#108A4B]">Talent Pool updated</span>
         <span className="text-xs font-medium text-[#625A52]">{leads.length} {leads.length === 1 ? "profile" : "profiles"}</span>
         {highCount ? <span className="text-xs text-[#8A8178]">{highCount} strong</span> : null}
+        {evidenceSummary ? <span className="text-xs text-[#8A8178]">{evidenceSummary}</span> : null}
+        {sourcingBatch ? <SearchSourceBadge sourcingBatch={sourcingBatch} /> : null}
       </div>
       <p className="mt-2 break-words text-xs leading-5 text-[#4B453F]">
         I found {leads.length} possible {leads.length === 1 ? "profile" : "profiles"} and updated Market Intel on the right. Best signal: {topTags.join(", ") || "role adjacency"}. Weakness: {missingThemes.join(", ") || "proof still needs review"}.
       </p>
       <p className="mt-1 text-[11px] text-[#8A8178]">Review compact profiles in Market Intel.</p>
     </div>
+  );
+}
+
+function SearchSourceBadge({ sourcingBatch }: { sourcingBatch: SourcingBatchMetadata }) {
+  if (!sourcingBatch.searchProvider || !sourcingBatch.searchStatus) {
+    return (
+      <span className="rounded-full bg-[#F4EFE8] px-2 py-0.5 text-[10px] font-semibold text-[#8A8178]">
+        Search source unknown
+      </span>
+    );
+  }
+
+  const isLive = sourcingBatch.searchProvider === "tavily" && sourcingBatch.searchStatus === "live";
+  const label = sourcingBatch.searchProvider === "mock"
+    ? "Mock search"
+    : sourcingBatch.searchStatus === "partial_failure"
+      ? "Tavily partial"
+      : sourcingBatch.searchStatus === "failed"
+        ? "Tavily failed"
+        : "Tavily live";
+  const className = isLive
+    ? "bg-[#EEF8F1] text-[#108A4B]"
+    : "bg-[#FFF2E8] text-[#A7531F]";
+
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${className}`}>
+      {label}
+    </span>
   );
 }
 
@@ -887,7 +981,7 @@ function TypedText({ text, animate }: { text: string; animate: boolean }) {
   );
 }
 
-function TypingStatus() {
+function TypingStatus({ label }: { label?: string }) {
   const [phraseIndex, setPhraseIndex] = useState(0);
 
   useEffect(() => {
@@ -900,7 +994,7 @@ function TypingStatus() {
 
   return (
     <p className="mt-2 inline-flex items-center gap-1 text-[13px] text-[#6F7B5B]">
-      <span>{typingPhrases[phraseIndex]}</span>
+      <span>{label || typingPhrases[phraseIndex]}</span>
       <span className="typing-dots" aria-hidden="true">
         <span>.</span>
         <span>.</span>
@@ -957,16 +1051,28 @@ function latestThreadSynthesis(messages: TinaMvpMessage[]) {
 }
 
 function titleFromMessages(messages: TinaMvpMessage[]) {
-  const founderText = messages
+  const founderMessages = messages
     .filter((message) => message.role === "founder")
     .map((message) => message.content.trim())
-    .join(" ");
+    .filter(Boolean);
+  const roleTitle = [...founderMessages].reverse()
+    .map((message) => extractRoleTitle(message))
+    .find(Boolean);
+
+  if (roleTitle) return roleTitle;
+
+  const founderText = founderMessages.join(" ");
   if (!founderText) return "New role";
 
-  const extractedRole = extractRoleTitle(founderText);
-  const title = extractedRole || compactRoleTitle(founderText);
+  const title = compactRoleTitle(founderMessages[0] || founderText);
 
   return title.charAt(0).toUpperCase() + title.slice(1);
+}
+
+function titleFromCanonicalSearchState(state: CanonicalSearchState) {
+  const roleTitle = cleanRoleTitle(state.roleTitle || "");
+  if (!isSpecificRoleTitle(roleTitle) || /forming/i.test(roleTitle)) return "";
+  return roleTitle;
 }
 
 function shouldAutoRenameThread(thread: ChatThread) {
@@ -1051,6 +1157,22 @@ function readStoredBrainStates() {
   }
 }
 
+function readStoredCanonicalSearchStates() {
+  try {
+    const rawStates = window.localStorage.getItem(CANONICAL_SEARCH_STATE_STORAGE_KEY);
+    if (!rawStates) return {};
+    const parsed = JSON.parse(rawStates) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+
+    return Object.fromEntries(
+      Object.entries(parsed)
+        .filter((entry): entry is [string, CanonicalSearchState] => typeof entry[0] === "string" && isCanonicalSearchState(entry[1]))
+    );
+  } catch {
+    return {};
+  }
+}
+
 function readStoredThreads() {
   try {
     const rawThreads = window.localStorage.getItem(THREAD_STORAGE_KEY);
@@ -1084,6 +1206,24 @@ function isBrainState(value: unknown): value is BrainState {
     (state.sourcingReadiness === "not_ready" || state.sourcingReadiness === "calibration_batch" || state.sourcingReadiness === "ready") &&
     typeof state.tinaRead === "string"
   );
+}
+
+function isCanonicalSearchState(value: unknown): value is CanonicalSearchState {
+  if (!value || typeof value !== "object") return false;
+  const state = value as CanonicalSearchState;
+  return typeof state.roleTitle === "string" &&
+    typeof state.roleFamily === "string" &&
+    typeof state.location === "string" &&
+    Array.isArray(state.mustHaveSignals) &&
+    Array.isArray(state.candidateProfiles);
+}
+
+function isStoredCanonicalStateFresh(stored: CanonicalSearchState, fallback: CanonicalSearchState) {
+  if (stored.lastUpdatedReason !== fallback.lastUpdatedReason) return false;
+  if (fallback.roleTitle !== "Role forming" && stored.roleTitle !== fallback.roleTitle) return false;
+  if (fallback.location !== "Location forming" && stored.location !== fallback.location) return false;
+  if (fallback.roleFamily !== "other" && stored.roleFamily !== fallback.roleFamily) return false;
+  return true;
 }
 
 function isChatThread(value: unknown): value is ChatThread {
@@ -1176,6 +1316,8 @@ function compactRoleTitle(text: string) {
 
 function cleanRoleTitle(value: string) {
   return value
+    .replace(/^\s*(?:me|us)\s+/i, "")
+    .replace(/^\s*(?:a|an|the|our|new)\s+/i, "")
     .replace(/\b(?:someone|somebody|person|candidate)\b/gi, "")
     .replace(/\b(?:can|could|will|would|should)\b.*$/i, "")
     .replace(/\b(?:in|at|near|around|based in)\s+[A-Z][\w\s,-]*$/i, "")
@@ -1192,6 +1334,7 @@ function cleanRoleTitle(value: string) {
 function formatTitleWord(word: string, index: number) {
   const lower = word.toLowerCase();
   if (index > 0 && ["of", "and", "for", "to"].includes(lower)) return lower;
+  if (["ai", "ml", "pm", "gtm"].includes(lower)) return lower.toUpperCase();
   if (word.length <= 3 && word === word.toUpperCase()) return word;
   return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
 }
@@ -1252,7 +1395,8 @@ function RightIntelligenceRail({
   hasFeedback,
   refineLabel,
   isClientMounted,
-  messages
+  messages,
+  canonicalSearchState
 }: {
   sourcingStrategy: SourcingStrategy;
   brainState: BrainState;
@@ -1268,6 +1412,7 @@ function RightIntelligenceRail({
   refineLabel: string;
   isClientMounted: boolean;
   messages: TinaMvpMessage[];
+  canonicalSearchState: CanonicalSearchState;
 }) {
   const visibleItems = isClientMounted ? prioritizeLatestProfileLeadItems(profileLeadItems, latestProfileLeadItems) : [];
 
@@ -1295,6 +1440,7 @@ function RightIntelligenceRail({
             isClientMounted={isClientMounted}
             messages={messages}
             sourcingBatch={sourcingBatch}
+            canonicalSearchState={canonicalSearchState}
           />
         </div>
       </section>
@@ -1315,7 +1461,8 @@ function MarketIntelRail({
   refineLabel,
   isClientMounted,
   messages,
-  sourcingBatch
+  sourcingBatch,
+  canonicalSearchState
 }: {
   brainState: BrainState;
   sourcingStrategy: SourcingStrategy;
@@ -1330,10 +1477,11 @@ function MarketIntelRail({
   isClientMounted: boolean;
   messages: TinaMvpMessage[];
   sourcingBatch?: SourcingBatchMetadata;
+  canonicalSearchState: CanonicalSearchState;
 }) {
   const sortedItems = isClientMounted ? prioritizePotentialCandidateItems(items, statuses) : [];
   const latestKeys = new Set(isClientMounted ? latestItems.map((item) => item.statusKey) : []);
-  const intel = isClientMounted ? buildMarketIntelSnapshot(brainState, sourcingStrategy, sortedItems, messages) : emptyMarketIntelSnapshot();
+  const intel = isClientMounted ? buildMarketIntelSnapshot(canonicalSearchState, brainState, sourcingStrategy, sortedItems, messages) : emptyMarketIntelSnapshot();
 
   return (
     <div className="grid gap-3">
@@ -1345,18 +1493,21 @@ function MarketIntelRail({
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Profiles</p>
             <p className="mt-1 text-sm font-semibold text-[#171717]">
-              {sortedItems.length ? `${sortedItems.length} ${sortedItems.length === 1 ? "profile" : "profiles"}` : sourcingBatch?.filteredCount ? "No validated profiles" : "Talent Pool pending"}
+              {sortedItems.length ? `${sortedItems.length} ${sortedItems.length === 1 ? "profile" : "profiles"}` : sourcingBatch ? "No reliable profiles yet" : "Talent Pool pending"}
             </p>
           </div>
-          {hasFeedback ? (
-            <button
-              type="button"
-              onClick={onRefineSearch}
-              className="shrink-0 rounded-md bg-[#171717] px-2.5 py-1.5 text-[11px] font-medium text-white"
-            >
-              {refineLabel}
-            </button>
-          ) : null}
+          <div className="flex shrink-0 items-center gap-2">
+            {sourcingBatch ? <SearchSourceBadge sourcingBatch={sourcingBatch} /> : null}
+            {hasFeedback ? (
+              <button
+                type="button"
+                onClick={onRefineSearch}
+                className="rounded-md bg-[#171717] px-2.5 py-1.5 text-[11px] font-medium text-white"
+              >
+                {refineLabel}
+              </button>
+            ) : null}
+          </div>
         </div>
 
         {feedbackRead ? <p className="mt-2 rounded-md bg-[#F4FAF5] px-2 py-1.5 text-[11px] leading-4 text-[#4A6A4D]">{feedbackRead}</p> : null}
@@ -1372,12 +1523,27 @@ function MarketIntelRail({
             />
           )) : (
             <p className="rounded-lg border border-dashed border-[#DED5CA] bg-[#FFFCF7] px-3 py-4 text-center text-xs text-[#8A8178]">
-              {sourcingBatch?.filteredCount
-                ? `Tina filtered ${sourcingBatch.filteredCount} weak or wrong-fit public results. Next best: keep the real operating proof, then relax one surface constraint.`
+              {sourcingBatch
+                ? sourcingBatch.filteredCount
+                  ? `Tina searched public profiles and filtered ${sourcingBatch.filteredCount} weak or wrong-fit results. Next: widen geography or loosen title while keeping proof strict.`
+                  : "Tina searched public profiles but did not find reliable role-fit matches yet. Next: widen geography or loosen title while keeping proof strict."
                 : "Profiles will appear here after Tina finds role-fit matches."}
             </p>
           )}
         </div>
+
+        {sourcingBatch?.audit ? (
+          <details className="mt-3 rounded-md border border-[#E7DDD1] bg-[#FFFCF7] p-2">
+            <summary className="cursor-pointer text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Search details</summary>
+            <div className="mt-2 space-y-1 text-[11px] leading-4 text-[#625A52]">
+              <p>{sourcingBatch.searchProvider === "tavily" ? "Live Tavily search" : "Fallback mock search"} · {sourcingBatch.audit.rawResultCount} raw results · {sourcingBatch.audit.candidateCount} candidate-shaped · {sourcingBatch.audit.validCount} shown</p>
+              {sourcingBatch.audit.tavilyFailureCount ? (
+                <p className="text-[#A7531F]">{sourcingBatch.audit.tavilyFailureCount} Tavily {sourcingBatch.audit.tavilyFailureCount === 1 ? "query failed" : "queries failed"}.</p>
+              ) : null}
+              <p className="break-words text-[#8A8178]">First query: {sourcingBatch.audit.queriesRun[0] || "none"}</p>
+            </div>
+          </details>
+        ) : null}
       </section>
 
       <section className="rounded-lg border border-[#D7CFC5] bg-[#1E1E1E] p-3 text-white shadow-[0_16px_42px_rgba(23,23,23,0.12)]">
@@ -1426,7 +1592,7 @@ function TalentPoolSnapshotCard({ intel }: { intel: MarketIntelSnapshot }) {
       </div>
 
       <div className="mt-3">
-        <MiniStat label="TTF" value={intel.timeToFill} />
+        <MiniStat label="Est. Time to Fill" value={intel.timeToFill} />
       </div>
     </section>
   );
@@ -1502,6 +1668,9 @@ function MarketProfileRow({
             <p className="mt-1 truncate text-xs text-[#625A52]">{profileSignalLine(lead)}</p>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
               <span className="rounded-full bg-[#F7F4EF] px-2 py-0.5 text-[10px] capitalize text-[#6F675E]">{lead.source.replace("_", " ")}</span>
+              <span className={`rounded-full px-2 py-0.5 text-[10px] ${lead.evidenceLevel === "synthetic" ? "bg-[#FFF2E8] text-[#A35F2E]" : "bg-[#F4F1EC] text-[#6F675E]"}`}>
+                {candidateEvidenceLabel(lead)}
+              </span>
               {isSaved ? <span className="rounded-full bg-[#EEF8F1] px-2 py-0.5 text-[10px] text-[#108A4B]">Saved</span> : null}
               {isRejected ? <span className="rounded-full bg-[#FFF2E8] px-2 py-0.5 text-[10px] text-[#A35F2E]">Rejected</span> : null}
             </div>
@@ -1511,6 +1680,7 @@ function MarketProfileRow({
 
       <div className="border-t border-[#EFE8DF] px-2.5 py-3 text-xs leading-5 text-[#4B453F]">
         <p className="break-words"><span className="font-semibold">Source:</span> <a href={lead.url} target="_blank" rel="noreferrer" className="text-[#4B28C9]">Open profile</a></p>
+        <p className="mt-1 break-words"><span className="font-semibold">Evidence level:</span> {candidateEvidenceLabel(lead)}</p>
         <p className="mt-1 break-words"><span className="font-semibold">Why surfaced:</span> {lead.fitReason}</p>
         <p className="mt-1 break-words"><span className="font-semibold">Evidence/proof:</span> {leadEvidenceLine(lead)}</p>
         <p className="mt-1 break-words"><span className="font-semibold">Missing proof:</span> {missingSignalForLead(lead)}</p>
@@ -1565,6 +1735,7 @@ function emptyMarketIntelSnapshot(): MarketIntelSnapshot {
 }
 
 function buildMarketIntelSnapshot(
+  canonicalSearchState: CanonicalSearchState,
   brainState: BrainState,
   sourcingStrategy: SourcingStrategy,
   items: ProfileLeadItem[],
@@ -1572,37 +1743,59 @@ function buildMarketIntelSnapshot(
 ): MarketIntelSnapshot {
   const leads = items.map((item) => item.lead);
   const conversationText = messages.map((message) => message.content).join(" ").toLowerCase();
-  const hasMarketSignal = leads.length > 0 || brainState.sourcingReadiness !== "not_ready" || brainState.readinessScore > 20;
+  const hasMarketSignal = canonicalSearchState.evidenceLevel !== "none" || leads.length > 0 || brainState.sourcingReadiness !== "not_ready" || brainState.readinessScore > 20;
 
   if (!hasMarketSignal) {
     return emptyMarketIntelSnapshot();
   }
 
-  const scopeTitle = marketScopeTitle(brainState, sourcingStrategy);
-  const nonNegotiables = uniqueStrings([
-    ...sourcingStrategy.mustHaveSignals,
-    ...brainState.seekSignals,
-    ...sourcingStrategy.seek
-  ]).slice(0, 3);
-  const poolSize = inferPoolSize(brainState, leads, sourcingStrategy, conversationText);
-  const locationMix = buildLocationMix(leads, conversationText);
-  const seniorityMix = buildSeniorityMix(leads, sourcingStrategy);
-  const compRange = inferMarketCompRange(leads, sourcingStrategy, conversationText);
-  const timeToFill = inferTimeToFill(poolSize, seniorityMix, brainState, conversationText);
+  const scopeTitle = canonicalSearchState.roleTitle && canonicalSearchState.roleTitle !== "Role forming"
+    ? canonicalSearchState.roleTitle
+    : marketScopeTitle(brainState, sourcingStrategy);
+  const nonNegotiables = (canonicalSearchState.mustHaveSignals.length
+    ? canonicalSearchState.mustHaveSignals
+    : uniqueStrings([
+      ...sourcingStrategy.mustHaveSignals,
+      ...brainState.seekSignals,
+      ...sourcingStrategy.seek
+    ])).slice(0, 3);
+  const poolSize = canonicalSearchState.talentPoolSize !== "Forming"
+    ? canonicalSearchState.talentPoolSize
+    : inferPoolSize(brainState, leads, sourcingStrategy, conversationText);
+  const locationMix = buildLocationMix(leads, conversationText, canonicalSearchState.location);
+  const seniorityMix = buildSeniorityMix(leads, sourcingStrategy, canonicalSearchState.seniority);
+  const compRange = canonicalSearchState.compensation !== "Comp forming"
+    ? normalizeMarketStat(canonicalSearchState.compensation)
+    : inferMarketCompRange(leads, sourcingStrategy, conversationText);
+  const timeToFill = canonicalSearchState.timeToFill !== "TTF forming"
+    ? normalizeMarketStat(canonicalSearchState.timeToFill)
+    : inferTimeToFill(poolSize, seniorityMix, brainState, conversationText);
   const dataLabel = leads.length >= 3 ? "Directional" : leads.length || locationMix.length ? "Early read" : "Pending";
 
   return {
     scopeTitle,
     nonNegotiables,
-    driftLine: inferScopeDrift(sourcingStrategy),
+    driftLine: inferCanonicalDrift(canonicalSearchState, sourcingStrategy),
     poolSize,
     dataLabel,
     locationMix,
     seniorityMix,
     compRange,
     timeToFill,
-    founderTakeaway: buildFounderTakeaway(poolSize, locationMix, seniorityMix, compRange, timeToFill, leads, conversationText)
+    founderTakeaway: buildFounderTakeaway(poolSize, locationMix, seniorityMix, compRange, timeToFill, leads, conversationText, canonicalSearchState)
   };
+}
+
+function normalizeMarketStat(value: string) {
+  if (/directional/i.test(value) || /pending|forming|ok/i.test(value)) return value;
+  return `${value} · Directional`;
+}
+
+function inferCanonicalDrift(canonicalSearchState: CanonicalSearchState, sourcingStrategy: SourcingStrategy) {
+  const fallback = inferScopeDrift(sourcingStrategy);
+  if (!fallback || canonicalSearchState.roleTitle === MARKET_INTEL_FORMING_TITLE || canonicalSearchState.roleTitle === "Role forming") return "";
+  if (fallback.toLowerCase().includes(canonicalSearchState.roleTitle.toLowerCase())) return fallback;
+  return "";
 }
 
 function marketScopeTitle(brainState: BrainState, sourcingStrategy: SourcingStrategy) {
@@ -1634,8 +1827,8 @@ function inferPoolSize(brainState: BrainState, leads: ProfileLead[], sourcingStr
   return leads.length || brainState.readinessScore > 55 ? "Moderate" : "Forming";
 }
 
-function buildLocationMix(leads: ProfileLead[], conversationText = ""): MarketSegment[] {
-  const explicitLocation = inferConversationLocation(conversationText);
+function buildLocationMix(leads: ProfileLead[], conversationText = "", canonicalLocation = ""): MarketSegment[] {
+  const explicitLocation = canonicalLocation && !/forming/i.test(canonicalLocation) ? canonicalLocation : inferConversationLocation(conversationText);
   if (explicitLocation) return [{ label: explicitLocation, value: 100, color: "#178A52" }];
   if (leads.length < 3) return [];
   const buckets = leads.map((lead) => inferLocationBucket(lead)).filter(Boolean);
@@ -1664,8 +1857,9 @@ function inferLocationBucket(lead: ProfileLead) {
   return "Remote/Other";
 }
 
-function buildSeniorityMix(leads: ProfileLead[], sourcingStrategy: SourcingStrategy): MarketSegment[] {
+function buildSeniorityMix(leads: ProfileLead[], sourcingStrategy: SourcingStrategy, canonicalSeniority = ""): MarketSegment[] {
   void sourcingStrategy;
+  if (canonicalSeniority && !/forming/i.test(canonicalSeniority)) return [{ label: canonicalSeniority, value: 100, color: "#178A52" }];
   if (leads.length < 3) return [];
   const values = leads.length ? leads.map(inferSeniorityBucket) : [];
   return valuesToSegments(values.filter(Boolean), ["#178A52", "#D58B39", "#7D6BF2"]).slice(0, 3);
@@ -1728,8 +1922,11 @@ function buildFounderTakeaway(
   compRange: string,
   timeToFill: string,
   leads: ProfileLead[],
-  conversationText = ""
+  conversationText = "",
+  canonicalSearchState?: CanonicalSearchState
 ) {
+  if (canonicalSearchState?.roleFamily === "manufacturing operations" && /peoria/i.test(canonicalSearchState.location)) return "Peoria is a narrow local market; nearby hubs or relocation will likely matter.";
+  if (canonicalSearchState?.roleFamily === "engineering" && canonicalSearchState.location && !/forming/i.test(canonicalSearchState.location)) return `${canonicalSearchState.location} is the current lane; keep proof tied to actual building work.`;
   if (/\bpeoria\b/.test(conversationText)) return "Peoria is a narrow local market; nearby hubs or relocation will likely matter.";
   if (!leads.length && locationMix.length) return `${locationMix[0].label} is the stated search market; profile evidence is still pending.`;
   if (!leads.length) return "Market Intel is pending until Tina has enough role signal or public profiles.";
@@ -1760,6 +1957,20 @@ function profileSignalLine(lead: ProfileLead) {
   const tags = lead.tags.slice(0, 2).join(" ");
   if (tags) return compactLeadText(`${tags} signal`, 56);
   return compactLeadText(lead.fitReason || lead.snippet, 56);
+}
+
+function candidateEvidenceLabel(lead: ProfileLead) {
+  if (lead.evidenceLevel === "synthetic") return "Synthetic example";
+  if (lead.evidenceLevel === "verified_public") return "Verified public lead";
+  return "Unverified lead";
+}
+
+function actionProgressText(content: string) {
+  const text = content.toLowerCase();
+  if (/\b(refine|more like|talent pool feedback)\b/.test(text)) return "Refining Talent Pool from feedback...";
+  if (/\b(source|candidate|profile|people|pull|find)\b/.test(text)) return "Searching public profiles...";
+  if (/\b(lane|market|where should|strategy)\b/.test(text)) return "Building search lanes...";
+  return "Updating Market Intel...";
 }
 
 function initialsForName(name: string) {
@@ -2784,13 +2995,13 @@ function SearchShapeBar({ label, value }: { label: string; value: number }) {
 
 function readinessLabel(status: SourcingReadiness["readinessStatus"]) {
   if (status === "ready_to_source") return "Ready to source";
-  if (status === "low_confidence_search") return "Low-confidence search";
+  if (status === "low_confidence_search") return "Ready for first pass";
   return "Needs calibration";
 }
 
 function readinessBadgeClass(status: SourcingReadiness["readinessStatus"]) {
   if (status === "ready_to_source") return "bg-[#EEF8F1] text-[#108A4B]";
-  if (status === "low_confidence_search") return "bg-[#FFF7E8] text-[#9A6A18]";
+  if (status === "low_confidence_search") return "bg-[#EEF8F1] text-[#108A4B]";
   return "bg-[#FFF2E8] text-[#A35F2E]";
 }
 
@@ -4393,13 +4604,13 @@ function deriveSourcingStrategy(
   };
 }
 
-function buildMissionHeader(messages: TinaMvpMessage[], calibration: LiveCalibration, strategy: SourcingStrategy) {
+function buildMissionHeader(canonicalSearchState: CanonicalSearchState, messages: TinaMvpMessage[]) {
   const founderText = messages.filter((message) => message.role === "founder").map((message) => message.content).join(" ").toLowerCase();
   const allText = messages.map((message) => message.content).join(" ").toLowerCase();
-  const role = compactMissionPart(inferMissionRole(founderText, calibration, strategy));
+  const role = compactMissionPart(canonicalSearchState.roleTitle && canonicalSearchState.roleTitle !== "Role forming" ? canonicalSearchState.roleTitle : "this search");
   const constraints = [
     /\b(us|u\.s\.|usa|united states)\b/.test(founderText) && /\bcanada|canadian\b/.test(founderText) ? "US/Canada" : "",
-    /\bremote\b/.test(founderText) ? "remote" : "",
+    canonicalSearchState.location && !/forming/i.test(canonicalSearchState.location) ? canonicalSearchState.location : "",
     /\b(urgent|asap|very fast|move fast)\b/.test(founderText) ? "urgent" : "",
     /\b(fintech|banking|compliance|fraud|credit|underwriting)\b/.test(allText) ? "fintech" : "",
     /\b(nlp|document parsing|language model|llm)\b/.test(allText) ? "NLP" : "",
@@ -4407,14 +4618,6 @@ function buildMissionHeader(messages: TinaMvpMessage[], calibration: LiveCalibra
   ].filter(Boolean);
 
   return `Finding: ${role}${constraints.length ? ` · ${uniqueStrings(constraints).join(" · ")}` : ""}`;
-}
-
-function inferMissionRole(founderText: string, calibration: LiveCalibration, strategy: SourcingStrategy) {
-  if (/\b(nlp|language model|llm)\b/.test(founderText) && /\b(pm|product manager|product lead)\b/.test(founderText)) return "NLP Product Manager";
-  if (/\b(pm|product manager|founding pm)\b/.test(founderText)) return "Product Manager";
-  if (isWeb3EngineeringSearch(founderText)) return "Smart Contract Engineer";
-
-  return strategy.targetTitles[0] || calibration.roleTitle || "this search";
 }
 
 function isWeb3EngineeringSearch(text: string) {

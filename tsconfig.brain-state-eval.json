@@ -5,14 +5,18 @@
     "module": "commonjs",
     "moduleResolution": "node",
     "target": "es2019",
+    "incremental": false,
     "rootDir": ".",
     "outDir": ".tmp/eval-brain-state"
   },
   "include": [
     "lib/brain/buildBrainState.ts",
+    "lib/brain/canonicalSearchState.ts",
     "lib/brain/types.ts",
     "lib/tina/sourcing-readiness.ts",
+    "lib/tina/search-query-builder.ts",
     "lib/tina/profile-lead-types.ts",
+    "lib/tina-mvp/system-prompt.ts",
     "lib/tina-mvp/types.ts"
   ]
 }

@@ -312,8 +312,8 @@ function buildTinaRead({
   }
 
   if (sourcingReadiness === "ready") return "The search brief is strong enough to pull a first candidate batch.";
-  if (sourcingReadiness === "calibration_batch") return `Tina can source a calibration batch, but ${missingSignals[0] || "one signal"} is still soft.`;
-  if (roleThesis) return `Missing ${missingSignals[0] || "one key signal"} before sourcing will be useful.`;
+  if (sourcingReadiness === "calibration_batch") return "Enough signal for a first pass; Tina should filter hard and learn from the batch.";
+  if (roleThesis) return `One blocker remains before sourcing: ${missingSignals[0] || "the role lane"}.`;
   return EMPTY_READ;
 }
 

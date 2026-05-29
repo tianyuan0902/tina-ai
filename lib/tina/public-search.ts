@@ -1,5 +1,5 @@
 import type { ProfileLead, SourcingBatchMetadata } from "@/lib/tina/profile-lead-types";
-import { buildPublicTalentSearchQueries, type PublicTalentSearchRefinement } from "@/lib/tina/search-query-builder";
+import { buildExpandedPublicTalentSearchQueries, buildPublicTalentSearchQueries, type PublicTalentSearchRefinement } from "@/lib/tina/search-query-builder";
 
 type TavilyLikeResult = {
   title?: string;
@@ -7,6 +7,7 @@ type TavilyLikeResult = {
   content?: string;
   snippet?: string;
   query?: string;
+  synthetic?: boolean;
 };
 
 const DEFAULT_PROFILE_BATCH_SIZE = 10;
@@ -20,6 +21,16 @@ export type PublicProfileSearchOptions = {
 export type PublicProfileSearchBatch = {
   profileLeads: ProfileLead[];
   metadata: SourcingBatchMetadata;
+};
+
+type SourcingAudit = {
+  queriesRun: string[];
+  rawResultCount: number;
+  candidateCount: number;
+  validCount: number;
+  rejectionReasons: string[];
+  tavilyFailureCount?: number;
+  tavilyErrorMessages?: string[];
 };
 
 export async function searchPublicProfileLeads(
@@ -39,27 +50,41 @@ export async function searchPublicProfileBatch(
   const batchSize = clampProfileBatchSize(requestedCount);
   const excludedUrls = new Set((options.excludedUrls || []).map(normalizeUrl).filter(Boolean));
   const requestedFunction = classifyRequestedRoleFunction(hiringContext);
-  const results = process.env.TAVILY_API_KEY
-    ? await searchWithTavily(queries)
-    : mockPublicSearchResults(queries, hiringContext);
-  const relevantResults = filterRelevantResults(results, hiringContext);
-  const candidateLeads = dedupeResults(relevantResults.filter(isProfileLikeResult))
-      .filter((result) => !excludedUrls.has(normalizeUrl(result.url || "")))
-      .filter((result) => result.url && result.title)
-      .slice(0, Math.max(batchSize * 3, 12))
-      .map((result, index) => {
-        const lead = mapToProfileLead(result, result.query || queries[index % queries.length], hiringContext, index);
-        return {
-          ...lead,
-          validation: validateProfileLead(lead, requestedFunction)
-        };
-      });
-  const validLeads = dedupeLeads(candidateLeads)
-    .filter((lead) => lead.confidence !== "low")
-    .filter((lead) => lead.validation?.roleFunctionMatch || lead.validation?.evidenceStrength === "strong")
+  const passes = [
+    { label: "exact", queries },
+    { label: "adjacent", queries: buildExpandedPublicTalentSearchQueries(hiringContext, "adjacent") },
+    { label: "domain", queries: buildExpandedPublicTalentSearchQueries(hiringContext, "domain") }
+  ].filter((pass) => pass.queries.length);
+  const allCandidateLeads: ProfileLead[] = [];
+  const queriesRun: string[] = [];
+  const tavilyErrors: string[] = [];
+  const usesTavily = Boolean(process.env.TAVILY_API_KEY);
+  let rawResultCount = 0;
+
+  for (const pass of passes) {
+    queriesRun.push(...pass.queries);
+    const searchResult = usesTavily
+      ? await searchWithTavily(pass.queries)
+      : { results: mockPublicSearchResults(pass.queries, hiringContext), errors: [] };
+    const results = searchResult.results;
+    tavilyErrors.push(...searchResult.errors);
+    rawResultCount += results.length;
+    const passLeads = buildCandidateLeads(results, hiringContext, requestedFunction, excludedUrls, batchSize, pass.queries);
+    allCandidateLeads.push(...passLeads);
+
+    const enoughValid = dedupeLeads(allCandidateLeads)
+      .filter(isDisplayableLead)
+      .length >= batchSize;
+    if (enoughValid) break;
+  }
+
+  const candidateLeads = dedupeLeads(allCandidateLeads);
+  const validLeads = candidateLeads
+    .filter(isDisplayableLead)
     .slice(0, batchSize);
   const filtered = candidateLeads.filter((lead) => !validLeads.some((validLead) => validLead.id === lead.id));
   const filteredReasons = topValues(filtered.map((lead) => lead.validation?.filteredReason || "weak public evidence")).slice(0, 4);
+  const searchStatus = getSearchStatus(usesTavily, tavilyErrors.length, queriesRun.length);
 
   return {
     profileLeads: validLeads,
@@ -68,20 +93,63 @@ export async function searchPublicProfileBatch(
       returnedCount: validLeads.length,
       validCount: validLeads.length,
       filteredCount: filtered.length,
-      filteredReasons
+      filteredReasons,
+      searchProvider: usesTavily ? "tavily" : "mock",
+      searchStatus,
+      audit: {
+        queriesRun,
+        rawResultCount,
+        candidateCount: candidateLeads.length,
+        validCount: validLeads.length,
+        rejectionReasons: filteredReasons,
+        tavilyFailureCount: tavilyErrors.length || undefined,
+        tavilyErrorMessages: topValues(tavilyErrors).slice(0, 3)
+      }
     }
   };
+}
+
+function buildCandidateLeads(
+  results: TavilyLikeResult[],
+  hiringContext: string,
+  requestedFunction: RoleFunction,
+  excludedUrls: Set<string>,
+  batchSize: number,
+  queries: string[]
+) {
+  const relevantResults = filterRelevantResults(results, hiringContext);
+
+  return dedupeResults(relevantResults.filter(isProfileLikeResult))
+    .filter((result) => !excludedUrls.has(normalizeUrl(result.url || "")))
+    .filter((result) => result.url && result.title)
+    .slice(0, Math.max(batchSize * 3, 12))
+    .map((result, index) => {
+      const lead = mapToProfileLead(result, result.query || queries[index % queries.length], hiringContext, index);
+      return {
+        ...lead,
+        validation: validateProfileLead(lead, requestedFunction)
+      };
+    });
+}
+
+function isDisplayableLead(lead: ProfileLead) {
+  return lead.confidence !== "low" &&
+    Boolean(lead.url) &&
+    (lead.validation?.roleFunctionMatch || lead.validation?.evidenceStrength === "strong");
 }
 
 async function searchWithTavily(queries: string[]) {
   const settled = await Promise.allSettled(
     queries.map((query) => fetchTavilySearch(query))
   );
+  const errors: string[] = [];
 
-  return dedupeResults(
+  const results = dedupeResults(
     settled.flatMap((result, index) => {
       if (result.status === "rejected") {
-        console.error("[Tina public search] Tavily search failed:", result.reason);
+        const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+        errors.push(reason);
+        console.error("[Tina public search] Tavily search failed:", reason);
         return [];
       }
 
@@ -93,6 +161,8 @@ async function searchWithTavily(queries: string[]) {
       }));
     })
   );
+
+  return { results, errors };
 }
 
 async function fetchTavilySearch(query: string) {
@@ -119,6 +189,13 @@ async function fetchTavilySearch(query: string) {
   return (await response.json()) as { results?: TavilyLikeResult[] };
 }
 
+function getSearchStatus(usesTavily: boolean, errorCount: number, queryCount: number): SourcingBatchMetadata["searchStatus"] {
+  if (!usesTavily) return "fallback";
+  if (errorCount >= queryCount && queryCount > 0) return "failed";
+  if (errorCount > 0) return "partial_failure";
+  return "live";
+}
+
 function mapToProfileLead(result: TavilyLikeResult, query: string, hiringContext: string, index: number): ProfileLead {
   const snippet = cleanSnippet(result.content || result.snippet || "");
   const title = cleanTitle(result.title || "Public profile lead");
@@ -132,6 +209,7 @@ function mapToProfileLead(result: TavilyLikeResult, query: string, hiringContext
     query,
     fitReason: buildFitReason(hiringContext, snippet),
     confidence: confidenceForIndex(index),
+    evidenceLevel: result.synthetic ? "synthetic" : result.url ? "unverified_lead" : "synthetic",
     tags: buildTags(hiringContext, snippet),
     saved: false,
     calibration: buildCalibration(result, hiringContext, snippet, title)
@@ -147,12 +225,14 @@ function mockPublicSearchResults(queries: string[], hiringContext: string): Tavi
       {
         title: "Maya Rao - Startup Operator, Founder Office",
         url: "https://www.linkedin.com/in/maya-rao-operator",
-        content: `Mock result for ${queries[0]}. Founder office and business operations background across seed to Series B teams.`
+        content: `Mock result for ${queries[0]}. Founder office and business operations background across seed to Series B teams.`,
+        synthetic: true
       },
       {
         title: "Alex Morgan - Chief of Staff / BizOps",
         url: "https://www.linkedin.com/in/alex-morgan-bizops",
-        content: `Mock result for ${queries[1]}. Startup operator turning ambiguous founder priorities into operating cadence.`
+        content: `Mock result for ${queries[1]}. Startup operator turning ambiguous founder priorities into operating cadence.`,
+        synthetic: true
       }
     ];
   }
@@ -162,17 +242,20 @@ function mockPublicSearchResults(queries: string[], hiringContext: string): Tavi
       {
         title: "Daniel Kim - AI Product Engineer at Scale AI",
         url: "https://www.linkedin.com/in/daniel-kim-ai-product",
-        content: `Mock result for ${queries[0]}. AI product engineer with applied LLM workflow, eval, and customer-facing product experience.`
+        content: `Mock result for ${queries[0]}. AI product engineer with applied LLM workflow, eval, and customer-facing product experience.`,
+        synthetic: true
       },
       {
         title: "Maya Chen - Applied AI Engineer",
         url: "https://github.com/mayachen-ai",
-        content: `Mock result for ${queries[3]}. Public repos show LLM applications, evaluation harnesses, and product prototypes.`
+        content: `Mock result for ${queries[3]}. Public repos show LLM applications, evaluation harnesses, and product prototypes.`,
+        synthetic: true
       },
       {
         title: "Sofia Martinez - AI Full Stack Builder",
         url: "https://sofia-martinez.dev",
-        content: `Mock result for ${queries[4]}. Personal site describes AI-native product builds and fast customer iteration.`
+        content: `Mock result for ${queries[4]}. Personal site describes AI-native product builds and fast customer iteration.`,
+        synthetic: true
       }
     ];
   }
@@ -181,12 +264,14 @@ function mockPublicSearchResults(queries: string[], hiringContext: string): Tavi
     {
       title: "Leah Chen - Founding Engineer",
       url: "https://www.linkedin.com/in/leah-chen-founding-engineer",
-      content: `Mock result for ${queries[0]}. Founding engineer background with product judgment and early-stage ownership.`
+      content: `Mock result for ${queries[0]}. Founding engineer background with product judgment and early-stage ownership.`,
+      synthetic: true
     },
     {
       title: "Ethan Park - Product-Minded Builder",
       url: "https://github.com/ethanpark",
-      content: `Mock result for ${queries[3]}. Public projects suggest product taste and startup-oriented building.`
+      content: `Mock result for ${queries[3]}. Public projects suggest product taste and startup-oriented building.`,
+      synthetic: true
     }
   ];
 }
@@ -212,6 +297,7 @@ export function getRequestedProfileCount(message: string) {
 
   if (numericMatch) return clampProfileBatchSize(Number(numericMatch[1]));
   if (wordMatch) return clampProfileBatchSize(wordCounts[wordMatch[1].toLowerCase()]);
+  if (/\b(a few|few|small batch|first batch)\b.*\b(profiles?|people|leads?|candidates?|targets?)\b/i.test(message)) return 5;
 
   return DEFAULT_PROFILE_BATCH_SIZE;
 }
@@ -358,6 +444,14 @@ type RoleFunction = "engineering" | "product" | "design" | "gtm" | "operations" 
 function classifyRequestedRoleFunction(hiringContext: string): RoleFunction {
   const text = hiringContext.toLowerCase();
 
+  if (/canonical role family:\s*manufacturing operations/i.test(text)) return "operations";
+  if (/canonical role family:\s*engineering/i.test(text)) return "engineering";
+  if (/canonical role family:\s*product/i.test(text)) return "product";
+  if (/canonical role family:\s*design/i.test(text)) return "design";
+  if (/canonical role family:\s*gtm/i.test(text)) return "gtm";
+  if (/canonical role family:\s*recruiting/i.test(text)) return "recruiting";
+  if (/canonical role family:\s*people/i.test(text)) return "people";
+  if (/canonical role family:\s*finance/i.test(text)) return "finance";
   if (/\b(plant manager|plant|factory|manufacturing|production manager|operations director|quality operations|fda|iso|medical device|pharma|regulated manufacturing)\b/.test(text)) return "operations";
   if (/\b(account executive|ae|sales|gtm|growth|revenue|business development|bd)\b/.test(text)) return "gtm";
   if (/\b(recruiter|sourcer|talent acquisition|recruiting)\b/.test(text)) return "recruiting";
@@ -392,6 +486,7 @@ function validateProfileLead(lead: ProfileLead, requestedFunction: RoleFunction)
 }
 
 function classifyCandidateFunction(text: string): RoleFunction {
+  if (/\b(plant manager|manufacturing|production manager|quality operations|fda|iso|medical device|pharma|regulated manufacturing)\b/.test(text)) return "operations";
   if (/\b(account executive|sales|gtm|revenue|business development|growth)\b/.test(text)) return "gtm";
   if (/\b(recruiter|sourcer|talent acquisition|recruiting)\b/.test(text)) return "recruiting";
   if (/\b(people ops|head of people|hr|human resources)\b/.test(text)) return "people";
@@ -424,6 +519,14 @@ function filteredReasonFor(requestedFunction: RoleFunction, actualFunction: Role
 }
 
 function buildFitReason(hiringContext: string, snippet: string) {
+  if (/\b(plant manager|manufacturing|factory|production manager|quality operations|medical device|pharma|fda|iso)\b/i.test(hiringContext)) {
+    return "Possible fit because the public result overlaps with manufacturing operations or regulated plant leadership.";
+  }
+
+  if (/canonical role family:\s*engineering/i.test(hiringContext) || /\b(infrastructure|backend|platform|systems|software engineer|ai engineer)\b/i.test(hiringContext)) {
+    return "Possible fit because the public result shows engineering or infrastructure-building evidence.";
+  }
+
   if (/\b(product manager|head of product|pm|customer)\b/i.test(hiringContext)) {
     return "Possible fit because the public result suggests product ownership or customer proximity.";
   }
@@ -447,13 +550,16 @@ function buildFitReason(hiringContext: string, snippet: string) {
 
 function buildTags(hiringContext: string, snippet: string) {
   const text = `${hiringContext} ${snippet}`.toLowerCase();
+  const canonicalEngineering = /canonical role family:\s*engineering/i.test(hiringContext);
+  const canonicalProduct = /canonical role family:\s*product/i.test(hiringContext);
   const tags = [];
 
   if (/\b(ai|llm|machine learning|ml|agent)\b/.test(text)) tags.push("AI");
-  if (/\b(product|customer|workflow)\b/.test(text)) tags.push("product");
+  if (canonicalEngineering || /\b(infrastructure|backend|platform|systems|software engineer|developer|github)\b/.test(text)) tags.push("engineering");
+  if (canonicalProduct || (!canonicalEngineering && /\b(product|customer|workflow)\b/.test(text))) tags.push("product");
   if (/\b(startup|founding|early)\b/.test(text)) tags.push("startup");
   if (/\b(eval|quality|reliability)\b/.test(text)) tags.push("quality");
-  if (/\b(operator|ops|operations)\b/.test(text)) tags.push("operator");
+  if (!canonicalEngineering && /\b(operator|ops|operations)\b/.test(text)) tags.push("operator");
   if (/\b(solidity|smart contract|smartcontract|web3|defi|protocol|mainnet)\b/.test(text)) tags.push("web3");
 
   return tags.slice(0, 4);
@@ -528,6 +634,12 @@ function inferTargetLane(hiringContext: string) {
   const explicitProductRole = /\b(pm|product manager|founding pm|head of product|product lead)\b/.test(text);
   const explicitEngineeringRole = /\b(engineer|developer|solidity|smartcontract|smart contract engineer|protocol engineer|code|coding)\b/.test(text);
 
+  if (/canonical role family:\s*manufacturing operations/i.test(text)) return "plant";
+  if (/canonical role family:\s*engineering/i.test(text) && /\b(infrastructure|platform|systems|backend)\b/.test(text)) return "backend";
+  if (/canonical role family:\s*engineering/i.test(text)) return "backend";
+  if (/canonical role family:\s*product/i.test(text)) return "product";
+  if (/canonical role family:\s*design/i.test(text)) return "design";
+  if (/canonical role family:\s*gtm/i.test(text)) return "gtm";
   if (/\b(operator|ops|operations|chief of staff|founder office)\b/.test(text)) return "operator";
   if (/\b(gtm|sales|account executive|ae|growth|revenue)\b/.test(text)) return "gtm";
   if (explicitProductRole) return "product";
@@ -546,6 +658,7 @@ function scoreResult(result: TavilyLikeResult, target: string) {
     ai: [/\b(ai|llm|machine learning|ml|model|agent|applied ai)\b/, /\b(product engineer|founding engineer|software engineer)\b/],
     backend: [/\b(backend|infrastructure|distributed systems|platform|systems engineer)\b/],
     product: [/\b(product manager|head of product|product lead|pm)\b/, /\b(customer|roadmap|product strategy)\b/],
+    plant: [/\b(plant manager|manufacturing|factory|production manager|quality operations|fda|iso|medical device|pharma)\b/],
     operator: [/\b(operator|operations|chief of staff|founder office|bizops|business operations)\b/],
     design: [/\b(product designer|founding designer|design lead|ux|ui)\b/],
     gtm: [/\b(gtm|sales|account executive|revenue|growth|go-to-market)\b/],

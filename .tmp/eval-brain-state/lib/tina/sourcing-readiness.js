@@ -10,6 +10,14 @@ function evaluateSourcingReadiness(messages) {
             .join("\n");
     const normalized = text.toLowerCase();
     const roleFamily = inferRoleFamily(normalized);
+    const rolePresent = roleFamily !== "general";
+    const locationPresent = hasLocationOrRemoteSignal(text);
+    const proofPresent = hasProofDomainOrOutcomeSignal(text, roleFamily);
+    const blockingMissing = [
+        rolePresent ? "" : "role/function",
+        needsLocationSignal(roleFamily, normalized) && !locationPresent ? "location or remote constraint" : "",
+        proofPresent ? "" : "one proof signal, domain, or role outcome"
+    ].filter(Boolean);
     const dimensions = [
         {
             label: "role outcome",
@@ -57,17 +65,48 @@ function evaluateSourcingReadiness(messages) {
     ];
     const readinessScore = dimensions.reduce((score, dimension) => score + (dimension.present ? dimension.points : 0), 0);
     const missingSignals = dimensions.filter((dimension) => !dimension.present).map((dimension) => dimension.label);
-    const readinessStatus = readinessScore >= 70 ? "ready_to_source" : readinessScore >= 45 ? "low_confidence_search" : "needs_calibration";
+    const usefulButNotBlocking = missingSignals.filter((signal) => !blockingMissing.includes(signal) && signal !== "target function/title" && signal !== "location/constraints");
+    const readinessStatus = blockingMissing.length
+        ? "needs_calibration"
+        : readinessScore >= 70
+            ? "ready_to_source"
+            : "low_confidence_search";
     return {
         readinessStatus,
         readinessScore,
-        missingSignals,
+        missingSignals: blockingMissing,
+        blockingMissing,
+        usefulButNotBlocking,
         searchThesis: buildSearchThesis(normalized, roleFamily),
-        followUpQuestions: dimensions
-            .filter((dimension) => !dimension.present)
+        followUpQuestions: blockingMissing.length ? dimensions
+            .filter((dimension) => isBlockingQuestion(dimension.label, blockingMissing))
             .map((dimension) => dimension.question)
-            .slice(0, 2)
+            .slice(0, 1) : []
     };
+}
+function hasLocationOrRemoteSignal(text) {
+    return /\b(remote|hybrid|onsite|sf|san francisco|bay area|new york|nyc|austin|seattle|london|chicago|peoria|location|timezone|no location constraint|location flexible|remote ok|remote is fine)\b/i.test(text);
+}
+function hasProofDomainOrOutcomeSignal(text, roleFamily) {
+    if (/\b(fintech|healthcare|ai|llm|ml|machine learning|regulated|security|infra|infrastructure|platform|backend|distributed|customer|workflow|startup|seed|series [abc]|shipped|built|owned|led|deliver|production|quality|fda|iso|mainnet|defi|web3)\b/i.test(text))
+        return true;
+    if (/\b(solve|own|owns|responsible|outcome|problem|bottleneck|reduce|improve|ship|build|delivery|clarity|revenue|execution)\b/i.test(text))
+        return true;
+    return roleFamily !== "general" && /\b(senior|founding|staff|principal|lead|head)\b/i.test(text);
+}
+function needsLocationSignal(roleFamily, text) {
+    if (/\b(remote|anywhere|global|distributed|no location constraint|location flexible)\b/i.test(text))
+        return false;
+    return roleFamily === "manufacturing operations" || /\b(local|onsite|in office|relocation)\b/i.test(text);
+}
+function isBlockingQuestion(label, blockingMissing) {
+    if (label === "target function/title")
+        return blockingMissing.includes("role/function");
+    if (label === "location/constraints")
+        return blockingMissing.includes("location or remote constraint");
+    if (label === "role outcome" || label === "must-have signals" || label === "company lane")
+        return blockingMissing.includes("one proof signal, domain, or role outcome");
+    return false;
 }
 function inferRoleFamily(text) {
     if (/\b(ai|llm|ml|machine learning|model|agent|engineer|developer|backend|frontend|full stack|full-stack|infra|platform|solidity|smart contract|smartcontract|web3|defi|protocol)\b/.test(text))

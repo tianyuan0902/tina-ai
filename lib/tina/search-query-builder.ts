@@ -1,5 +1,14 @@
 const SEARCH_TERMS = {
   ai: ["AI product engineer", "founding engineer", "machine learning engineer", "software engineer"],
+  aiInfra: [
+    "AI Infrastructure Engineer",
+    "ML Infrastructure Engineer",
+    "ML Platform Engineer",
+    "AI Platform Engineer",
+    "Senior Backend Engineer",
+    "Staff Software Engineer",
+    "Founding Infrastructure Engineer"
+  ],
   product: ["product manager", "founding product manager", "head of product", "product lead"],
   backend: ["senior backend engineer", "distributed systems engineer"],
   operator: ["startup operator", "founder office operator"],
@@ -20,15 +29,16 @@ export function buildPublicTalentSearchQueries(hiringContext: string, refinement
   if (refinement?.updatedQueries?.length) return refinement.updatedQueries.slice(0, 5);
 
   const text = hiringContext.toLowerCase();
+  const canonicalFamily = inferCanonicalRoleFamily(text);
   const roleTerms = inferRoleTerms(text);
   const environment = text.includes("startup") || text.includes("founding") ? "startup" : "early stage";
   const positiveTerm = compactPatternTerm(refinement?.positivePatterns?.[0] || refinement?.updatedSearchThesis || "");
   const domainTerm = inferDomainTerm(text);
+  const location = inferLocationTerm(text);
   const qualifier = positiveTerm || domainTerm;
   const engineeringSearch = isEngineeringSearch(text);
 
-  if (isPlantSearch(text)) {
-    const location = inferLocationTerm(text);
+  if (canonicalFamily === "manufacturing operations" || isPlantSearch(text)) {
     const domain = inferPlantDomainTerm(text);
     const terms = roleTerms.length ? roleTerms : SEARCH_TERMS.plant;
 
@@ -41,7 +51,11 @@ export function buildPublicTalentSearchQueries(hiringContext: string, refinement
     ].slice(0, 5);
   }
 
-  if (engineeringSearch) {
+  if ((canonicalFamily === "engineering" || engineeringSearch) && isAiInfrastructureSearch(text)) {
+    return buildAiInfrastructureQueries(text);
+  }
+
+  if (canonicalFamily === "engineering" || engineeringSearch) {
     const engineeringTerms = roleTerms.some((term) => /\bengineer|developer\b/i.test(term))
       ? roleTerms
       : ["software engineer", "founding engineer", "product engineer", "full-stack engineer", "ML engineer"];
@@ -56,21 +70,80 @@ export function buildPublicTalentSearchQueries(hiringContext: string, refinement
   }
 
   return [
-    `site:linkedin.com/in "${roleTerms[0]}" "${environment}"${qualifier ? ` "${qualifier}"` : ""}`,
-    `site:linkedin.com/in "${roleTerms[1] || roleTerms[0]}" "${environment}"${qualifier ? ` "${qualifier}"` : ""}`,
-    `site:linkedin.com/in "${roleTerms[2] || roleTerms[0]}" "customer-facing" "${domainTerm || "startup"}"`,
+    `site:linkedin.com/in "${roleTerms[0]}" "${location || environment}"${qualifier ? ` "${qualifier}"` : ""}`,
+    `site:linkedin.com/in "${roleTerms[1] || roleTerms[0]}" "${location || environment}"${qualifier ? ` "${qualifier}"` : ""}`,
+    `site:linkedin.com/in "${roleTerms[2] || roleTerms[0]}" "customer-facing" "${location || domainTerm || "startup"}"`,
     buildPublicPortfolioQuery(roleTerms[0], text),
-    `site:linkedin.com/in "${roleTerms[3] || roleTerms[0]}" "startup"`
+    `site:linkedin.com/in "${roleTerms[3] || roleTerms[0]}" "${location || "startup"}"`
   ].slice(0, 5);
 }
 
+export function buildExpandedPublicTalentSearchQueries(hiringContext: string, pass: "adjacent" | "domain") {
+  const text = hiringContext.toLowerCase();
+
+  if (isAiInfrastructureSearch(text)) {
+    const location = inferLocationTerm(text) || "San Francisco";
+    const domain = inferDomainTerm(text);
+
+    if (pass === "adjacent") {
+      return [
+        `site:linkedin.com/in "ML Infrastructure Engineer" "${location}"`,
+        `site:linkedin.com/in "ML Platform Engineer" "${location}"`,
+        `site:linkedin.com/in "AI Platform Engineer" "${location}"`,
+        `site:linkedin.com/in "Backend Infrastructure Engineer" "${location}"`,
+        `site:linkedin.com/in "Staff Software Engineer" "ML Platform" "${location}"`
+      ];
+    }
+
+    return [
+      `"AI infrastructure" "Stripe" "engineer" "${location}"`,
+      `"ML platform" "${domain || "fintech"}" "engineer" "${location}"`,
+      `site:github.com "ML infrastructure" "${location}" engineer`,
+      `site:linkedin.com/in "Senior Software Engineer" "AI infrastructure" "${location}"`,
+      `site:linkedin.com/in "Founding Infrastructure Engineer" "AI" "${location}"`
+    ];
+  }
+
+  return [];
+}
+
+function buildAiInfrastructureQueries(text: string) {
+  const location = inferLocationTerm(text) || "San Francisco";
+  const domain = inferDomainTerm(text);
+
+  return [
+    `site:linkedin.com/in "AI Infrastructure Engineer" "${location}"`,
+    `site:linkedin.com/in "ML Infrastructure Engineer" "${location}"`,
+    `site:linkedin.com/in "ML Platform Engineer" "${location}"${domain ? ` ${domain}` : ""}`,
+    `site:linkedin.com/in "AI Platform Engineer" "${location}"`,
+    `"Senior Backend Engineer" "ML infrastructure" "${location}"`,
+    `"Staff Software Engineer" "AI infrastructure" "${location}"`,
+    `site:github.com "ML infrastructure" "${location}" engineer`,
+    `"AI infrastructure" "Stripe" "engineer" "${location}"`,
+    `"ML platform" "${domain || "fintech"}" "engineer" "${location}"`
+  ];
+}
+
 function isEngineeringSearch(text: string) {
+  if (inferCanonicalRoleFamily(text) === "engineering") return true;
   if (/\b(pm|product manager|founding pm|head of product|product lead|account executive|sales|gtm|chief of staff|operator)\b/.test(text)) return false;
   return /\b(engineer|developer|software|full-stack|full stack|backend|frontend|ml engineer|ai engineer|product engineer|founding engineer|solidity|smart contract|technical founder)\b/.test(text);
 }
 
 function isPlantSearch(text: string) {
+  if (inferCanonicalRoleFamily(text) === "manufacturing operations") return true;
   return /\b(plant manager|plant|factory|manufacturing|production manager|operations director|quality operations|fda|iso|medical device|pharma)\b/.test(text);
+}
+
+function inferCanonicalRoleFamily(text: string) {
+  const match = text.match(/canonical role family:\s*([a-z ]+)/i);
+  return match?.[1]?.trim() || "";
+}
+
+function isAiInfrastructureSearch(text: string) {
+  if (/canonical role title:\s*product engineer/i.test(text)) return false;
+  return /\b(ai infrastructure|ml infrastructure|machine learning infrastructure|ml platform|ai platform|platform engineer|infrastructure engineer|backend infra|backend infrastructure)\b/.test(text) ||
+    (/canonical role family:\s*engineering/i.test(text) && /\b(infrastructure|platform|backend)\b/.test(text) && /\b(ai|ml|machine learning|llm)\b/.test(text));
 }
 
 function inferLocationTerm(text: string) {
@@ -99,8 +172,14 @@ function inferDomainTerm(text: string) {
 function inferRoleTerms(text: string) {
   const explicitProductRole = /\b(pm|product manager|founding pm|head of product|product lead)\b/.test(text);
   const explicitEngineeringRole = /\b(engineer|developer|solidity|smartcontract|smart contract engineer|protocol engineer|code|coding)\b/.test(text);
+  const canonicalFamily = inferCanonicalRoleFamily(text);
 
-  if (isPlantSearch(text)) return SEARCH_TERMS.plant;
+  if (canonicalFamily === "manufacturing operations" || isPlantSearch(text)) return SEARCH_TERMS.plant;
+  if (/\bproduct\s+eng(?:ineer)?s?\b/.test(text)) return ["product engineer", "founding product engineer", "software engineer", "full-stack engineer", "AI product engineer"];
+  if (canonicalFamily === "engineering" && isAiInfrastructureSearch(text)) return SEARCH_TERMS.aiInfra;
+  if (canonicalFamily === "engineering" && /\b(infrastructure|platform|systems|backend)\b/.test(text)) return SEARCH_TERMS.backend;
+  if (canonicalFamily === "engineering") return ["software engineer", "founding engineer", "product engineer", "full-stack engineer", "ML engineer"];
+  if (canonicalFamily === "product") return SEARCH_TERMS.product;
   if (/\b(operator|ops|operations|chief of staff|founder office)\b/.test(text)) return SEARCH_TERMS.operator;
   if (/\b(gtm|sales|account executive|ae|growth|revenue)\b/.test(text)) return SEARCH_TERMS.gtm;
   if (explicitProductRole) return SEARCH_TERMS.product;

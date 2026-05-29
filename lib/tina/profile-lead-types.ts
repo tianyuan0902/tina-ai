@@ -12,6 +12,7 @@ export type ProfileLead = {
     evidenceStrength: "strong" | "medium" | "weak";
     filteredReason?: string;
   };
+  evidenceLevel?: "synthetic" | "unverified_lead" | "verified_public";
   tags: string[];
   saved: boolean;
   feedback?: "not_relevant";
@@ -32,4 +33,15 @@ export type SourcingBatchMetadata = {
   validCount: number;
   filteredCount: number;
   filteredReasons: string[];
+  searchProvider: "tavily" | "mock";
+  searchStatus: "live" | "fallback" | "partial_failure" | "failed";
+  audit?: {
+    queriesRun: string[];
+    rawResultCount: number;
+    candidateCount: number;
+    validCount: number;
+    rejectionReasons: string[];
+    tavilyFailureCount?: number;
+    tavilyErrorMessages?: string[];
+  };
 };
