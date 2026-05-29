@@ -14,6 +14,7 @@ export type TinaMvpMessage = {
   profileLeads?: ProfileLead[];
   sourcingBatch?: SourcingBatchMetadata;
   sourcingReadiness?: SourcingReadiness;
+  signalMap?: SignalMap;
 };
 
 export type TinaCandidateArchetype = {

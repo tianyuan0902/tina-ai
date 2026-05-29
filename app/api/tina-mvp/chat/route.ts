@@ -199,7 +199,8 @@ export async function POST(request: Request) {
       message: {
         id: `tina-signal-map-${Date.now()}`,
         role: "tina",
-        content: responseContent
+        content: "Signal Map is ready. I’d use this before looking at candidates.",
+        signalMap: nextSignalMap
       },
       canonicalSearchState,
       workingThesis: buildWorkingThesisWithAssistant(cleanMessages, responseContent, canonicalSearchState),

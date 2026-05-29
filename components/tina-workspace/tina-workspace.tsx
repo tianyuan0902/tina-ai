@@ -796,7 +796,7 @@ function HomeCommandCenter({
           </div>
 
           <div className="shrink-0 border-t border-[#ECE7E1] bg-[#FAF8F5] p-3">
-            <CommandInput onSubmit={sendMessage} isThinking={isThinking} hasTasteSignal={hasCandidateResults || hasFeedback} currentRead={currentRead} />
+            <CommandInput onSubmit={sendMessage} isThinking={isThinking} hasTasteSignal={hasCandidateResults || hasFeedback} currentRead={currentRead} hasSignalMap={Boolean(signalMap)} />
           </div>
         </div>
         </div>
@@ -834,15 +834,23 @@ function CommandInput({
   onSubmit,
   isThinking,
   hasTasteSignal,
-  currentRead
+  currentRead,
+  hasSignalMap
 }: {
   onSubmit: (value: string) => void;
   isThinking: boolean;
   hasTasteSignal: boolean;
   currentRead?: CurrentRead;
+  hasSignalMap?: boolean;
 }) {
   const [value, setValue] = useState("");
-  const visibleChips = actionButtonsForCurrentRead(currentRead, hasTasteSignal);
+  const visibleChips = hasSignalMap
+    ? [
+        { label: "Build scorecard", prompt: "Build a lightweight scorecard from this signal map." },
+        { label: "Create interview plan", prompt: "Create an interview plan from this signal map." },
+        { label: "Define candidate archetype", prompt: "Define the candidate archetype from this signal map." }
+      ]
+    : actionButtonsForCurrentRead(currentRead, hasTasteSignal);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -938,14 +946,68 @@ function ChatMessage({ message, signals, animate }: { message: TinaMvpMessage; s
       <TinaMark />
       <div className="min-w-0 flex-1">
         <p className="text-[13px] font-semibold">Tina</p>
-        <div className="mt-2 max-w-full overflow-visible whitespace-pre-wrap break-words text-[13px] leading-5 text-[#262626]">
-          <TypedText text={message.content} animate={animate} />
-        </div>
+        {!message.signalMap ? (
+          <div className="mt-2 max-w-full overflow-visible whitespace-pre-wrap break-words text-[13px] leading-5 text-[#262626]">
+            <TypedText text={message.content} animate={animate} />
+          </div>
+        ) : null}
+        {message.signalMap ? <SignalMapBoard signalMap={message.signalMap} /> : null}
         {message.profileLeads?.length ? <SourcingResultArtifact leads={message.profileLeads} sourcingBatch={message.sourcingBatch} /> : null}
         <InlineSignalRows signals={signals} />
       </div>
     </div>
   );
+}
+
+function SignalMapBoard({ signalMap }: { signalMap: SignalMap }) {
+  const watchOut = [...signalMap.weakSignals, ...signalMap.falsePositives];
+  const columns = [
+    { title: "Must prove", items: signalMap.mustProveSignals },
+    { title: "Watch out for", items: watchOut },
+    { title: "How to test", items: signalMap.interviewProbes }
+  ];
+
+  return (
+    <section className="mt-3 max-w-full overflow-hidden rounded-xl border border-[#E1D8CE] bg-[#FFFCF7] shadow-[0_16px_44px_rgba(23,23,23,0.055)]">
+      <div className="border-b border-[#ECE4DA] px-3.5 py-3">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8A8178]">Signal Map</p>
+        <h3 className="mt-1 text-base font-semibold leading-5 text-[#171717]">What this hire must prove</h3>
+      </div>
+
+      <div className="grid gap-2 p-3 sm:grid-cols-3">
+        {columns.map((column) => (
+          <div key={column.title} className="rounded-lg border border-[#E8DED3] bg-white p-2.5">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8A8178]">{column.title}</p>
+            <div className="mt-2 grid gap-1.5">
+              {column.items.slice(0, 3).map((item) => (
+                <div key={item} className="rounded-md bg-[#F7F3ED] px-2.5 py-2 text-xs font-medium leading-4 text-[#3F3933]">
+                  {shortSignalText(item)}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="border-t border-[#ECE4DA] bg-white/70 px-3.5 py-3">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Best fit profile</p>
+        <p className="mt-1 text-xs leading-5 text-[#4B453F]">{compactLeadText(signalMap.bestCandidateArchetype, 150)}</p>
+      </div>
+    </section>
+  );
+}
+
+function shortSignalText(value: string) {
+  const clean = value
+    .replace(/^has\s+/i, "")
+    .replace(/^can\s+/i, "")
+    .replace(/^tell me about a time you\s+/i, "")
+    .replace(/^how did you\s+/i, "")
+    .replace(/^what\s+/i, "")
+    .replace(/[?.]$/g, "")
+    .trim();
+  const words = clean.split(/\s+/).filter(Boolean);
+  return words.length > 10 ? `${words.slice(0, 10).join(" ")}...` : clean;
 }
 
 function SourcingResultArtifact({ leads, sourcingBatch }: { leads: ProfileLead[]; sourcingBatch?: SourcingBatchMetadata }) {
