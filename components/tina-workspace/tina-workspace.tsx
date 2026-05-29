@@ -726,6 +726,7 @@ function HomeCommandCenter({
         hasFeedback={hasFeedback}
         refineLabel={refineLabel}
         isClientMounted={isClientMounted}
+        messages={messages}
       />
     </div>
   );
@@ -1250,7 +1251,8 @@ function RightIntelligenceRail({
   feedbackRead,
   hasFeedback,
   refineLabel,
-  isClientMounted
+  isClientMounted,
+  messages
 }: {
   sourcingStrategy: SourcingStrategy;
   brainState: BrainState;
@@ -1265,6 +1267,7 @@ function RightIntelligenceRail({
   hasFeedback: boolean;
   refineLabel: string;
   isClientMounted: boolean;
+  messages: TinaMvpMessage[];
 }) {
   const visibleItems = isClientMounted ? prioritizeLatestProfileLeadItems(profileLeadItems, latestProfileLeadItems) : [];
 
@@ -1290,6 +1293,8 @@ function RightIntelligenceRail({
             hasFeedback={hasFeedback}
             refineLabel={refineLabel}
             isClientMounted={isClientMounted}
+            messages={messages}
+            sourcingBatch={sourcingBatch}
           />
         </div>
       </section>
@@ -1308,7 +1313,9 @@ function MarketIntelRail({
   feedbackRead,
   hasFeedback,
   refineLabel,
-  isClientMounted
+  isClientMounted,
+  messages,
+  sourcingBatch
 }: {
   brainState: BrainState;
   sourcingStrategy: SourcingStrategy;
@@ -1321,10 +1328,12 @@ function MarketIntelRail({
   hasFeedback: boolean;
   refineLabel: string;
   isClientMounted: boolean;
+  messages: TinaMvpMessage[];
+  sourcingBatch?: SourcingBatchMetadata;
 }) {
   const sortedItems = isClientMounted ? prioritizePotentialCandidateItems(items, statuses) : [];
   const latestKeys = new Set(isClientMounted ? latestItems.map((item) => item.statusKey) : []);
-  const intel = isClientMounted ? buildMarketIntelSnapshot(brainState, sourcingStrategy, sortedItems) : emptyMarketIntelSnapshot();
+  const intel = isClientMounted ? buildMarketIntelSnapshot(brainState, sourcingStrategy, sortedItems, messages) : emptyMarketIntelSnapshot();
 
   return (
     <div className="grid gap-3">
@@ -1336,7 +1345,7 @@ function MarketIntelRail({
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Profiles</p>
             <p className="mt-1 text-sm font-semibold text-[#171717]">
-              {sortedItems.length ? `${sortedItems.length} ${sortedItems.length === 1 ? "profile" : "profiles"}` : "Talent Pool pending"}
+              {sortedItems.length ? `${sortedItems.length} ${sortedItems.length === 1 ? "profile" : "profiles"}` : sourcingBatch?.filteredCount ? "No validated profiles" : "Talent Pool pending"}
             </p>
           </div>
           {hasFeedback ? (
@@ -1363,7 +1372,9 @@ function MarketIntelRail({
             />
           )) : (
             <p className="rounded-lg border border-dashed border-[#DED5CA] bg-[#FFFCF7] px-3 py-4 text-center text-xs text-[#8A8178]">
-              Profiles will appear here after Tina finds role-fit matches.
+              {sourcingBatch?.filteredCount
+                ? `Tina filtered ${sourcingBatch.filteredCount} weak or wrong-fit public results. Relax location, title, seniority, or exact industry to test second-best archetypes.`
+                : "Profiles will appear here after Tina finds role-fit matches."}
             </p>
           )}
         </div>
@@ -1556,9 +1567,11 @@ function emptyMarketIntelSnapshot(): MarketIntelSnapshot {
 function buildMarketIntelSnapshot(
   brainState: BrainState,
   sourcingStrategy: SourcingStrategy,
-  items: ProfileLeadItem[]
+  items: ProfileLeadItem[],
+  messages: TinaMvpMessage[] = []
 ): MarketIntelSnapshot {
   const leads = items.map((item) => item.lead);
+  const conversationText = messages.map((message) => message.content).join(" ").toLowerCase();
   const hasMarketSignal = leads.length > 0 || brainState.sourcingReadiness !== "not_ready" || brainState.readinessScore > 20;
 
   if (!hasMarketSignal) {
@@ -1571,12 +1584,12 @@ function buildMarketIntelSnapshot(
     ...brainState.seekSignals,
     ...sourcingStrategy.seek
   ]).slice(0, 3);
-  const poolSize = inferPoolSize(brainState, leads, sourcingStrategy);
-  const locationMix = buildLocationMix(leads);
+  const poolSize = inferPoolSize(brainState, leads, sourcingStrategy, conversationText);
+  const locationMix = buildLocationMix(leads, conversationText);
   const seniorityMix = buildSeniorityMix(leads, sourcingStrategy);
-  const compRange = inferMarketCompRange(leads, sourcingStrategy);
-  const timeToFill = inferTimeToFill(poolSize, seniorityMix, brainState);
-  const dataLabel = leads.length >= 3 ? "Directional" : leads.length ? "Early read" : "Pending";
+  const compRange = inferMarketCompRange(leads, sourcingStrategy, conversationText);
+  const timeToFill = inferTimeToFill(poolSize, seniorityMix, brainState, conversationText);
+  const dataLabel = leads.length >= 3 ? "Directional" : leads.length || locationMix.length ? "Early read" : "Pending";
 
   return {
     scopeTitle,
@@ -1588,7 +1601,7 @@ function buildMarketIntelSnapshot(
     seniorityMix,
     compRange,
     timeToFill,
-    founderTakeaway: buildFounderTakeaway(poolSize, locationMix, seniorityMix, compRange, timeToFill, leads)
+    founderTakeaway: buildFounderTakeaway(poolSize, locationMix, seniorityMix, compRange, timeToFill, leads, conversationText)
   };
 }
 
@@ -1608,11 +1621,11 @@ function inferScopeDrift(sourcingStrategy: SourcingStrategy) {
   return `${first} > ${second}`;
 }
 
-function inferPoolSize(brainState: BrainState, leads: ProfileLead[], sourcingStrategy: SourcingStrategy): MarketIntelSnapshot["poolSize"] {
+function inferPoolSize(brainState: BrainState, leads: ProfileLead[], sourcingStrategy: SourcingStrategy, conversationText = ""): MarketIntelSnapshot["poolSize"] {
   if (!leads.length && brainState.sourcingReadiness === "not_ready") return "Forming";
-  const text = `${brainState.roleThesis} ${sourcingStrategy.searchThesis} ${sourcingStrategy.mustHaveSignals.join(" ")} ${sourcingStrategy.queryTerms.join(" ")}`.toLowerCase();
+  const text = `${conversationText} ${brainState.roleThesis} ${sourcingStrategy.searchThesis} ${sourcingStrategy.mustHaveSignals.join(" ")} ${sourcingStrategy.queryTerms.join(" ")}`.toLowerCase();
   const narrowSignals = [
-    /\bfounding|principal|staff|solidity|smart contract|nlp|security|compliance|fintech\b/.test(text),
+    /\bfounding|principal|staff|solidity|smart contract|nlp|security|compliance|fintech|peoria|healthcare|medical device|pharma|regulated|fda|local\b/.test(text),
     brainState.missingSignals.length >= 2,
     leads.length > 0 && leads.length < 5
   ].filter(Boolean).length;
@@ -1621,10 +1634,22 @@ function inferPoolSize(brainState: BrainState, leads: ProfileLead[], sourcingStr
   return leads.length || brainState.readinessScore > 55 ? "Moderate" : "Forming";
 }
 
-function buildLocationMix(leads: ProfileLead[]): MarketSegment[] {
+function buildLocationMix(leads: ProfileLead[], conversationText = ""): MarketSegment[] {
+  const explicitLocation = inferConversationLocation(conversationText);
+  if (explicitLocation) return [{ label: explicitLocation, value: 100, color: "#178A52" }];
   if (leads.length < 3) return [];
   const buckets = leads.map((lead) => inferLocationBucket(lead)).filter(Boolean);
   return valuesToSegments(buckets, ["#178A52", "#7D6BF2", "#D58B39"]).slice(0, 3);
+}
+
+function inferConversationLocation(text: string) {
+  if (/\bpeoria\b/.test(text)) return "Peoria, IL";
+  if (/\bsf|san francisco|bay area\b/.test(text)) return "SF";
+  if (/\bnyc|new york\b/.test(text)) return "NYC";
+  if (/\bchicago\b/.test(text)) return "Chicago";
+  if (/\bindianapolis\b/.test(text)) return "Indianapolis";
+  if (/\bremote\b/.test(text) && !/\b(don't want remote|dont want remote|not remote|no remote|strictly local)\b/.test(text)) return "Remote";
+  return "";
 }
 
 function inferLocationBucket(lead: ProfileLead) {
@@ -1677,7 +1702,8 @@ function valuesToSegments(values: string[], colors: string[]): MarketSegment[] {
     }));
 }
 
-function inferMarketCompRange(leads: ProfileLead[], sourcingStrategy: SourcingStrategy) {
+function inferMarketCompRange(leads: ProfileLead[], sourcingStrategy: SourcingStrategy, conversationText = "") {
+  if (/\b(market comp is fine|comp is fine|budget is fine|pay market|competitive comp|can pay market)\b/.test(conversationText)) return "Market comp OK";
   const leadComp = leads.map((lead) => lead.calibration?.compRange).find(Boolean);
   if (leadComp) return `${leadComp} · Directional`;
   const text = `${sourcingStrategy.searchThesis} ${sourcingStrategy.targetTitles.join(" ")}`.toLowerCase();
@@ -1686,9 +1712,10 @@ function inferMarketCompRange(leads: ProfileLead[], sourcingStrategy: SourcingSt
   return "Comp: pending";
 }
 
-function inferTimeToFill(poolSize: MarketIntelSnapshot["poolSize"], seniorityMix: MarketSegment[], brainState: BrainState) {
+function inferTimeToFill(poolSize: MarketIntelSnapshot["poolSize"], seniorityMix: MarketSegment[], brainState: BrainState, conversationText = "") {
   const seniorHeavy = seniorityMix.some((segment) => /founding|principal|exec/i.test(segment.label) && segment.value >= 25);
   if (poolSize === "Forming" || brainState.sourcingReadiness === "not_ready") return "TTF forming";
+  if (/\b(asap|urgent|rapid|quick|fast|immediately)\b/.test(conversationText)) return "ASAP search · Directional";
   if (poolSize === "Narrow" || seniorHeavy) return "10-16 wks · Directional";
   if (poolSize === "Moderate") return "8-12 wks · Directional";
   return "6-10 wks · Directional";
@@ -1700,8 +1727,11 @@ function buildFounderTakeaway(
   seniorityMix: MarketSegment[],
   compRange: string,
   timeToFill: string,
-  leads: ProfileLead[]
+  leads: ProfileLead[],
+  conversationText = ""
 ) {
+  if (/\bpeoria\b/.test(conversationText)) return "Peoria is a narrow local market; nearby hubs or relocation will likely matter.";
+  if (!leads.length && locationMix.length) return `${locationMix[0].label} is the stated search market; profile evidence is still pending.`;
   if (!leads.length) return "Market Intel is pending until Tina has enough role signal or public profiles.";
   if (!locationMix.length || !seniorityMix.length) return "Market mix is still forming; this batch is useful for calibration, not market conclusions.";
   const topLocations = locationMix.slice(0, 2).map((segment) => segment.label).join(" + ");

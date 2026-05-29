@@ -270,7 +270,11 @@ function buildProfileSearchResponse(message: string, metadata: SourcingBatchMeta
 
   if (validCount === 0) {
     const reason = filteredCount ? ` I filtered out ${filteredCount} false positives because ${filteredReason}.` : "";
-    return `I found some public results, but most did not pass role-fit validation.${reason} Better to tighten the lane than recycle weak matches.`;
+    return [
+      `I found public results, but none passed role-fit validation.${reason}`,
+      `The exact lane is too tight for this pass, so I’d test second-best archetypes instead: local adjacent operators, same-industry leaders in nearby hubs, or one-level-up/down titles with the right operating proof.`,
+      `Which tradeoff should I relax first: location, title, seniority, or exact industry?`
+    ].join(" ");
   }
 
   const qualityNote = validCount < requestedCount
@@ -589,9 +593,10 @@ function isPublicProfileSearchRequest(message: string) {
     /\b(so i can|myself|on my own)\b/.test(text);
   const explicitProfileSearch =
     /\b(show|send|source|sourcing|look up|pull)\b.*\b(profiles?|people|candidates?|leads?|prospects?|targets?|linkedin|github)\b/.test(text) ||
+    /\b(give me|get me)\b.*\b(profiles?|people|candidates?|leads?|prospects?|targets?|linkedin|github)\b/.test(text) ||
     /\b(find|look for)\b.*\b(profiles?|linkedin profiles?|github profiles?|public profiles?|people to review|people like this|candidates?|outreach targets|prospects?|leads?)\b/.test(text) ||
     /\b(build|make|create)\b.*\b(list|candidate list|people list|profile list|talent pool)\b/.test(text) ||
-    /\b(show me candidates|show candidates|who should we reach out to|who should i reach out to|source candidates|source people|find candidates|find people|find linkedin profiles|show linkedin profiles|public profile leads)\b/.test(text);
+    /\b(show me candidates|show candidates|give me candidates|get me candidates|who should we reach out to|who should i reach out to|source candidates|source people|find candidates|find people|find linkedin profiles|show linkedin profiles|public profile leads)\b/.test(text);
 
   return explicitProfileSearch && !asksForApproach && !asksForSearchHelpOnly;
 }
