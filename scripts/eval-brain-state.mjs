@@ -4,6 +4,7 @@ import { evaluateSourcingReadiness } from "../.tmp/eval-brain-state/lib/tina/sou
 import { buildExpandedPublicTalentSearchQueries, buildPublicTalentSearchQueries } from "../.tmp/eval-brain-state/lib/tina/search-query-builder.js";
 import { actionButtonsForCurrentRead, buildCurrentRead, buildCurrentReadResponseSketch, currentReadTitle } from "../.tmp/eval-brain-state/lib/tina-mvp/current-read.js";
 import { buildFounderModel, buildFounderModelResponseSketch } from "../.tmp/eval-brain-state/lib/tina-mvp/founder-model.js";
+import { buildHiringArtifact } from "../.tmp/eval-brain-state/lib/tina-mvp/hiring-artifacts.js";
 import { buildSignalMap } from "../.tmp/eval-brain-state/lib/tina-mvp/signal-map.js";
 import { buildWorkingThesis, buildWorkingThesisResponseSketch, formatWorkingThesisForPrompt } from "../.tmp/eval-brain-state/lib/tina-mvp/working-thesis.js";
 import { TINA_SYSTEM_PROMPT } from "../.tmp/eval-brain-state/lib/tina-mvp/system-prompt.js";
@@ -368,6 +369,43 @@ expectEqual(productSignalMap.derivedFromThesisTitle, "Senior Ownership Gap", "PM
 expectIncludes(productSignalMap.mustProveSignals, /founder direction|judgment calls|founder dependency/i, "PM progression signal map should focus on ownership evidence");
 expectNotIncludes(productSignalMap.mustProveSignals, /generic Head of Engineering|large team/i, "PM progression signal map should not use unrelated generic criteria");
 console.log("PASS signal map thesis-specific criteria");
+
+const artifactScenarios = [
+  { name: "VP Sales", signalMap: buildSignalMap(buildCurrentRead({ messages: currentReadScenarios[0].messages })), expected: /sales motion|founder|repeatable|customer/i },
+  { name: "Head of Eng", signalMap: engineeringSignalMap, expected: /decision|rhythm|leadership|founder/i },
+  { name: "More Senior", signalMap: buildSignalMap(buildCurrentRead({ messages: currentReadScenarios[2].messages })), expected: /ownership|founder|judgment|decision/i },
+  { name: "Generalist", signalMap: buildSignalMap(buildCurrentRead({ messages: currentReadScenarios[3].messages })), expected: /primary lane|generalist|compressed|clarity/i },
+  { name: "Hire Fast", signalMap: buildSignalMap(buildCurrentRead({ messages: currentReadScenarios[4].messages })), expected: /stabilize|coverage|urgent|30/i }
+];
+
+for (const scenario of artifactScenarios) {
+  const scorecard = buildHiringArtifact(scenario.signalMap, "scorecard");
+  const interviewPlan = buildHiringArtifact(scenario.signalMap, "interview_plan");
+  const archetype = buildHiringArtifact(scenario.signalMap, "candidate_archetype");
+  expectEqual(scorecard.derivedFromThesisTitle, scenario.signalMap.derivedFromThesisTitle, `${scenario.name} scorecard should derive from signal map`);
+  expectAtMost(scorecard.rows.length, 5, `${scenario.name} scorecard should stay compact`);
+  expectAtMost(interviewPlan.stages.length, 4, `${scenario.name} interview plan should stay compact`);
+  expectEqual(archetype.items.length, 5, `${scenario.name} candidate archetype should have five bullets`);
+  expectIncludes(
+    [
+      ...scorecard.rows.flatMap((row) => [row.competency, row.signal, row.strongEvidence, row.redFlag, row.ratingScale]),
+      ...interviewPlan.stages.flatMap((stage) => [stage.stage, stage.tests, stage.prompt, stage.evidence, stage.interviewer]),
+      ...archetype.items.flatMap((item) => [item.label, item.value])
+    ],
+    scenario.expected,
+    `${scenario.name} artifacts should stay thesis-specific`
+  );
+  expectNotIncludes(
+    [
+      ...scorecard.rows.flatMap((row) => [row.signal, row.strongEvidence, row.redFlag]),
+      ...interviewPlan.stages.flatMap((stage) => [stage.tests, stage.prompt, stage.evidence]),
+      ...archetype.items.map((item) => item.value)
+    ],
+    /\.\.\.|Searching public profiles|Talent Pool|Market Reality/i,
+    `${scenario.name} artifacts should avoid truncation and sourcing language`
+  );
+}
+console.log("PASS hiring artifacts derive from signal map");
 
 const canonicalCases = [
   {

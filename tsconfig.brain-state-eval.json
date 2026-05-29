@@ -18,6 +18,7 @@
     "lib/tina/profile-lead-types.ts",
     "lib/tina-mvp/founder-model.ts",
     "lib/tina-mvp/current-read.ts",
+    "lib/tina-mvp/hiring-artifacts.ts",
     "lib/tina-mvp/signal-map.ts",
     "lib/tina-mvp/working-thesis.ts",
     "lib/tina-mvp/system-prompt.ts",

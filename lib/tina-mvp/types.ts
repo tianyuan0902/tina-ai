@@ -2,6 +2,7 @@ import type { ProfileLead, SourcingBatchMetadata } from "@/lib/tina/profile-lead
 import type { CanonicalSearchState } from "@/lib/brain/canonicalSearchState";
 import type { SourcingReadiness } from "@/lib/tina/sourcing-readiness";
 import type { CurrentRead } from "@/lib/tina-mvp/current-read";
+import type { HiringArtifact } from "@/lib/tina-mvp/hiring-artifacts";
 import type { WorkingThesis } from "@/lib/tina-mvp/working-thesis";
 import type { SignalMap } from "@/lib/tina-mvp/signal-map";
 
@@ -15,6 +16,7 @@ export type TinaMvpMessage = {
   sourcingBatch?: SourcingBatchMetadata;
   sourcingReadiness?: SourcingReadiness;
   signalMap?: SignalMap;
+  hiringArtifact?: HiringArtifact;
 };
 
 export type TinaCandidateArchetype = {
@@ -36,6 +38,7 @@ export type TinaChatApiResponse = {
   workingThesis?: WorkingThesis;
   currentRead?: CurrentRead;
   signalMap?: SignalMap;
+  hiringArtifact?: HiringArtifact;
   profileLeads?: ProfileLead[];
   marketIntel?: unknown;
   source: "openai" | "local_scope_guard" | "local_profile_feedback" | "local_conversation_move" | "local_fallback" | "public_search" | "sourcing_readiness";

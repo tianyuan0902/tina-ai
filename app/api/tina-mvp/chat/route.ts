@@ -7,6 +7,7 @@ import { getRequestedProfileCount, searchPublicProfileBatch } from "@/lib/tina/p
 import { evaluateSourcingReadiness } from "@/lib/tina/sourcing-readiness";
 import { buildCurrentRead, formatCurrentReadForPrompt, type CurrentRead } from "@/lib/tina-mvp/current-read";
 import { buildFounderModel, formatFounderModelForPrompt } from "@/lib/tina-mvp/founder-model";
+import { buildHiringArtifact, formatHiringArtifactForPrompt, inferHiringArtifactKind } from "@/lib/tina-mvp/hiring-artifacts";
 import { buildSignalMap, buildSignalMapResponse, formatSignalMapForPrompt, type SignalMap } from "@/lib/tina-mvp/signal-map";
 import { TINA_SYSTEM_PROMPT } from "@/lib/tina-mvp/system-prompt";
 import { buildWorkingThesis, buildWorkingThesisWithAssistant, formatWorkingThesisForPrompt, type WorkingThesis } from "@/lib/tina-mvp/working-thesis";
@@ -59,6 +60,7 @@ export async function POST(request: Request) {
     ? requestSignalMap
     : undefined;
   const signalMapText = formatSignalMapForPrompt(signalMap);
+  const requestedHiringArtifactKind = latestUserMessage ? inferHiringArtifactKind(latestUserMessage.content) : undefined;
 
   if (!cleanMessages.length || !latestUserMessage) {
     return NextResponse.json({ error: "No founder message was provided." }, { status: 400 });
@@ -98,6 +100,33 @@ export async function POST(request: Request) {
       currentRead,
       signalMap,
       source: "local_profile_feedback"
+    });
+  }
+
+  if (!shouldRunProfileSearch && requestedHiringArtifactKind) {
+    const nextSignalMap = signalMap || buildSignalMap(currentRead, canonicalSearchState);
+    const hiringArtifact = buildHiringArtifact(nextSignalMap, requestedHiringArtifactKind);
+    const responseContent = [
+      signalMap ? "" : buildSignalMapResponse(nextSignalMap),
+      formatHiringArtifactForPrompt(hiringArtifact)
+    ].filter(Boolean).join("\n\n");
+
+    return NextResponse.json({
+      message: {
+        id: `tina-hiring-artifact-${Date.now()}`,
+        role: "tina",
+        content: signalMap
+          ? `${hiringArtifact.title} is ready. I’m deriving this from the Signal Map, not the title alone.`
+          : `Signal Map and ${hiringArtifact.title} are ready. I’m deriving this from the thesis, not the title alone.`,
+        signalMap: signalMap ? undefined : nextSignalMap,
+        hiringArtifact
+      },
+      canonicalSearchState,
+      workingThesis: buildWorkingThesisWithAssistant(cleanMessages, responseContent, canonicalSearchState),
+      currentRead,
+      signalMap: nextSignalMap,
+      hiringArtifact,
+      source: "local_conversation_move"
     });
   }
 

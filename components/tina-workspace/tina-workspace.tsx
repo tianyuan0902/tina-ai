@@ -21,6 +21,7 @@ import type { BrainState } from "@/lib/brain/types";
 import type { ProfileLead, SourcingBatchMetadata } from "@/lib/tina/profile-lead-types";
 import { evaluateSourcingReadiness, type SourcingReadiness } from "@/lib/tina/sourcing-readiness";
 import { actionButtonsForCurrentRead, type CurrentRead, type CurrentReadArchetype } from "@/lib/tina-mvp/current-read";
+import type { HiringArtifact } from "@/lib/tina-mvp/hiring-artifacts";
 import type { SignalMap } from "@/lib/tina-mvp/signal-map";
 import type { TinaChatApiResponse, TinaMvpMessage } from "@/lib/tina-mvp/types";
 import type { WorkingThesis } from "@/lib/tina-mvp/working-thesis";
@@ -953,6 +954,7 @@ function ChatMessage({ message, signals, animate }: { message: TinaMvpMessage; s
           </div>
         ) : null}
         {message.signalMap ? <SignalMapBoard signalMap={message.signalMap} /> : null}
+        {message.hiringArtifact ? <HiringArtifactBoard artifact={message.hiringArtifact} /> : null}
         {message.profileLeads?.length ? <SourcingResultArtifact leads={message.profileLeads} sourcingBatch={message.sourcingBatch} /> : null}
         <InlineSignalRows signals={signals} />
       </div>
@@ -1093,6 +1095,86 @@ function shortProfileSentence(value: string) {
   const sentence = compactLeadText(value, 110).split(/[.!?]/)[0]?.trim() || value.trim();
   if (sentence.length <= 110) return sentence;
   return keywordSignalLabel(sentence);
+}
+
+function HiringArtifactBoard({ artifact }: { artifact: HiringArtifact }) {
+  if (artifact.kind === "scorecard") {
+    return (
+      <section className="mt-3 max-w-full overflow-hidden rounded-2xl border border-[#E4DCD1] bg-[#FFFCF7] shadow-[0_18px_50px_rgba(23,23,23,0.05)]">
+        <ArtifactHeader title="Scorecard" subline="Use this to judge the real signal." />
+        <div className="grid gap-2.5 p-4 pt-2">
+          {artifact.rows.slice(0, 5).map((row) => (
+            <div key={row.competency} className="rounded-xl border border-[#E8DED3] bg-white/80 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-[#171717]">{row.competency}</p>
+                <span className="rounded-full bg-[#F1ECE4] px-2.5 py-1 text-[10px] font-semibold text-[#6B6259]">{row.ratingScale}</span>
+              </div>
+              <div className="mt-2 grid gap-2 text-xs leading-5 text-[#4B453F] md:grid-cols-3">
+                <ArtifactField label="Signal" value={row.signal} />
+                <ArtifactField label="Strong evidence" value={row.strongEvidence} />
+                <ArtifactField label="Red flag" value={row.redFlag} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  if (artifact.kind === "interview_plan") {
+    return (
+      <section className="mt-3 max-w-full overflow-hidden rounded-2xl border border-[#E4DCD1] bg-[#FFFCF7] shadow-[0_18px_50px_rgba(23,23,23,0.05)]">
+        <ArtifactHeader title="Interview Plan" subline="A tight loop for the thesis." />
+        <div className="grid gap-2.5 p-4 pt-2">
+          {artifact.stages.slice(0, 4).map((stage) => (
+            <div key={stage.stage} className="rounded-xl border border-[#E8DED3] bg-white/80 p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-semibold text-[#171717]">{stage.stage}</p>
+                <span className="rounded-full bg-[#EEF7F1] px-2.5 py-1 text-[10px] font-semibold text-[#257647]">{stage.interviewer}</span>
+              </div>
+              <div className="mt-2 grid gap-2 text-xs leading-5 text-[#4B453F] md:grid-cols-3">
+                <ArtifactField label="Tests" value={stage.tests} />
+                <ArtifactField label="Ask" value={stage.prompt} />
+                <ArtifactField label="Capture" value={stage.evidence} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="mt-3 max-w-full overflow-hidden rounded-2xl border border-[#E4DCD1] bg-[#FFFCF7] shadow-[0_18px_50px_rgba(23,23,23,0.05)]">
+      <ArtifactHeader title="Candidate Archetype" subline="The profile most likely to carry this problem." />
+      <div className="grid gap-2.5 p-4 pt-2 sm:grid-cols-2">
+        {artifact.items.slice(0, 5).map((item) => (
+          <div key={item.label} className="rounded-xl border border-[#E8DED3] bg-white/80 p-3">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8A8178]">{item.label}</p>
+            <p className="mt-1 text-xs font-medium leading-5 text-[#2F2A25]">{item.value}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ArtifactHeader({ title, subline }: { title: string; subline: string }) {
+  return (
+    <div className="px-4 pb-2 pt-4">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8A8178]">{title}</p>
+      <h3 className="mt-1 text-sm font-semibold leading-5 text-[#171717]">{subline}</h3>
+    </div>
+  );
+}
+
+function ArtifactField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-[#F8F4EE] px-3 py-2">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8A8178]">{label}</p>
+      <p className="mt-1 font-medium text-[#2F2A25]">{value}</p>
+    </div>
+  );
 }
 
 function SourcingResultArtifact({ leads, sourcingBatch }: { leads: ProfileLead[]; sourcingBatch?: SourcingBatchMetadata }) {
