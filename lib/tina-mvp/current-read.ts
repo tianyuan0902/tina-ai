@@ -289,6 +289,7 @@ function inferCurrentReadMode(
   meaningfulSignals: number,
   state?: CanonicalSearchState
 ): CurrentReadMode {
+  if (isPlanningArtifactRequest(latestText)) return "execution";
   if (/\b(source|pull|find|show|get|build).*\b(profiles?|candidates?|people|leads?|list)\b/i.test(latestText)) return "sourcing";
   if (state?.candidateProfiles?.length) return "sourcing";
   if (/\b(scorecard|search lane|search plan|pull|source|candidates?|profiles?|ready|execute|go ahead)\b/i.test(text)) return "execution";
@@ -296,6 +297,10 @@ function inferCurrentReadMode(
   if (meaningfulSignals >= 3) return "calibration";
   if (meaningfulSignals >= 2) return "thesis";
   return "discovery";
+}
+
+function isPlanningArtifactRequest(text: string) {
+  return /\b(hiring thesis|must[-\s]?have signals?|signal map|scorecard|candidate archetype|interview plan|criteria|rubric|role shape|tradeoffs?)\b/i.test(text);
 }
 
 function inferArchetype(text: string, roleFamily: string): CurrentReadArchetype {

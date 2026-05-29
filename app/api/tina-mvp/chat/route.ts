@@ -62,7 +62,8 @@ export async function POST(request: Request) {
   const shouldRunPromisedSourcing = isSourcingConfirmationRequest(cleanMessages);
   const shouldRunAdjacentLane = isAdjacentLaneConfirmationRequest(cleanMessages);
   const shouldContinueSourcing = isSourcingContinuationRequest(cleanMessages);
-  const shouldRunProfileSearch = isPublicProfileSearchRequest(latestUserMessage.content) || shouldRunPromisedSourcing || shouldRunAdjacentLane || shouldContinueSourcing;
+  const planningArtifactRequest = isPlanningArtifactRequest(latestUserMessage.content);
+  const shouldRunProfileSearch = !planningArtifactRequest && (isPublicProfileSearchRequest(latestUserMessage.content) || shouldRunPromisedSourcing || shouldRunAdjacentLane || shouldContinueSourcing);
 
   if (!shouldRunProfileSearch && isClearlyOffTopic(latestUserMessage.content)) {
     return NextResponse.json({
@@ -287,7 +288,7 @@ export async function POST(request: Request) {
   const instructions = [
     TINA_SYSTEM_PROMPT,
     "If the founder gives company or product context, treat it as hiring calibration input. Infer what kinds of candidates may fit the company, product surface, customer environment, and operating stage. Do not ask why the company context matters.",
-    "For normal chat, keep the answer compact, complete, and human. Sound like you are thinking with the founder in real time. Use contractions. Avoid stiff phrases like 'there are three key dimensions' or 'the optimal approach'. Tina is a Hiring Decision Engine: first diagnose the business problem, organizational context, and whether hiring is actually the right intervention. Your goal is to help the founder think; the task is secondary. Every response needs at least one observation the founder is unlikely to have articulated themselves. Do not merely summarize. On every follow-up, interpret the founder's latest answer before moving the workflow forward: what did it reveal, what ambiguity remains, what tradeoff was exposed, and what assumption surfaced? Once a meaningful signal has been extracted, do not keep rephrasing it; update the working hypothesis and produce a new observation. If the founder names a role but has not asked for candidates yet, do not jump to sourcing or intake fields. Ask one earned diagnostic question such as what changed, what is breaking, who owns the work now, or what fails if nobody is hired. If the founder gives enough signal for useful guidance, make the recommendation instead of asking more questions. Once the current read is high-confidence or in execution mode, stop asking broad questions and produce a compact role thesis, lightweight scorecard, and interview plan. If the founder explicitly asks for candidates, profiles, people, top schools, top companies, SF, fintech, AI infra, PM, or Product Eng, treat it as sourcing work, but do not blindly fill the req when the founder has just exposed a major unresolved tradeoff. Agreement is not permission to switch into process before the thesis is stable; once stable, agreement should advance into role thesis, scorecard, interview plan, search lane, or candidate strategy. Use 'I have enough for a first pass,' 'I’ll make a working assumption,' and 'I’ll filter hard' only when the tradeoff is clear enough. Do not say 'How is this relevant?', 'I’m missing role outcome', 'must-have signals are required', 'please provide', 'source lanes', 'calibration status', or 'canonical state'. Avoid 'Sounds like you need', 'The practical implication is', and 'This implies'. Do not ask location, level, compensation, company lanes, or must-have skills unless the answer materially changes the recommendation. Do not say you are pulling, sharing, or preparing a candidate list later unless actual profile leads are included in this response.",
+    "For normal chat, keep the answer compact, complete, and human. Sound like you are thinking with the founder in real time. Use contractions. Avoid stiff phrases like 'there are three key dimensions' or 'the optimal approach'. Tina is a Hiring Decision Engine: first diagnose the business problem, organizational context, and whether hiring is actually the right intervention. Your goal is to help the founder think; the task is secondary. Every response needs at least one observation the founder is unlikely to have articulated themselves. Do not merely summarize. On every follow-up, interpret the founder's latest answer before moving the workflow forward: what did it reveal, what ambiguity remains, what tradeoff was exposed, and what assumption surfaced? Once a meaningful signal has been extracted, do not keep rephrasing it; update the working hypothesis and produce a new observation. If the founder names a role but has not asked for candidates yet, do not jump to sourcing or intake fields. Ask one earned diagnostic question such as what changed, what is breaking, who owns the work now, or what fails if nobody is hired. If the founder gives enough signal for useful guidance, make the recommendation instead of asking more questions. Once the current read is high-confidence or in execution mode, stop asking broad questions and produce the requested planning artifact directly: hiring thesis, must-have signals, signal map, scorecard, candidate archetype, interview plan, criteria, rubric, role shape, or tradeoffs. Those artifact requests are not sourcing requests. If the founder explicitly asks for candidates, profiles, people, top schools, top companies, SF, fintech, AI infra, PM, or Product Eng, treat it as sourcing work, but do not blindly fill the req when the founder has just exposed a major unresolved tradeoff. Agreement is not permission to switch into process before the thesis is stable; once stable, agreement should advance into role thesis, scorecard, interview plan, search lane, or candidate strategy. Use 'I have enough for a first pass,' 'I’ll make a working assumption,' and 'I’ll filter hard' only when the tradeoff is clear enough. Do not say 'How is this relevant?', 'I’m missing role outcome', 'must-have signals are required', 'please provide', 'source lanes', 'calibration status', or 'canonical state'. Avoid 'Sounds like you need', 'The practical implication is', and 'This implies'. Do not ask location, level, compensation, company lanes, or must-have skills unless the answer materially changes the recommendation. Do not say you are pulling, sharing, or preparing a candidate list later unless actual profile leads are included in this response.",
     adaptiveModeInstruction,
     founderModelText,
     workingThesisText,
@@ -395,7 +396,7 @@ export async function POST(request: Request) {
 
   const advisorText = enforceAdvisorTone(text, canonicalSearchState);
 
-  if (isAssistantPromisingProfileList(advisorText)) {
+  if (!planningArtifactRequest && isAssistantPromisingProfileList(advisorText)) {
     const readiness = evaluateSourcingReadiness(cleanMessages);
 
     if (readiness.readinessStatus !== "needs_calibration") {
@@ -491,6 +492,7 @@ function buildAdaptiveModeInstruction(latestUserMessage: string, messages: TinaM
 function inferAdaptiveMode(latestUserMessage: string, messages: TinaMvpMessage[]) {
   const text = latestUserMessage.toLowerCase();
   if (isOverbroadFounderAnswer(latestUserMessage)) return "calibration";
+  if (isPlanningArtifactRequest(latestUserMessage)) return "execution";
   if (isPublicProfileSearchRequest(latestUserMessage) || /\b(show|pull|source|find|get|build)\b.*\b(profiles?|candidates?|people|leads?|list)\b/i.test(latestUserMessage)) return "sourcing";
   if (/\b(best|world[-\s]?class|elite|top[-\s]?tier|10x|rockstar)\b/i.test(latestUserMessage)) return "subjective_quality";
   if (/\b(market|feasible|realistic|comp|compensation|salary|equity|timeline|time to fill|pool|supply|hard to find|rare|one of the best)\b/i.test(latestUserMessage)) return "market_reality";
@@ -512,6 +514,11 @@ function hasDomainOrCompanySignal(text: string) {
 
 function hasGeographySignal(text: string) {
   return /\b(us|u\.s\.|usa|united states|remote|sf|san francisco|bay area|new york|nyc|chicago|peoria|austin|seattle|london)\b/.test(text);
+}
+
+function isPlanningArtifactRequest(message: string) {
+  const text = message.toLowerCase();
+  return /\b(hiring thesis|must[-\s]?have signals?|signal map|scorecard|candidate archetype|interview plan|criteria|rubric|role shape|tradeoffs?)\b/.test(text);
 }
 
 function shouldUseRequestCanonicalState(
@@ -1341,6 +1348,7 @@ function isClearlyOffTopic(message: string) {
 
 function isPublicProfileSearchRequest(message: string) {
   if (isProfileSearchFeedback(message)) return false;
+  if (isPlanningArtifactRequest(message)) return false;
 
   const text = message.toLowerCase();
   if (isSourcingRefinementRequest(message)) return true;

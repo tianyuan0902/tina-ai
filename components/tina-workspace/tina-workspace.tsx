@@ -1138,6 +1138,7 @@ function isClarificationQuestion(value: string) {
 }
 
 function isMarketRealityRequest(value: string) {
+  if (isPlanningArtifactRequest(value)) return false;
   return /\b(market|market reality|comp|compensation|salary|equity|location|geo|geography|talent pool|time[-\s]?to[-\s]?fill|ttf|candidate|candidates|profile|profiles|people|lead|leads|sourcing|source|source against this thesis|build search lanes|search lanes|find people|pull)\b/i.test(value);
 }
 
@@ -2330,10 +2331,15 @@ function candidateEvidenceLabel(lead: ProfileLead) {
 
 function actionProgressText(content: string) {
   const text = content.toLowerCase();
+  if (isPlanningArtifactRequest(content)) return "Building the requested artifact...";
   if (/\b(refine|more like|talent pool feedback)\b/.test(text)) return "Refining Talent Pool from feedback...";
   if (/\b(source|candidate|profile|people|pull|find)\b/.test(text)) return "Searching public profiles...";
   if (/\b(lane|market|where should|strategy)\b/.test(text)) return "Building search lanes...";
   return "Updating Market Reality...";
+}
+
+function isPlanningArtifactRequest(value: string) {
+  return /\b(hiring thesis|must[-\s]?have signals?|signal map|scorecard|candidate archetype|interview plan|criteria|rubric|role shape|tradeoffs?)\b/i.test(value);
 }
 
 function initialsForName(name: string) {
