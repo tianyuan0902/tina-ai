@@ -97,7 +97,7 @@ export function buildCanonicalSearchState(input: {
 }
 
 function hasExplicitRoleSignal(value: string) {
-  return classifyRoleFamily(value) !== "other" || /\b(plant manager|software engineer|infrastructure engineer|smart contract engineer|solidity engineer|product eng|product engineer|product manager|founding pm|founding engineer|designer|account executive|recruiter|finance|legal)\b/i.test(value);
+  return classifyRoleFamily(value) !== "other" || /\b(head of eng|head of engineering|vp engineering|vp of engineering|engineering manager|eng manager|engineering leadership|engineering leader|director of engineering|engineering director|plant manager|software engineer|infrastructure engineer|smart contract engineer|solidity engineer|product eng|product engineer|product manager|founding pm|founding engineer|designer|account executive|recruiter|finance|legal)\b/i.test(value);
 }
 
 export function formatCanonicalSearchStateForPrompt(state: CanonicalSearchState) {
@@ -123,6 +123,7 @@ export function formatCanonicalSearchStateForPrompt(state: CanonicalSearchState)
 function classifyRoleFamily(value: string): CanonicalRoleFamily {
   const text = value.toLowerCase();
   if (/\b(plant manager|plant|factory|manufacturing|production manager|quality operations|fda|iso|medical device|pharma|regulated manufacturing)\b/.test(text)) return "manufacturing operations";
+  if (isEngineeringLeadershipText(text)) return "engineering";
   if (/\b(engineer|eng\b|software|developer|backend|frontend|full[-\s]?stack|infrastructure|platform|devops|sre|ml engineer|ai engineer|product eng|founding engineer)\b/.test(text)) return "engineering";
   if (/\b(product manager|founding pm|pm\b|head of product|product lead|product operator)\b/.test(text)) return "product";
   if (/\b(designer|design|ux|ui)\b/.test(text)) return "design";
@@ -163,6 +164,7 @@ function inferCanonicalRoleTitle(founderText: string, latestFounder: string, fam
   const text = `${latestFounder} ${founderText}`;
   const explicitTitle = inferExplicitRoleTitle(text);
   if (explicitTitle) return explicitTitle;
+  if (family === "engineering" && isEngineeringLeadershipText(text)) return "Engineering Leadership";
 
   const fallback: Record<CanonicalRoleFamily, string> = {
     engineering: "Software Engineer",
@@ -183,6 +185,11 @@ function inferCanonicalRoleTitle(founderText: string, latestFounder: string, fam
 function inferExplicitRoleTitle(value: string) {
   const text = value;
   const lower = text.toLowerCase();
+  if (/\b(head of eng|head of engineering)\b/.test(lower)) return "Head of Engineering";
+  if (/\b(vp engineering|vp of engineering)\b/.test(lower)) return "VP Engineering";
+  if (/\b(engineering manager|eng manager)\b/.test(lower)) return "Engineering Manager";
+  if (/\b(director of engineering|engineering director)\b/.test(lower)) return "Director of Engineering";
+  if (/\b(engineering leadership|engineering leader)\b/.test(lower)) return "Engineering Leadership";
   if (/\b(senior|sr\b).*\b(ai infrastructure engineer|infrastructure engineer)\b/.test(lower) || /\b(ai infrastructure engineer|infrastructure engineer).*\b(senior|sr\b)\b/.test(lower)) return "Senior AI Infrastructure Engineer";
   if (/\b(senior software engineer|sr software engineer)\b/.test(lower)) return "Senior Software Engineer";
   if (/\bsmart contract engineer\b/.test(lower)) return "Smart Contract Engineer";
@@ -229,9 +236,13 @@ function inferMustHaveSignals(text: string, family: CanonicalRoleFamily) {
     if (/\bpeople|team|headcount|shift|labor\b/.test(text)) signals.push("people accountability");
   }
   if (family === "engineering") {
-    if (/\binfrastructure|platform|sre|distributed systems?\b/.test(text)) signals.push("infrastructure depth");
-    if (/\b(shipped|built|owned|delivered|production|mainnet)\b/.test(text)) signals.push("shipping proof");
-    if (/\btechnical ownership|ownership|end-to-end|end to end\b/.test(text)) signals.push("technical ownership");
+    if (isEngineeringLeadershipText(text)) {
+      signals.push("engineering leadership", "technical judgment", "team operating cadence");
+    } else {
+      if (/\binfrastructure|platform|sre|distributed systems?\b/.test(text)) signals.push("infrastructure depth");
+      if (/\b(shipped|built|owned|delivered|production|mainnet)\b/.test(text)) signals.push("shipping proof");
+      if (/\btechnical ownership|ownership|end-to-end|end to end\b/.test(text)) signals.push("technical ownership");
+    }
   }
   if (family === "product") {
     if (/\bproduct judgment|judgment|prioritization|tradeoff|trade-off\b/.test(text)) signals.push("product judgment");
@@ -245,6 +256,7 @@ function inferMustHaveSignals(text: string, family: CanonicalRoleFamily) {
 function inferNiceToHaveSignals(text: string, family: CanonicalRoleFamily) {
   const signals: string[] = [];
   if (family === "manufacturing operations") signals.push("nearby hub access", "FDA/ISO familiarity");
+  if (family === "engineering" && isEngineeringLeadershipText(text)) signals.push("founder-facing leadership", "scaling engineering teams");
   if (family === "engineering" && /\bai|ml|llm\b/.test(text)) signals.push("AI systems exposure");
   if (/\bstartup|founding\b/.test(text)) signals.push("startup pace");
   return unique(signals);
@@ -253,7 +265,8 @@ function inferNiceToHaveSignals(text: string, family: CanonicalRoleFamily) {
 function inferExclusions(text: string, family: CanonicalRoleFamily) {
   const exclusions: string[] = [];
   if (family === "manufacturing operations") exclusions.push("generic startup operator", "pure GTM", "finance-only profile");
-  if (family === "engineering") exclusions.push("founder office without building proof", "GTM-only profile");
+  if (family === "engineering" && isEngineeringLeadershipText(text)) exclusions.push("IC-only software engineer", "manager without technical judgment", "GTM-only profile");
+  else if (family === "engineering") exclusions.push("founder office without building proof", "GTM-only profile");
   if (/\bnot pm|not product\b/.test(text)) exclusions.push("product-only profile");
   return unique(exclusions);
 }
@@ -267,6 +280,7 @@ function inferSourceCompanyLanes(text: string, family: CanonicalRoleFamily, loca
       "scaled production environments"
     ]);
   }
+  if (family === "engineering" && isEngineeringLeadershipText(text)) return ["startup engineering leadership", "scaled engineering teams", "founder-facing technical leaders", "architecture-heavy teams"];
   if (family === "engineering") return ["startup engineering teams", "infrastructure/platform teams", "builders with public proof"];
   if (family === "product") return ["founder-led product teams", "customer-facing product orgs"];
   return [];
@@ -296,6 +310,10 @@ function inferCanonicalTimeToFill(text: string, poolSize: CanonicalSearchState["
 
 function unique(values: string[]) {
   return Array.from(new Set(values.filter(Boolean)));
+}
+
+function isEngineeringLeadershipText(value: string) {
+  return /\b(head of eng|head of engineering|vp engineering|vp of engineering|engineering manager|eng manager|engineering leadership|engineering leader|director of engineering|engineering director)\b/i.test(value);
 }
 
 function compact(value: string, max = 80) {

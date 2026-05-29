@@ -70,7 +70,8 @@ export function buildCurrentRead(input: {
   const openTensions = collectCurrentReadTensions(text, input.canonicalSearchState);
   const confidence = inferConfidence(meaningfulSignals, input.workingThesis?.confidence);
   const mode = inferCurrentReadMode(text, latestText, meaningfulSignals, input.canonicalSearchState);
-  const read = buildReadForArchetype(likelyArchetype, text, statedRole);
+  const baseRead = buildReadForArchetype(likelyArchetype, text, statedRole);
+  const read = applyCalibrationProgression(baseRead, likelyArchetype, text, mode, confidence);
 
   return {
     mode,
@@ -106,6 +107,7 @@ export function formatCurrentReadForPrompt(read: CurrentRead) {
     read.evidence.length ? `Evidence: ${read.evidence.join(" | ")}` : "",
     read.openTensions.length ? `Open tensions: ${read.openTensions.join(" | ")}` : "",
     "Thesis commitment rule: after 1-2 meaningful founder answers, state what you think is really going on. Use this shape when the conversation needs crystallizing: “Here’s what I think is really going on: … This is probably not: … It is more likely: … The next best move: …”. If you cannot form a thesis yet, say exactly which missing signal prevents it. Do not keep circling discovery once this read has medium or high confidence.",
+    "Progression rule: when mode is calibration with medium or high confidence, state the committed thesis, name the practical risk, and recommend one concrete next move. Ask at most one narrow question only if it directly changes that next move.",
     "Progression rule: when mode is execution or confidence is high, stop asking broad clarifying questions. Produce a compact role thesis, a lightweight scorecard, and an interview plan. Ask only for one missing constraint if it would materially change the plan."
   ].filter(Boolean).join("\n");
 }
@@ -114,7 +116,7 @@ export function currentReadTitle(read?: CurrentRead) {
   return read?.thesisTitle || read?.likelyArchetype || "Unknown / Needs Clarification";
 }
 
-export function actionButtonsForCurrentRead(read?: Pick<CurrentRead, "mode">, hasTasteSignal = false): CurrentReadAction[] {
+export function actionButtonsForCurrentRead(read?: Pick<CurrentRead, "mode" | "likelyArchetype" | "nextBestMove">, hasTasteSignal = false): CurrentReadAction[] {
   if (!read || read.mode === "discovery" || read.mode === "thesis") {
     return [
       { label: "Pressure-test role shape", prompt: "Pressure-test the role shape for this hiring thesis." },
@@ -124,6 +126,54 @@ export function actionButtonsForCurrentRead(read?: Pick<CurrentRead, "mode">, ha
   }
 
   if (read.mode === "calibration") {
+    if (read.likelyArchetype === "Engineering Leadership Bottleneck") {
+      return [
+        { label: "Define decision ownership", prompt: "Define the 3 decisions this engineering leader must own without founder approval." },
+        { label: "Compare Head of Eng vs EM vs Staff+ Lead", prompt: "Compare whether this thesis needs a Head of Engineering, Engineering Manager, or Staff-plus technical lead." },
+        { label: "Build scorecard", prompt: "Build a lightweight scorecard for this engineering leadership bottleneck." }
+      ];
+    }
+
+    if (read.likelyArchetype === "Founder-Led Sales Transition") {
+      return [
+        { label: "Separate founder-only wins", prompt: "Separate founder-only sales wins from repeatable wins." },
+        { label: "Define sales handoff", prompt: "Define what a first sales leader must take off the founder." },
+        { label: "Build scorecard", prompt: "Build a lightweight scorecard for this founder-led sales transition." }
+      ];
+    }
+
+    if (read.likelyArchetype === "Senior Ownership Gap") {
+      return [
+        { label: "Define decision ownership", prompt: "Define the decisions this senior hire must own without founder approval." },
+        { label: "Calibrate seniority", prompt: "Calibrate the seniority level needed for this ownership gap." },
+        { label: "Build scorecard", prompt: "Build a lightweight scorecard for this senior ownership gap." }
+      ];
+    }
+
+    if (read.likelyArchetype === "Role Compression / Generalist Hire") {
+      return [
+        { label: "Split the role", prompt: "Split this compressed generalist role into cleaner responsibility lanes." },
+        { label: "Pick primary lane", prompt: "Pick the primary lane this hire should actually solve first." },
+        { label: "Compare archetypes", prompt: "Compare the likely archetypes for this role-compression problem." }
+      ];
+    }
+
+    if (read.likelyArchetype === "Urgent Hiring Triage") {
+      return [
+        { label: "Define 30-day coverage", prompt: "Define what must be covered in the next 30 days before shaping the permanent hire." },
+        { label: "Split interim vs permanent", prompt: "Separate the urgent coverage problem from the permanent role shape." },
+        { label: "Build triage plan", prompt: "Build a hiring triage plan for this urgent gap." }
+      ];
+    }
+
+    if (read.likelyArchetype === "Product/Execution Ownership Gap") {
+      return [
+        { label: "Define decision ownership", prompt: "Define which product decisions this hire must own without founder approval." },
+        { label: "Compare PM archetypes", prompt: "Compare product archetypes for this ownership gap." },
+        { label: "Build scorecard", prompt: "Build a lightweight scorecard for this product ownership gap." }
+      ];
+    }
+
     return [
       { label: "Define scorecard", prompt: "Define a lightweight scorecard for this hiring thesis." },
       { label: "Build candidate archetype", prompt: "Build the candidate archetype for this hiring thesis." },
@@ -144,6 +194,74 @@ export function actionButtonsForCurrentRead(read?: Pick<CurrentRead, "mode">, ha
     ...(hasTasteSignal ? [{ label: "Find people like this", prompt: "Find people like the strongest saved or selected profiles." }] : []),
     { label: "Refine Talent Pool", prompt: "Refine this search based on my Talent Pool feedback. Find another batch." }
   ];
+}
+
+function applyCalibrationProgression(
+  read: ReturnType<typeof buildReadForArchetype>,
+  archetype: CurrentReadArchetype,
+  text: string,
+  mode: CurrentReadMode,
+  confidence: CurrentRead["confidence"]
+) {
+  if (mode !== "calibration" || confidence === "low") return read;
+
+  const founderStillOwnsDecisions = /\b(founder|mostly me|i still|still makes|comes? back to me|waiting on me|my call|approval|priority calls?|product priority|technical calls?)\b/i.test(text);
+
+  if (archetype === "Engineering Leadership Bottleneck") {
+    return {
+      ...read,
+      hypothesis: founderStillOwnsDecisions
+        ? "This is likely an engineering leadership bottleneck, but the real issue is decision ownership."
+        : read.hypothesis,
+      risk: founderStillOwnsDecisions
+        ? "Hiring a Head of Engineering without transferring decision authority creates a coordination layer, not leverage."
+        : "A Head of Engineering who cannot own technical tradeoffs will become a meeting layer over the same founder bottleneck.",
+      whatWouldChangeMyMind: "Evidence that the team has clear technical decision rights and only lacks people-management bandwidth.",
+      nextBestMove: "Define the 3 decisions this hire must own without founder approval."
+    };
+  }
+
+  if (archetype === "Founder-Led Sales Transition") {
+    return {
+      ...read,
+      risk: "If you hire a VP before the repeatable part of founder-led sales is named, they may professionalize the wrong motion.",
+      nextBestMove: "Separate founder-only wins from repeatable wins before choosing first sales leader versus true VP."
+    };
+  }
+
+  if (archetype === "Senior Ownership Gap") {
+    return {
+      ...read,
+      risk: "If authority does not move with the hire, seniority becomes expensive reassurance rather than actual leverage.",
+      nextBestMove: "Define the decisions this person must own independently, then calibrate seniority around that authority."
+    };
+  }
+
+  if (archetype === "Role Compression / Generalist Hire") {
+    return {
+      ...read,
+      risk: "If the role stays compressed, you will screen for range and then blame the hire for not being three people.",
+      nextBestMove: "Pick the primary lane this hire must solve first, then treat the rest as tradeoffs."
+    };
+  }
+
+  if (archetype === "Urgent Hiring Triage") {
+    return {
+      ...read,
+      risk: "Panic can make the temporary gap look like the permanent role.",
+      nextBestMove: "Define the 30-day coverage problem separately from the permanent hire."
+    };
+  }
+
+  if (archetype === "Product/Execution Ownership Gap") {
+    return {
+      ...read,
+      risk: "If decision rights stay with the founder, the PM becomes a narrator of work instead of an owner of tradeoffs.",
+      nextBestMove: "Define which product decisions this hire must own without founder approval."
+    };
+  }
+
+  return read;
 }
 
 export function buildCurrentReadResponseSketch(messages: TinaMvpMessage[]) {

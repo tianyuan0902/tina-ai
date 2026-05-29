@@ -197,7 +197,7 @@ function TinaWorkspaceLoading() {
       <div className="grid h-full place-items-center">
         <div className="text-center">
           <p className="font-serif text-2xl font-semibold">Tina</p>
-          <p className="mt-2 text-sm text-[#6F675E]">Market Intel forming.</p>
+          <p className="mt-2 text-sm text-[#6F675E]">Current Read loading.</p>
         </div>
       </div>
     </main>
@@ -739,7 +739,7 @@ function HomeCommandCenter({
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[13px] font-semibold">Tina</p>
-                  <p className="mt-0.5 text-xs text-[#6F675E]">{isMarketIntelMode(currentRead) ? "Market Intel updated on the right. Keep refining here." : "Chat first. Current Read updates as Tina learns."}</p>
+                  <p className="mt-0.5 text-xs text-[#6F675E]">{shouldShowMarketReality(messages, currentRead, hasCandidateResults || Boolean(latestSourcingBatch)) ? "Market Reality updated on the right. Keep refining here." : "Chat first. Current Read updates as Tina learns."}</p>
               </div>
               {hasCandidateResults && hiddenMessageCount > 0 ? (
                 <button
@@ -772,7 +772,7 @@ function HomeCommandCenter({
                   <div>
                     <p className="text-sm font-semibold">Tina</p>
                     <TypingStatus label={pendingActionText} />
-                    <InlineSignalRows signals={[pendingActionText || (isMarketIntelMode(currentRead) ? "Market Intel updating" : "Current Read updating"), "Thesis tightening"]} />
+                    <InlineSignalRows signals={[pendingActionText || (shouldShowMarketReality(messages, currentRead, hasCandidateResults || Boolean(latestSourcingBatch)) ? "Market Reality updating" : "Current Read updating"), "Thesis tightening"]} />
                   </div>
                 </div>
               ) : null}
@@ -810,6 +810,7 @@ function HomeCommandCenter({
         messages={messages}
         canonicalSearchState={canonicalSearchState}
         currentRead={currentRead}
+        onCurrentReadAction={sendMessage}
       />
     </div>
   );
@@ -953,9 +954,9 @@ function SourcingResultArtifact({ leads, sourcingBatch }: { leads: ProfileLead[]
         {sourcingBatch ? <SearchSourceBadge sourcingBatch={sourcingBatch} /> : null}
       </div>
       <p className="mt-2 break-words text-xs leading-5 text-[#4B453F]">
-        I found {leads.length} possible {leads.length === 1 ? "profile" : "profiles"} and updated Market Intel on the right. Best signal: {topTags.join(", ") || "role adjacency"}. Weakness: {missingThemes.join(", ") || "proof still needs review"}.
+        I found {leads.length} possible {leads.length === 1 ? "profile" : "profiles"} and updated Market Reality on the right. Best signal: {topTags.join(", ") || "role adjacency"}. Weakness: {missingThemes.join(", ") || "proof still needs review"}.
       </p>
-      <p className="mt-1 text-[11px] text-[#8A8178]">Review compact profiles in Market Intel.</p>
+      <p className="mt-1 text-[11px] text-[#8A8178]">Review compact profiles in Market Reality.</p>
     </div>
   );
 }
@@ -1126,6 +1127,25 @@ function controlledThesisTitleFromText(value: string): CurrentReadArchetype {
 
 function isMarketIntelMode(currentRead?: CurrentRead) {
   return currentRead?.mode === "execution" || currentRead?.mode === "sourcing";
+}
+
+function latestFounderContent(messages: TinaMvpMessage[]) {
+  return [...messages].reverse().find((message) => message.role === "founder")?.content || "";
+}
+
+function isClarificationQuestion(value: string) {
+  return /\b(what does that mean|why\??|can you explain|help me understand|what do you mean|say more|explain that)\b/i.test(value.trim());
+}
+
+function isMarketRealityRequest(value: string) {
+  return /\b(market|market reality|comp|compensation|salary|equity|location|geo|geography|talent pool|time[-\s]?to[-\s]?fill|ttf|candidate|candidates|profile|profiles|people|lead|leads|sourcing|source|source against this thesis|build search lanes|search lanes|find people|pull)\b/i.test(value);
+}
+
+function shouldShowMarketReality(messages: TinaMvpMessage[], currentRead?: CurrentRead, hasMarketArtifacts = false) {
+  const latestFounder = latestFounderContent(messages);
+  if (isClarificationQuestion(latestFounder)) return false;
+  if (isMarketRealityRequest(latestFounder)) return true;
+  return Boolean(hasMarketArtifacts && currentRead?.mode === "sourcing");
 }
 
 function shouldAutoRenameThread(thread: ChatThread) {
@@ -1518,7 +1538,8 @@ function RightIntelligenceRail({
   isClientMounted,
   messages,
   canonicalSearchState,
-  currentRead
+  currentRead,
+  onCurrentReadAction
 }: {
   sourcingStrategy: SourcingStrategy;
   brainState: BrainState;
@@ -1536,23 +1557,22 @@ function RightIntelligenceRail({
   messages: TinaMvpMessage[];
   canonicalSearchState: CanonicalSearchState;
   currentRead?: CurrentRead;
+  onCurrentReadAction: (value: string) => void;
 }) {
   const visibleItems = isClientMounted ? prioritizeLatestProfileLeadItems(profileLeadItems, latestProfileLeadItems) : [];
-  const showCurrentRead = !currentRead || currentRead.mode === "discovery" || currentRead.mode === "thesis" || currentRead.mode === "calibration";
+  const showMarketReality = shouldShowMarketReality(messages, currentRead, Boolean(sourcingBatch) || visibleItems.length > 0);
 
   return (
     <aside className="hidden h-full min-h-0 min-w-0 max-w-full overflow-y-auto md:block md:pt-2 xl:pt-3">
       <section className="min-h-[calc(100%-0.75rem)] min-w-0 overflow-hidden rounded-xl border border-[#E7E3DD] bg-white shadow-[0_22px_70px_rgba(23,23,23,0.055)]">
         <div className="border-b border-[#ECE7E1] bg-white px-3 py-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">{showCurrentRead ? "Current Read" : "Market Intel"}</p>
-          <h2 className="mt-1 text-base font-semibold text-[#171717]">{showCurrentRead ? "Hiring thesis" : "Hiring market read"}</h2>
-          <p className="mt-1 text-xs leading-5 text-[#625A52]">{showCurrentRead ? "Tina’s committed read of the problem." : "Updated as Tina learns."}</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">{showMarketReality ? "Market Reality" : "Current Read"}</p>
+          <h2 className="mt-1 text-base font-semibold text-[#171717]">{showMarketReality ? "Market reality" : "Hiring thesis"}</h2>
+          <p className="mt-1 text-xs leading-5 text-[#625A52]">{showMarketReality ? "Shown when Tina is executing or sourcing." : "Tina’s committed read of the problem."}</p>
         </div>
 
         <div className="min-w-0 overflow-hidden p-3">
-          {showCurrentRead ? (
-            <CurrentReadRail currentRead={currentRead} />
-          ) : (
+          {showMarketReality ? (
             <MarketIntelRail
               brainState={brainState}
               sourcingStrategy={sourcingStrategy}
@@ -1570,6 +1590,8 @@ function RightIntelligenceRail({
               canonicalSearchState={canonicalSearchState}
               currentRead={currentRead}
             />
+          ) : (
+            <CurrentReadRail currentRead={currentRead} onAction={onCurrentReadAction} />
           )}
         </div>
       </section>
@@ -1577,7 +1599,7 @@ function RightIntelligenceRail({
   );
 }
 
-function CurrentReadRail({ currentRead }: { currentRead?: CurrentRead }) {
+function CurrentReadRail({ currentRead, onAction }: { currentRead?: CurrentRead; onAction: (value: string) => void }) {
   const read = currentRead || {
     mode: "discovery",
     thesisTitle: "Unknown / Needs Clarification",
@@ -1592,54 +1614,186 @@ function CurrentReadRail({ currentRead }: { currentRead?: CurrentRead }) {
     openTensions: ["the actual business problem behind the role"],
     likelyArchetype: "Unknown / Needs Clarification"
   } satisfies CurrentRead;
+  const signals = (read.calibratedScope.length ? read.calibratedScope : read.evidence).slice(0, 3);
+  const actions = actionButtonsForCurrentRead(read).slice(0, 2);
+  const diagnosis = oneSentence(read.hypothesis);
+  const risk = oneSentence(read.risk);
+  const nextMove = oneSentence(read.nextBestMove);
+  const bottlenecks = bottleneckBarsForRead(read);
 
   return (
-    <div className="grid gap-3">
-      <section className="rounded-lg border border-[#E2D8CD] bg-[#FFFCF7] p-3">
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Current Read</p>
-            <h3 className="mt-2 text-base font-semibold leading-5 text-[#171717]">{read.thesisTitle || "Unknown / Needs Clarification"}</h3>
-          </div>
-          <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[10px] font-medium capitalize text-[#6F675E] ring-1 ring-[#E5DCD1]">
-            {read.mode}
-          </span>
+    <section className="rounded-2xl border border-[#E5DCD1] bg-[#FFFCF7] p-4 shadow-[0_18px_55px_rgba(23,23,23,0.055)]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8A8178]">Current Read</p>
+          <h3 className="mt-2 text-xl font-semibold leading-6 text-[#171717]">{read.thesisTitle || "Unknown / Needs Clarification"}</h3>
         </div>
-        {read.calibratedScope.length ? (
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {read.calibratedScope.slice(0, 4).map((scope) => (
-              <span key={scope} className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-[#625A52] ring-1 ring-[#E5DCD1]">
-                {scope}
-              </span>
-            ))}
+        <span className="shrink-0 rounded-full bg-[#EFF8F1] px-2.5 py-1 text-[10px] font-semibold capitalize text-[#137C48] ring-1 ring-[#DCEFE2]">
+          {decisionStatusForRead(read)}
+        </span>
+      </div>
+
+      <div className="mt-4 grid grid-cols-[auto_1fr] gap-x-3 gap-y-3">
+        <DecisionIcon tone="problem" icon={<Sparkles className="h-3.5 w-3.5" />} />
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Problem</p>
+          <p className="mt-1 text-sm leading-5 text-[#171717]">{diagnosis}</p>
+        </div>
+
+        <DecisionIcon tone="risk" icon={<AlertTriangle className="h-3.5 w-3.5" />} />
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Risk</p>
+          <p className="mt-1 text-sm leading-5 text-[#4B453F]">{risk}</p>
+        </div>
+
+        <DecisionIcon tone="next" icon={<ArrowRight className="h-3.5 w-3.5" />} />
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Next</p>
+          <p className="mt-1 text-sm font-semibold leading-5 text-[#171717]">{nextMove}</p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-2">
+        {actions.map((action) => (
+          <button
+            key={action.label}
+            type="button"
+            onClick={() => onAction(action.prompt)}
+            className={`rounded-lg px-3 py-2.5 text-left text-xs font-semibold transition ${
+              action === actions[0]
+                ? "bg-[#171717] text-white shadow-[0_12px_28px_rgba(23,23,23,0.14)] hover:bg-[#2A2A2A]"
+                : "border border-[#E3DED7] bg-white text-[#4B453F] hover:bg-[#F7F4EF]"
+            }`}
+          >
+            {action.label}
+          </button>
+        ))}
+      </div>
+
+      <details className="mt-4 rounded-xl border border-dashed border-[#DED5CA] bg-white/70 p-3">
+        <summary className="cursor-pointer text-xs font-semibold text-[#625A52]">Why Tina thinks this →</summary>
+        <div className="mt-3 grid gap-3">
+          {signals.length ? (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Signals</p>
+              <ul className="mt-2 grid gap-1.5 text-xs leading-5 text-[#625A52]">
+                {signals.map((signal) => (
+                  <li key={signal} className="flex gap-2">
+                    <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[#178A52]" />
+                    <span>{signal}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Bottleneck read</p>
+            <div className="mt-2 grid gap-2">
+              {bottlenecks.map((item) => (
+                <BottleneckBar key={item.label} label={item.label} value={item.value} level={item.level} />
+              ))}
+            </div>
           </div>
-        ) : null}
-      </section>
 
-      <CurrentReadField label="Observation" value={read.observation} />
-      <CurrentReadField label="Hypothesis" value={read.hypothesis} strong />
-      <CurrentReadField label="Risk" value={read.risk} />
-      <CurrentReadField label="Confidence" value={read.confidence} />
-      <CurrentReadField label="What Would Change My Mind" value={read.whatWouldChangeMyMind} />
-      <CurrentReadField label="Next Best Move" value={read.nextBestMove} strong />
-      {read.openTensions.length ? <CurrentReadField label="Open Tensions" value={read.openTensions.join(" · ")} /> : null}
+          <div className="grid gap-1.5 text-xs leading-5 text-[#625A52]">
+            <p><span className="font-semibold text-[#4B453F]">Still checking:</span> {read.whatWouldChangeMyMind}</p>
+            {read.openTensions.length ? <p><span className="font-semibold text-[#4B453F]">Alternative:</span> {read.openTensions[0]}</p> : null}
+          </div>
+        </div>
+      </details>
+    </section>
+  );
+}
 
-      <section className="rounded-lg border border-dashed border-[#DED5CA] bg-[#FFFCF7] p-3">
-        <p className="text-xs leading-5 text-[#8A8178]">
-          Market reality will appear once Tina has enough conviction about the actual hiring problem.
-        </p>
-      </section>
+function DecisionIcon({ tone, icon }: { tone: "problem" | "risk" | "next"; icon: ReactNode }) {
+  const styles = {
+    problem: "bg-[#EEF8F1] text-[#178A52]",
+    risk: "bg-[#FFF2E8] text-[#A35F2E]",
+    next: "bg-[#F0EDFF] text-[#5B40D6]"
+  };
+
+  return (
+    <div className={`mt-0.5 grid h-7 w-7 place-items-center rounded-full ${styles[tone]}`}>
+      {icon}
     </div>
   );
 }
 
-function CurrentReadField({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
+function BottleneckBar({ label, value, level }: { label: string; value: number; level: string }) {
   return (
-    <section className="rounded-lg border border-[#E2D8CD] bg-white p-3">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8A8178]">{label}</p>
-      <p className={`mt-1.5 text-sm leading-5 ${strong ? "font-semibold text-[#171717]" : "text-[#4B453F]"}`}>{value}</p>
-    </section>
+    <div className="grid gap-1">
+      <div className="flex items-center justify-between gap-2 text-[11px]">
+        <span className="text-[#625A52]">{label}</span>
+        <span className="font-medium text-[#4B453F]">{level}</span>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-[#E9E1D8]">
+        <div className="h-full rounded-full bg-[#178A52]" style={{ width: `${value}%` }} />
+      </div>
+    </div>
   );
+}
+
+function oneSentence(value: string, maxLength = 118) {
+  const sentence = value
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(/(?<=[.!?])\s+/)[0] || value;
+
+  return compactLeadText(sentence, maxLength).replace(/\.$/, ".");
+}
+
+function decisionStatusForRead(read: CurrentRead) {
+  if (read.mode === "discovery") return "forming";
+  if (read.mode === "thesis") return "thesis";
+  if (read.mode === "calibration") return "calibrating";
+  if (read.mode === "execution") return "ready";
+  return "sourcing";
+}
+
+function bottleneckBarsForRead(read: CurrentRead) {
+  if (read.likelyArchetype === "Engineering Leadership Bottleneck") {
+    return [
+      { label: "Founder decisions", value: 88, level: "high" },
+      { label: "Technical judgment", value: 62, level: "medium" },
+      { label: "People leadership", value: 54, level: "medium" },
+      { label: "Raw capacity", value: 28, level: "low" }
+    ];
+  }
+
+  if (read.likelyArchetype === "Product/Execution Ownership Gap") {
+    return [
+      { label: "Founder decisions", value: 82, level: "high" },
+      { label: "Product judgment", value: 68, level: "medium" },
+      { label: "Execution load", value: 58, level: "medium" },
+      { label: "Raw capacity", value: 35, level: "low" }
+    ];
+  }
+
+  if (read.likelyArchetype === "Founder-Led Sales Transition") {
+    return [
+      { label: "Founder closing", value: 86, level: "high" },
+      { label: "Repeatable motion", value: 48, level: "medium" },
+      { label: "Sales leadership", value: 42, level: "medium" },
+      { label: "Pipeline volume", value: 36, level: "low" }
+    ];
+  }
+
+  if (read.likelyArchetype === "Urgent Hiring Triage") {
+    return [
+      { label: "Coverage gap", value: 88, level: "high" },
+      { label: "Permanent scope", value: 44, level: "medium" },
+      { label: "Search speed", value: 72, level: "high" },
+      { label: "Role clarity", value: 34, level: "low" }
+    ];
+  }
+
+  return [
+    { label: "Founder load", value: 70, level: "high" },
+    { label: "Role clarity", value: 48, level: "medium" },
+    { label: "Decision rights", value: 56, level: "medium" },
+    { label: "Market proof", value: 30, level: "low" }
+  ];
 }
 
 function MarketIntelRail({
@@ -1684,12 +1838,13 @@ function MarketIntelRail({
       <CalibratedScopeCard intel={intel} />
       <TalentPoolSnapshotCard intel={intel} />
 
+      {sortedItems.length || sourcingBatch ? (
       <section className="rounded-lg border border-[#E2D8CD] bg-white p-3">
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Profiles</p>
             <p className="mt-1 text-sm font-semibold text-[#171717]">
-              {sortedItems.length ? `${sortedItems.length} ${sortedItems.length === 1 ? "profile" : "profiles"}` : sourcingBatch ? "No reliable profiles yet" : "Talent Pool pending"}
+              {sortedItems.length ? `${sortedItems.length} ${sortedItems.length === 1 ? "profile" : "profiles"}` : "No reliable profiles yet"}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -1723,7 +1878,7 @@ function MarketIntelRail({
                 ? sourcingBatch.filteredCount
                   ? `Tina searched public profiles and filtered ${sourcingBatch.filteredCount} weak or wrong-fit results. Next: widen geography or loosen title while keeping proof strict.`
                   : "Tina searched public profiles but did not find reliable role-fit matches yet. Next: widen geography or loosen title while keeping proof strict."
-                : "Profiles will appear here after Tina finds role-fit matches."}
+                : "No profile search has run in this mode."}
             </p>
           )}
         </div>
@@ -1741,6 +1896,7 @@ function MarketIntelRail({
           </details>
         ) : null}
       </section>
+      ) : null}
 
       <section className="rounded-lg border border-[#D7CFC5] bg-[#1E1E1E] p-3 text-white shadow-[0_16px_42px_rgba(23,23,23,0.12)]">
         <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#CFC7BD]">Founder Takeaway</p>
@@ -1783,8 +1939,8 @@ function TalentPoolSnapshotCard({ intel }: { intel: MarketIntelSnapshot }) {
       </div>
 
       <div className="mt-3 grid gap-2">
-        <MarketDonut title="Location mix" emptyLabel="Location mix forming" segments={intel.locationMix} />
-        <MarketDonut title="Seniority mix" emptyLabel="Seniority mix forming" segments={intel.seniorityMix} />
+        <MarketDonut title="Location mix" emptyLabel="Not enough evidence yet" segments={intel.locationMix} />
+        <MarketDonut title="Seniority mix" emptyLabel="Not enough evidence yet" segments={intel.seniorityMix} />
       </div>
 
       <div className="mt-3">
@@ -1924,9 +2080,9 @@ function emptyMarketIntelSnapshot(): MarketIntelSnapshot {
     dataLabel: "Pending",
     locationMix: [],
     seniorityMix: [],
-    compRange: "Comp forming",
-    timeToFill: "TTF forming",
-    founderTakeaway: "Founder takeaway forming."
+    compRange: "Not estimated yet",
+    timeToFill: "Not estimated yet",
+    founderTakeaway: "No market reality read yet."
   };
 }
 
@@ -2104,7 +2260,7 @@ function inferMarketCompRange(leads: ProfileLead[], sourcingStrategy: SourcingSt
 
 function inferTimeToFill(poolSize: MarketIntelSnapshot["poolSize"], seniorityMix: MarketSegment[], brainState: BrainState, conversationText = "") {
   const seniorHeavy = seniorityMix.some((segment) => /founding|principal|exec/i.test(segment.label) && segment.value >= 25);
-  if (poolSize === "Forming" || brainState.sourcingReadiness === "not_ready") return "TTF forming";
+  if (poolSize === "Forming" || brainState.sourcingReadiness === "not_ready") return "Not estimated yet";
   if (/\b(asap|urgent|rapid|quick|fast|immediately)\b/.test(conversationText)) return "ASAP search · Directional";
   if (poolSize === "Narrow" || seniorHeavy) return "10-16 wks · Directional";
   if (poolSize === "Moderate") return "8-12 wks · Directional";
@@ -2122,16 +2278,22 @@ function buildFounderTakeaway(
   canonicalSearchState?: CanonicalSearchState
 ) {
   if (canonicalSearchState?.roleFamily === "manufacturing operations" && /peoria/i.test(canonicalSearchState.location)) return "Peoria is a narrow local market; nearby hubs or relocation will likely matter.";
+  if (isEngineeringLeadershipState(canonicalSearchState) && canonicalSearchState?.location && !/forming/i.test(canonicalSearchState.location)) return `${canonicalSearchState.location} is the current lane; keep proof tied to engineering leadership, technical judgment, and team operating cadence.`;
   if (canonicalSearchState?.roleFamily === "engineering" && canonicalSearchState.location && !/forming/i.test(canonicalSearchState.location)) return `${canonicalSearchState.location} is the current lane; keep proof tied to actual building work.`;
   if (/\bpeoria\b/.test(conversationText)) return "Peoria is a narrow local market; nearby hubs or relocation will likely matter.";
   if (!leads.length && locationMix.length) return `${locationMix[0].label} is the stated search market; profile evidence is still pending.`;
-  if (!leads.length) return "Market Intel is pending until Tina has enough role signal or public profiles.";
+  if (!leads.length) return "No market reality read yet.";
   if (!locationMix.length || !seniorityMix.length) return "Market mix is still forming; this batch is useful for calibration, not market conclusions.";
   const topLocations = locationMix.slice(0, 2).map((segment) => segment.label).join(" + ");
   const senior = seniorityMix[0]?.label || "Senior";
   if (poolSize === "Narrow") return `${topLocations || "Remote"} looks strongest; budget and timeline need room for ${senior.toLowerCase()} proof.`;
   if (compRange.includes("pending")) return `${topLocations || "Remote"} is the first market to test; comp still needs calibration.`;
   return `${topLocations || "Remote"} is the cleanest first lane; ${timeToFill.replace("TTF: ", "").replace(" · Directional", "")} is a realistic early read.`;
+}
+
+function isEngineeringLeadershipState(state?: CanonicalSearchState) {
+  return state?.roleFamily === "engineering" &&
+    /\b(head of engineering|vp engineering|engineering manager|engineering leadership|director of engineering)\b/i.test(state.roleTitle);
 }
 
 function donutGradient(segments: MarketSegment[]) {
@@ -2166,7 +2328,7 @@ function actionProgressText(content: string) {
   if (/\b(refine|more like|talent pool feedback)\b/.test(text)) return "Refining Talent Pool from feedback...";
   if (/\b(source|candidate|profile|people|pull|find)\b/.test(text)) return "Searching public profiles...";
   if (/\b(lane|market|where should|strategy)\b/.test(text)) return "Building search lanes...";
-  return "Updating Market Intel...";
+  return "Updating Market Reality...";
 }
 
 function initialsForName(name: string) {
@@ -4692,6 +4854,7 @@ function deriveSourcingStrategy(
   const isProduct = /\b(product|customer|workflow|pm|designer|design)\b/.test(text);
   const isOperator = /\b(operator|ops|operations|chief of staff|founder office|bizops)\b/.test(text);
   const isPlant = /\b(plant|factory|manufacturing|industrial|warehouse)\b/.test(text);
+  const isEngineeringLeadership = /\b(head of eng|head of engineering|vp engineering|vp of engineering|engineering manager|eng manager|engineering leadership|engineering leader|director of engineering|engineering director)\b/.test(text);
   const isSenior = /\b(senior|staff|principal|lead|head|founding)\b/.test(text);
   const explicitProductRole = /\b(pm|product manager|founding pm|head of product|product lead)\b/.test(text);
   const primaryProfile = profiles[0];
@@ -4708,6 +4871,21 @@ function deriveSourcingStrategy(
       niceToHaveSignals: ["startup exposure", "lean/process discipline", "ERP or production systems"],
       avoidSignals: ["office-only operators", "process without floor trust", "big-company pace dependency"],
       queryTerms: ["plant manager", "operations manager", "manufacturing", "quality"]
+    };
+  }
+
+  if (isEngineeringLeadership) {
+    return {
+      readiness: sourcingReadiness,
+      searchThesis: sourcingReadiness.searchThesis,
+      seek: ["technical judgment", "team operating cadence", "founder-facing leadership"],
+      targetTitles: ["Head of Engineering", "VP Engineering", "Director of Engineering", "Engineering Manager"],
+      targetCompanyTypes: ["founder-led startups", "engineering-heavy scaleups", "platform or infra teams", "technical product companies"],
+      searchLanes: ["startup engineering leaders", "architecture-heavy managers", "founder-facing technical leads"],
+      mustHaveSignals: ["engineering leadership", "technical judgment", "team operating cadence", "architecture ownership"],
+      niceToHaveSignals: ["hired senior engineers", "managed through scale", "AI/infra/product exposure"],
+      avoidSignals: ["IC-only builders", "people managers without technical depth", "process-heavy big-company leaders"],
+      queryTerms: ["Head of Engineering", "VP Engineering", "Director of Engineering", "Engineering Manager"]
     };
   }
 

@@ -478,7 +478,7 @@ function buildAdaptiveModeInstruction(latestUserMessage: string, messages: TinaM
   const mode = inferAdaptiveMode(latestUserMessage, messages);
   const modeGuidance: Record<string, string> = {
     discovery: "Adaptive mode: Discovery. The founder is unsure or the root cause is unclear. Make one observation, explain why the premise needs diagnosis, and ask one sharp question about what is actually breaking. Do not source yet.",
-    calibration: "Adaptive mode: Calibration. The role direction is plausible but tradeoffs are not defined. Interpret the founder's latest answer before advancing: what does it reveal, what ambiguity remains, what tradeoff was exposed, and what assumption surfaced? Use Observation → Risk → One Sharp Question if you ask anything. Do not ask intake-field questions. If the founder gave role, domain/company, and geography, do not restart diagnosis; calibrate the search lane and move toward sourcing.",
+    calibration: "Adaptive mode: Calibration. The role direction is plausible and Tina should now become more decisive. Interpret the founder's latest answer, then state the committed thesis, name the practical risk, and recommend one concrete next move. Ask at most one narrow question only if it directly changes that move. Do not ask broad discovery questions. Do not ask intake-field questions. If the founder gave role, domain/company, and geography, do not restart diagnosis; calibrate the search lane and move toward sourcing.",
     execution: "Adaptive mode: Execution. The problem, role, and success criteria are clear enough. Stop diagnosing. Produce a compact role thesis, lightweight scorecard, and interview plan, then move toward candidate strategy or sourcing.",
     market_reality: "Adaptive mode: Market Reality. The issue is feasibility, pool size, compensation, timing, or an unusually difficult profile. Discuss market reality and tradeoffs. Do not over-diagnose the role.",
     sourcing: "Adaptive mode: Sourcing. The founder explicitly asked for candidates, profiles, people, or a list. Execute sourcing if possible. Do not restart discovery.",
@@ -577,6 +577,7 @@ function buildLocationAlignmentResponse(state: CanonicalSearchState) {
 function suggestSeniorityForSearch(state: CanonicalSearchState) {
   if (state.seniority && state.seniority !== "Seniority forming") return state.seniority;
   if (state.roleFamily === "product") return "Senior / Lead PM";
+  if (isEngineeringLeadershipRole(state)) return "Head / Director / VP Engineering";
   if (state.roleFamily === "engineering") return "Senior IC / Lead";
   if (state.roleFamily === "manufacturing operations") return "Senior Manager / Director";
   if (state.roleFamily === "gtm") return "Senior IC / early lead";
@@ -586,6 +587,7 @@ function suggestSeniorityForSearch(state: CanonicalSearchState) {
 function suggestCompForSearch(state: CanonicalSearchState, seniority: string) {
   if (state.compensation && state.compensation !== "Comp forming") return state.compensation;
   if (state.roleFamily === "product" && /lead|senior/i.test(seniority)) return "$180k-$260k base plus equity";
+  if (isEngineeringLeadershipRole(state)) return "$220k-$350k+ base plus equity";
   if (state.roleFamily === "engineering" && /senior|lead|staff|principal/i.test(seniority)) return "$200k-$300k+ base plus equity";
   if (state.roleFamily === "manufacturing operations") return "market-local cash comp plus relocation support if needed";
   if (state.roleFamily === "gtm") return "market base/OTE plus meaningful upside";
@@ -668,6 +670,10 @@ function hasUsefulFirstPassState(state: CanonicalSearchState) {
 function buildAdvisorNextMove(state: CanonicalSearchState) {
   const location = state.location && state.location !== "Location forming" ? state.location : "the strongest available market";
   const title = state.roleTitle.toLowerCase();
+
+  if (isEngineeringLeadershipRole(state)) {
+    return `I’d anchor this as an engineering leadership search: people who have raised technical judgment and team operating cadence, not strong ICs with impressive build proof but no leadership leverage.`;
+  }
 
   if (state.roleFamily === "engineering" && /\b(smart contract|solidity|web3|protocol)\b/.test(title)) {
     return `I’d keep the first pass anchored on shipped smart-contract or protocol work, then widen from exact Solidity titles to security-minded backend engineers if the batch is thin.`;
@@ -981,6 +987,11 @@ function readableRole(state: CanonicalSearchState) {
   if (state.roleTitle && state.roleTitle !== "Role forming") return state.roleTitle;
   if (state.roleFamily !== "other") return `${state.roleFamily} hire`;
   return "this hire";
+}
+
+function isEngineeringLeadershipRole(state: CanonicalSearchState) {
+  return state.roleFamily === "engineering" &&
+    /\b(head of engineering|vp engineering|engineering manager|engineering leadership|director of engineering)\b/i.test(state.roleTitle);
 }
 
 function collectShownProfileUrls(messages: TinaMvpMessage[]) {

@@ -276,15 +276,20 @@ const currentReadScenarios = [
       { id: "vp-sales-1", role: "founder", content: "I think we need a VP Sales." },
       { id: "vp-sales-2", role: "founder", content: "Founder-led sales is working but I can't keep closing every deal." }
     ],
-    archetype: "Founder-Led Sales Transition"
+    archetype: "Founder-Led Sales Transition",
+    expectedNextBestMove: /Separate founder-only wins from repeatable wins/i,
+    expectedActions: "Separate founder-only wins | Define sales handoff | Build scorecard"
   },
   {
     name: "Head of Eng",
     messages: [
-      { id: "head-eng-1", role: "founder", content: "I need a Head of Eng." },
-      { id: "head-eng-2", role: "founder", content: "Technical decisions keep coming back to me and shipping is slowing down." }
+      { id: "head-eng-1", role: "founder", content: "Engineering feels slow. Product keeps waiting on eng. I think we need a Head of Engineering." },
+      { id: "head-eng-2", role: "founder", content: "The team is 8 engineers. The founder still makes most technical and product priority calls." }
     ],
-    archetype: "Engineering Leadership Bottleneck"
+    archetype: "Engineering Leadership Bottleneck",
+    expectedNextBestMove: /Define the 3 decisions this hire must own without founder approval/i,
+    expectedRisk: /coordination layer, not leverage/i,
+    expectedActions: "Define decision ownership | Compare Head of Eng vs EM vs Staff+ Lead | Build scorecard"
   },
   {
     name: "Someone More Senior",
@@ -292,7 +297,9 @@ const currentReadScenarios = [
       { id: "senior-1", role: "founder", content: "I need someone more senior." },
       { id: "senior-2", role: "founder", content: "The team keeps escalating decisions and I need them to run themselves." }
     ],
-    archetype: "Senior Ownership Gap"
+    archetype: "Senior Ownership Gap",
+    expectedNextBestMove: /Define the decisions this person must own independently/i,
+    expectedActions: "Define decision ownership | Calibrate seniority | Build scorecard"
   },
   {
     name: "Generalist",
@@ -300,7 +307,9 @@ const currentReadScenarios = [
       { id: "generalist-1", role: "founder", content: "I need a generalist." },
       { id: "generalist-2", role: "founder", content: "Honestly they need to do ops, customer stuff, founder office, kind of all of it." }
     ],
-    archetype: "Role Compression / Generalist Hire"
+    archetype: "Role Compression / Generalist Hire",
+    expectedNextBestMove: /Pick the primary lane/i,
+    expectedActions: "Split the role | Pick primary lane | Compare archetypes"
   },
   {
     name: "Hire Fast",
@@ -308,7 +317,9 @@ const currentReadScenarios = [
       { id: "fast-1", role: "founder", content: "We need to hire fast." },
       { id: "fast-2", role: "founder", content: "Our lead left and I need coverage ASAP." }
     ],
-    archetype: "Urgent Hiring Triage"
+    archetype: "Urgent Hiring Triage",
+    expectedNextBestMove: /Define the 30-day coverage problem/i,
+    expectedActions: "Define 30-day coverage | Split interim vs permanent | Build triage plan"
   }
 ];
 let committedThesisCount = 0;
@@ -324,14 +335,17 @@ for (const scenario of currentReadScenarios) {
   expectAtLeast(read.calibratedScope.length, 1, `${scenario.name} should expose calibrated scope for Current Read UI`);
   expectAtLeast(read.evidence.length, 1, `${scenario.name} should carry evidence for thesis state`);
   expectAtLeast(read.openTensions.length, 1, `${scenario.name} should carry open tensions for thesis state`);
+  expectIncludes([read.nextBestMove], scenario.expectedNextBestMove, `${scenario.name} next best move should be action-oriented`);
+  if (scenario.expectedRisk) expectIncludes([read.risk], scenario.expectedRisk, `${scenario.name} risk should be practical, not generic`);
   expectIncludes([responseSketch], /Here’s what I think is really going on:/i, `${scenario.name} should commit a clear thesis by turn 2`);
   expectIncludes([responseSketch], /The next best move:/i, `${scenario.name} should include concrete next best move`);
+  expectNotIncludes([responseSketch, read.nextBestMove], /How ready are you|What would make this hire|What location\?|What level\?|What compensation\?|What companies\?/i, `${scenario.name} should not ask a broad discovery/intake question after medium confidence`);
   expectNotIncludes([read.mode], /^execution$|^sourcing$/, `${scenario.name} should not show Market Intel before execution`);
   if (read.mode === "discovery" || read.mode === "thesis") {
     expectEqual(actions.join(" | "), "Pressure-test role shape | Clarify ownership gap | Compare role archetypes", `${scenario.name} discovery/thesis actions should be mode-aware`);
   }
   if (read.mode === "calibration") {
-    expectEqual(actions.join(" | "), "Define scorecard | Build candidate archetype | Set must-have signals", `${scenario.name} calibration actions should be mode-aware`);
+    expectEqual(actions.join(" | "), scenario.expectedActions, `${scenario.name} calibration actions should match next best move`);
   }
   expectNotIncludes(actions, /Source candidates|Refine Talent Pool/i, `${scenario.name} should not show sourcing buttons before execution`);
   if (read.mode === "thesis" || read.mode === "calibration") committedThesisCount += 1;
@@ -358,6 +372,48 @@ const canonicalCases = [
       expectEqual(state.roleTitle, "Senior Software Engineer", "senior software engineer title should be canonical");
       expectEqual(state.roleFamily, "engineering", "senior software engineer should be engineering");
       expectNotEqual(state.roleFamily, "operations", "senior software engineer should not become founder office");
+    }
+  },
+  {
+    name: "head of engineering leadership canonical state",
+    messages: [
+      { id: "founder-head-eng", role: "founder", content: "I need a Head of Engineering." },
+      { id: "founder-head-eng-context", role: "founder", content: "Technical decisions keep coming back to me and shipping is slowing down." }
+    ],
+    assert(state) {
+      const context = `Canonical search state:\n${formatCanonicalSearchStateForPrompt(state)}`;
+      const queries = buildPublicTalentSearchQueries(context).join("\n");
+      const read = buildCurrentRead({ messages: [
+        { id: "founder-head-eng", role: "founder", content: "I need a Head of Engineering." },
+        { id: "founder-head-eng-context", role: "founder", content: "Technical decisions keep coming back to me and shipping is slowing down." }
+      ], canonicalSearchState: state });
+
+      expectEqual(state.roleTitle, "Head of Engineering", "Head of Engineering should preserve leadership title");
+      expectEqual(state.roleFamily, "engineering", "Head of Engineering should stay in engineering family");
+      expectIncludes(state.mustHaveSignals, /engineering leadership|technical judgment|team operating cadence/i, "engineering leadership should use leadership signals");
+      expectIncludes(state.sourceCompanyLanes, /engineering leadership|technical leaders|scaled engineering/i, "engineering leadership should use leadership source lanes");
+      expectEqual(read.thesisTitle, "Engineering Leadership Bottleneck", "current read should preserve engineering leadership thesis");
+      expectIncludes(read.calibratedScope, /Head of Engineering|engineering leadership|technical judgment|team operating cadence/i, "Current Read scope should use leadership classification");
+      expectIncludes([queries], /Head of Engineering|VP Engineering|Director of Engineering|Engineering Manager/i, "queries should target engineering leadership titles");
+      expectNotIncludes([queries], /"software engineer"|"founding engineer"|"product engineer"|"full-stack engineer"/i, "engineering leadership queries should not fall back to IC software roles");
+    }
+  },
+  {
+    name: "VP Engineering canonical state",
+    messages: [{ id: "founder-vp-eng", role: "founder", content: "We need a VP Engineering who can stabilize technical leadership." }],
+    assert(state) {
+      expectEqual(state.roleTitle, "VP Engineering", "VP Engineering should preserve leadership title");
+      expectEqual(state.roleFamily, "engineering", "VP Engineering should classify as engineering");
+      expectIncludes(state.mustHaveSignals, /engineering leadership|technical judgment|team operating cadence/i, "VP Engineering should use leadership signals");
+    }
+  },
+  {
+    name: "Engineering Manager canonical state",
+    messages: [{ id: "founder-eng-manager", role: "founder", content: "Looking for an Engineering Manager for a founder-led technical team." }],
+    assert(state) {
+      expectEqual(state.roleTitle, "Engineering Manager", "Engineering Manager should preserve management title");
+      expectEqual(state.roleFamily, "engineering", "Engineering Manager should classify as engineering");
+      expectIncludes(state.mustHaveSignals, /engineering leadership|technical judgment|team operating cadence/i, "Engineering Manager should use leadership signals");
     }
   },
   {

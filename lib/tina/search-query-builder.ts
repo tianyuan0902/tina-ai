@@ -11,6 +11,7 @@ const SEARCH_TERMS = {
   ],
   product: ["product manager", "founding product manager", "head of product", "product lead"],
   backend: ["senior backend engineer", "distributed systems engineer"],
+  engLeadership: ["Head of Engineering", "VP Engineering", "Director of Engineering", "Engineering Manager", "Engineering Lead"],
   operator: ["startup operator", "founder office operator"],
   design: ["founding product designer", "product designer"],
   gtm: ["founding account executive", "startup gtm", "sales leader", "growth operator"],
@@ -49,6 +50,10 @@ export function buildPublicTalentSearchQueries(hiringContext: string, refinement
       `site:linkedin.com/in "${terms[3] || "quality operations leader"}" "FDA" "ISO"`,
       `site:linkedin.com/in "plant manager" "scale-up" "${domain || "manufacturing"}"`
     ].slice(0, 5);
+  }
+
+  if ((canonicalFamily === "engineering" || engineeringSearch) && isEngineeringLeadershipSearch(text)) {
+    return buildEngineeringLeadershipQueries(text);
   }
 
   if ((canonicalFamily === "engineering" || engineeringSearch) && isAiInfrastructureSearch(text)) {
@@ -124,6 +129,20 @@ function buildAiInfrastructureQueries(text: string) {
   ];
 }
 
+function buildEngineeringLeadershipQueries(text: string) {
+  const location = inferLocationTerm(text);
+  const domain = inferDomainTerm(text);
+  const market = location || domain || "startup";
+
+  return [
+    `site:linkedin.com/in "Head of Engineering" "${market}" "startup" -sales -gtm`,
+    `site:linkedin.com/in "VP Engineering" "${market}" "technical leadership" -sales -revenue`,
+    `site:linkedin.com/in "Director of Engineering" "${domain || "startup"}" "${location || "engineering leadership"}"`,
+    `site:linkedin.com/in "Engineering Manager" "startup" "technical judgment" "${location || domain || ""}"`,
+    `site:linkedin.com/in "Engineering Lead" "architecture" "team" "${location || domain || "startup"}"`
+  ].slice(0, 5);
+}
+
 function isEngineeringSearch(text: string) {
   if (inferCanonicalRoleFamily(text) === "engineering") return true;
   if (/\b(pm|product manager|founding pm|head of product|product lead|account executive|sales|gtm|chief of staff|operator)\b/.test(text)) return false;
@@ -144,6 +163,11 @@ function isAiInfrastructureSearch(text: string) {
   if (/canonical role title:\s*product engineer/i.test(text)) return false;
   return /\b(ai infrastructure|ml infrastructure|machine learning infrastructure|ml platform|ai platform|platform engineer|infrastructure engineer|backend infra|backend infrastructure)\b/.test(text) ||
     (/canonical role family:\s*engineering/i.test(text) && /\b(infrastructure|platform|backend)\b/.test(text) && /\b(ai|ml|machine learning|llm)\b/.test(text));
+}
+
+function isEngineeringLeadershipSearch(text: string) {
+  return /\b(head of eng|head of engineering|vp engineering|vp of engineering|engineering manager|eng manager|engineering leadership|engineering leader|director of engineering|engineering director)\b/.test(text) ||
+    /canonical role title:\s*(head of engineering|vp engineering|engineering manager|director of engineering|engineering leadership)/i.test(text);
 }
 
 function inferLocationTerm(text: string) {
@@ -176,6 +200,7 @@ function inferRoleTerms(text: string) {
 
   if (canonicalFamily === "manufacturing operations" || isPlantSearch(text)) return SEARCH_TERMS.plant;
   if (/\bproduct\s+eng(?:ineer)?s?\b/.test(text)) return ["product engineer", "founding product engineer", "software engineer", "full-stack engineer", "AI product engineer"];
+  if (canonicalFamily === "engineering" && isEngineeringLeadershipSearch(text)) return SEARCH_TERMS.engLeadership;
   if (canonicalFamily === "engineering" && isAiInfrastructureSearch(text)) return SEARCH_TERMS.aiInfra;
   if (canonicalFamily === "engineering" && /\b(infrastructure|platform|systems|backend)\b/.test(text)) return SEARCH_TERMS.backend;
   if (canonicalFamily === "engineering") return ["software engineer", "founding engineer", "product engineer", "full-stack engineer", "ML engineer"];
