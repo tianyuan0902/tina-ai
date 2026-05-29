@@ -117,6 +117,9 @@ if (!/Every response should contain at least one observation the founder is unli
 if (!/Once you have extracted a meaningful signal, do not keep rephrasing that same signal/i.test(TINA_SYSTEM_PROMPT)) {
   throw new Error("system prompt should require thesis progression after meaningful signals.");
 }
+if (!/role thesis, a lightweight scorecard, and an interview plan/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should move high-signal conversations into role thesis, scorecard, and interview plan.");
+}
 if (!/Problem → Organization → Human → Candidate/i.test(TINA_SYSTEM_PROMPT)) {
   throw new Error("system prompt should encode the new reasoning model.");
 }
@@ -246,6 +249,8 @@ const pmThesisMessages = [
   { id: "pm-thesis-5", role: "founder", content: "Sounds great." }
 ];
 const pmWorkingThesis = buildWorkingThesis(pmThesisMessages);
+const pmCurrentRead = buildCurrentRead({ messages: pmThesisMessages });
+const pmCurrentReadActions = actionButtonsForCurrentRead(pmCurrentRead).map((action) => action.label);
 const pmWorkingThesisPrompt = formatWorkingThesisForPrompt(pmWorkingThesis);
 const pmWorkingThesisSketch = buildWorkingThesisResponseSketch(pmThesisMessages);
 
@@ -260,6 +265,8 @@ expectNotIncludes([pmWorkingThesisSketch], /founder leverage.*founder leverage|a
 expectIncludes([pmWorkingThesisSketch], /role shape|search lane|concrete/i, "agreement response sketch should move to a concrete next step");
 expectIncludes([pmWorkingThesisPrompt], /Do not repeat the latest insight/i, "working thesis prompt should prevent repeated insights");
 expectIncludes([pmWorkingThesisPrompt], /If the thesis is stable, move to recommendation/i, "working thesis prompt should move stable thesis forward");
+expectEqual(pmCurrentRead.mode, "execution", "multi-turn PM conversation should progress from diagnosis into execution");
+expectEqual(pmCurrentReadActions.join(" | "), "Create interview plan | Source against this thesis | Build search lanes", "execution actions should replace diagnostic buttons once enough signal exists");
 console.log("PASS working thesis progression");
 
 const currentReadScenarios = [

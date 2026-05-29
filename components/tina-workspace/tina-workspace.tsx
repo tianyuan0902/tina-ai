@@ -208,6 +208,7 @@ function TinaWorkspaceInner() {
   const [threads, setThreads] = useState<ChatThread[]>([stableNewRoleThread, ...initialThreads.filter((thread) => thread.id !== stableNewRoleThread.id)]);
   const [activeThreadId, setActiveThreadId] = useState(stableNewRoleThread.id);
   const [storageReady, setStorageReady] = useState(false);
+  const [storedCurrentReads, setShellCurrentReads] = useState<Record<string, CurrentRead>>({});
   const [latestSynthesis, setLatestSynthesis] = useState(
     "Tina is watching for the difference between a strong title match and a person who actually reduces founder ambiguity."
   );
@@ -217,6 +218,7 @@ function TinaWorkspaceInner() {
     let cancelled = false;
     const storedThreads = readStoredThreads();
     const sessionThread = createNewRoleThread();
+    setShellCurrentReads(readStoredCurrentReads());
 
     if (storedThreads.length) {
       setThreads([sessionThread, ...storedThreads.filter((thread) => !isBlankNewRoleThread(thread))]);
@@ -348,6 +350,7 @@ function TinaWorkspaceInner() {
         <Sidebar
           threads={threads}
           activeThreadId={activeThreadId}
+          currentReads={storedCurrentReads}
           onSelectThread={selectThread}
           onNewThread={startNewThread}
           onRenameThread={renameThread}
@@ -369,6 +372,7 @@ function TinaWorkspaceInner() {
 function Sidebar({
   threads,
   activeThreadId,
+  currentReads,
   onSelectThread,
   onNewThread,
   onRenameThread,
@@ -376,6 +380,7 @@ function Sidebar({
 }: {
   threads: ChatThread[];
   activeThreadId: string;
+  currentReads: Record<string, CurrentRead>;
   onSelectThread: (threadId: string) => void;
   onNewThread: () => void;
   onRenameThread: (threadId: string, title: string) => void;
@@ -388,7 +393,7 @@ function Sidebar({
   function startEditing(thread: ChatThread) {
     setOpenMenuThreadId(null);
     setEditingThreadId(thread.id);
-    setDraftTitle(displayThreadTitle(thread));
+    setDraftTitle(displayThreadTitle(thread, currentReads[thread.id]));
   }
 
   function finishEditing() {
@@ -436,7 +441,7 @@ function Sidebar({
               />
             ) : (
               <button type="button" onClick={() => onSelectThread(thread.id)} className="min-w-0 flex-1 text-left">
-                <p className="truncate text-sm font-medium text-[#262626]">{displayThreadTitle(thread)}</p>
+                <p className="truncate text-sm font-medium text-[#262626]">{displayThreadTitle(thread, currentReads[thread.id])}</p>
                 <p className="mt-0.5 text-xs text-[#777068]">{thread.time}</p>
               </button>
             )}
@@ -445,7 +450,7 @@ function Sidebar({
               type="button"
               onClick={() => setOpenMenuThreadId((current) => (current === thread.id ? null : thread.id))}
               className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-[#8A8178] opacity-0 transition hover:bg-white hover:text-[#171717] group-hover:opacity-100"
-              aria-label={`Conversation options for ${displayThreadTitle(thread)}`}
+              aria-label={`Conversation options for ${displayThreadTitle(thread, currentReads[thread.id])}`}
             >
               <MoreHorizontal className="h-4 w-4" />
             </button>
@@ -1098,7 +1103,11 @@ function titleFromCanonicalSearchState(state: CanonicalSearchState) {
 }
 
 function titleFromCurrentRead(read: CurrentRead) {
-  return read.thesisTitle && read.thesisTitle !== "Unknown / Needs Clarification"
+  return titleFromCurrentReadValue(read);
+}
+
+function titleFromCurrentReadValue(read?: CurrentRead) {
+  return read?.thesisTitle && read.thesisTitle !== "Unknown / Needs Clarification"
     ? read.thesisTitle
     : "";
 }
@@ -1123,7 +1132,10 @@ function shouldAutoRenameThread(thread: ChatThread) {
   return !thread.manuallyRenamed && isProvisionalThreadTitle(thread.title);
 }
 
-function displayThreadTitle(thread: ChatThread) {
+function displayThreadTitle(thread: ChatThread, currentRead?: CurrentRead) {
+  const thesisTitle = titleFromCurrentReadValue(currentRead);
+  if (thesisTitle) return thesisTitle;
+
   return shouldAutoRenameThread(thread) ? titleFromMessages(thread.messages) : thread.title;
 }
 
@@ -1556,6 +1568,7 @@ function RightIntelligenceRail({
               messages={messages}
               sourcingBatch={sourcingBatch}
               canonicalSearchState={canonicalSearchState}
+              currentRead={currentRead}
             />
           )}
         </div>
@@ -1643,7 +1656,8 @@ function MarketIntelRail({
   isClientMounted,
   messages,
   sourcingBatch,
-  canonicalSearchState
+  canonicalSearchState,
+  currentRead
 }: {
   brainState: BrainState;
   sourcingStrategy: SourcingStrategy;
@@ -1659,10 +1673,11 @@ function MarketIntelRail({
   messages: TinaMvpMessage[];
   sourcingBatch?: SourcingBatchMetadata;
   canonicalSearchState: CanonicalSearchState;
+  currentRead?: CurrentRead;
 }) {
   const sortedItems = isClientMounted ? prioritizePotentialCandidateItems(items, statuses) : [];
   const latestKeys = new Set(isClientMounted ? latestItems.map((item) => item.statusKey) : []);
-  const intel = isClientMounted ? buildMarketIntelSnapshot(canonicalSearchState, brainState, sourcingStrategy, sortedItems, messages) : emptyMarketIntelSnapshot();
+  const intel = isClientMounted ? buildMarketIntelSnapshot(canonicalSearchState, brainState, sourcingStrategy, sortedItems, messages, currentRead) : emptyMarketIntelSnapshot();
 
   return (
     <div className="grid gap-3">
@@ -1920,7 +1935,8 @@ function buildMarketIntelSnapshot(
   brainState: BrainState,
   sourcingStrategy: SourcingStrategy,
   items: ProfileLeadItem[],
-  messages: TinaMvpMessage[] = []
+  messages: TinaMvpMessage[] = [],
+  currentRead?: CurrentRead
 ): MarketIntelSnapshot {
   const leads = items.map((item) => item.lead);
   const conversationText = messages.map((message) => message.content).join(" ").toLowerCase();
@@ -1930,10 +1946,15 @@ function buildMarketIntelSnapshot(
     return emptyMarketIntelSnapshot();
   }
 
-  const scopeTitle = canonicalSearchState.roleTitle && canonicalSearchState.roleTitle !== "Role forming"
+  const thesisTitle = titleFromCurrentReadValue(currentRead);
+  const scopeTitle = thesisTitle
+    ? thesisTitle
+    : canonicalSearchState.roleTitle && canonicalSearchState.roleTitle !== "Role forming"
     ? canonicalSearchState.roleTitle
     : marketScopeTitle(brainState, sourcingStrategy);
-  const nonNegotiables = canonicalSearchState.mustHaveSignals.slice(0, 3);
+  const nonNegotiables = currentRead?.calibratedScope.length
+    ? currentRead.calibratedScope.slice(0, 3)
+    : canonicalSearchState.mustHaveSignals.slice(0, 3);
   const poolSize = canonicalSearchState.talentPoolSize !== "Forming"
     ? canonicalSearchState.talentPoolSize
     : inferPoolSize(brainState, leads, sourcingStrategy, conversationText);
@@ -1950,7 +1971,7 @@ function buildMarketIntelSnapshot(
   return {
     scopeTitle,
     nonNegotiables,
-    driftLine: inferCanonicalDrift(canonicalSearchState, sourcingStrategy),
+    driftLine: currentRead ? "" : inferCanonicalDrift(canonicalSearchState, sourcingStrategy),
     poolSize,
     dataLabel,
     locationMix,
@@ -4782,8 +4803,10 @@ function deriveSourcingStrategy(
 function buildMissionHeader(canonicalSearchState: CanonicalSearchState, messages: TinaMvpMessage[], currentRead?: CurrentRead) {
   const founderText = messages.filter((message) => message.role === "founder").map((message) => message.content).join(" ").toLowerCase();
   const allText = messages.map((message) => message.content).join(" ").toLowerCase();
-  const controlledTitle = currentRead?.thesisTitle && currentRead.thesisTitle !== "Unknown / Needs Clarification" ? currentRead.thesisTitle : "";
+  const controlledTitle = titleFromCurrentReadValue(currentRead);
   const role = compactMissionPart(controlledTitle || (currentRead ? "Unknown / Needs Clarification" : "this search"));
+  if (currentRead && !isMarketIntelMode(currentRead)) return `Finding: ${role}`;
+
   const constraints = [
     /\b(us|u\.s\.|usa|united states)\b/.test(founderText) && /\bcanada|canadian\b/.test(founderText) ? "US/Canada" : "",
     canonicalSearchState.location && !/forming/i.test(canonicalSearchState.location) ? canonicalSearchState.location : "",

@@ -105,7 +105,8 @@ export function formatCurrentReadForPrompt(read: CurrentRead) {
     read.calibratedScope.length ? `Calibrated scope: ${read.calibratedScope.join(" | ")}` : "",
     read.evidence.length ? `Evidence: ${read.evidence.join(" | ")}` : "",
     read.openTensions.length ? `Open tensions: ${read.openTensions.join(" | ")}` : "",
-    "Thesis commitment rule: after 1-2 meaningful founder answers, state what you think is really going on. Use this shape when the conversation needs crystallizing: “Here’s what I think is really going on: … This is probably not: … It is more likely: … The next best move: …”. If you cannot form a thesis yet, say exactly which missing signal prevents it. Do not keep circling discovery once this read has medium or high confidence."
+    "Thesis commitment rule: after 1-2 meaningful founder answers, state what you think is really going on. Use this shape when the conversation needs crystallizing: “Here’s what I think is really going on: … This is probably not: … It is more likely: … The next best move: …”. If you cannot form a thesis yet, say exactly which missing signal prevents it. Do not keep circling discovery once this read has medium or high confidence.",
+    "Progression rule: when mode is execution or confidence is high, stop asking broad clarifying questions. Produce a compact role thesis, a lightweight scorecard, and an interview plan. Ask only for one missing constraint if it would materially change the plan."
   ].filter(Boolean).join("\n");
 }
 
@@ -173,6 +174,7 @@ function inferCurrentReadMode(
   if (/\b(source|pull|find|show|get|build).*\b(profiles?|candidates?|people|leads?|list)\b/i.test(latestText)) return "sourcing";
   if (state?.candidateProfiles?.length) return "sourcing";
   if (/\b(scorecard|search lane|search plan|pull|source|candidates?|profiles?|ready|execute|go ahead)\b/i.test(text)) return "execution";
+  if (meaningfulSignals >= 5) return "execution";
   if (meaningfulSignals >= 3) return "calibration";
   if (meaningfulSignals >= 2) return "thesis";
   return "discovery";
