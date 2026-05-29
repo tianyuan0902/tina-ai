@@ -20,7 +20,7 @@ import { buildCanonicalSearchState, type CanonicalSearchState } from "@/lib/brai
 import type { BrainState } from "@/lib/brain/types";
 import type { ProfileLead, SourcingBatchMetadata } from "@/lib/tina/profile-lead-types";
 import { evaluateSourcingReadiness, type SourcingReadiness } from "@/lib/tina/sourcing-readiness";
-import type { CurrentRead } from "@/lib/tina-mvp/current-read";
+import { actionButtonsForCurrentRead, type CurrentRead, type CurrentReadArchetype } from "@/lib/tina-mvp/current-read";
 import type { TinaChatApiResponse, TinaMvpMessage } from "@/lib/tina-mvp/types";
 import type { WorkingThesis } from "@/lib/tina-mvp/working-thesis";
 
@@ -50,13 +50,6 @@ const stableNewRoleThread: ChatThread = {
   messages: []
 };
 const MARKET_INTEL_FORMING_TITLE = "Scope forming";
-
-const tabPromptChips = [
-  { label: "Source candidates", prompt: "Source candidates for this search." },
-  { label: "Build search lanes", prompt: "Recommend the strongest search lanes for this hire and the first pass you would run." },
-  { label: "Find people like this", prompt: "Find people like this profile." },
-  { label: "Refine Talent Pool", prompt: "Refine this search based on my Talent Pool feedback. Find another batch." }
-];
 
 const leadingQuestions = [
   { label: "Source candidates", prompt: "Source candidates for this hire." },
@@ -694,7 +687,7 @@ function HomeCommandCenter({
           return next;
         });
       }
-      onMessagesChange(finalMessages, data.currentRead ? titleFromCurrentRead(data.currentRead) : data.canonicalSearchState ? titleFromCanonicalSearchState(data.canonicalSearchState) : undefined);
+      onMessagesChange(finalMessages, data.currentRead ? titleFromCurrentRead(data.currentRead) : titleFromMessages(finalMessages));
       onSynthesis(data.message.content);
     } catch {
       const errorMessage: TinaMvpMessage = {
@@ -741,7 +734,7 @@ function HomeCommandCenter({
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[13px] font-semibold">Tina</p>
-                  <p className="mt-0.5 text-xs text-[#6F675E]">{hasCandidateResults ? "Market Intel updated on the right. Keep refining here." : "Chat first. Market Intel updates as Tina learns."}</p>
+                  <p className="mt-0.5 text-xs text-[#6F675E]">{isMarketIntelMode(currentRead) ? "Market Intel updated on the right. Keep refining here." : "Chat first. Current Read updates as Tina learns."}</p>
               </div>
               {hasCandidateResults && hiddenMessageCount > 0 ? (
                 <button
@@ -774,7 +767,7 @@ function HomeCommandCenter({
                   <div>
                     <p className="text-sm font-semibold">Tina</p>
                     <TypingStatus label={pendingActionText} />
-                    <InlineSignalRows signals={[pendingActionText || "Market Intel updating", "Talent Pool tightening"]} />
+                    <InlineSignalRows signals={[pendingActionText || (isMarketIntelMode(currentRead) ? "Market Intel updating" : "Current Read updating"), "Thesis tightening"]} />
                   </div>
                 </div>
               ) : null}
@@ -784,7 +777,7 @@ function HomeCommandCenter({
           </div>
 
           <div className="shrink-0 border-t border-[#ECE7E1] bg-[#FAF8F5] p-3">
-            <CommandInput onSubmit={sendMessage} isThinking={isThinking} hasTasteSignal={hasCandidateResults || hasFeedback} />
+            <CommandInput onSubmit={sendMessage} isThinking={isThinking} hasTasteSignal={hasCandidateResults || hasFeedback} currentRead={currentRead} />
           </div>
         </div>
         </div>
@@ -817,9 +810,19 @@ function HomeCommandCenter({
   );
 }
 
-function CommandInput({ onSubmit, isThinking, hasTasteSignal }: { onSubmit: (value: string) => void; isThinking: boolean; hasTasteSignal: boolean }) {
+function CommandInput({
+  onSubmit,
+  isThinking,
+  hasTasteSignal,
+  currentRead
+}: {
+  onSubmit: (value: string) => void;
+  isThinking: boolean;
+  hasTasteSignal: boolean;
+  currentRead?: CurrentRead;
+}) {
   const [value, setValue] = useState("");
-  const visibleChips = hasTasteSignal ? tabPromptChips : tabPromptChips.filter((chip) => chip.label !== "Find people like this");
+  const visibleChips = actionButtonsForCurrentRead(currentRead, hasTasteSignal);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -915,9 +918,9 @@ function ChatMessage({ message, signals, animate }: { message: TinaMvpMessage; s
       <TinaMark />
       <div className="min-w-0 flex-1">
         <p className="text-[13px] font-semibold">Tina</p>
-        <p className="mt-2 max-w-full whitespace-pre-line break-words text-[13px] leading-5 text-[#262626]">
+        <div className="mt-2 max-w-full overflow-visible whitespace-pre-wrap break-words text-[13px] leading-5 text-[#262626]">
           <TypedText text={message.content} animate={animate} />
-        </p>
+        </div>
         {message.profileLeads?.length ? <SourcingResultArtifact leads={message.profileLeads} sourcingBatch={message.sourcingBatch} /> : null}
         <InlineSignalRows signals={signals} />
       </div>
@@ -1082,18 +1085,10 @@ function titleFromMessages(messages: TinaMvpMessage[]) {
     .filter((message) => message.role === "founder")
     .map((message) => message.content.trim())
     .filter(Boolean);
-  const roleTitle = [...founderMessages].reverse()
-    .map((message) => extractRoleTitle(message))
-    .find(Boolean);
-
-  if (roleTitle) return roleTitle;
-
   const founderText = founderMessages.join(" ");
   if (!founderText) return "New role";
 
-  const title = compactRoleTitle(founderMessages[0] || founderText);
-
-  return title.charAt(0).toUpperCase() + title.slice(1);
+  return controlledThesisTitleFromText(founderText);
 }
 
 function titleFromCanonicalSearchState(state: CanonicalSearchState) {
@@ -1103,9 +1098,25 @@ function titleFromCanonicalSearchState(state: CanonicalSearchState) {
 }
 
 function titleFromCurrentRead(read: CurrentRead) {
-  return read.likelyArchetype && read.likelyArchetype !== "Unknown / Needs Clarification"
-    ? read.likelyArchetype
+  return read.thesisTitle && read.thesisTitle !== "Unknown / Needs Clarification"
+    ? read.thesisTitle
     : "";
+}
+
+function controlledThesisTitleFromText(value: string): CurrentReadArchetype {
+  const text = value.toLowerCase();
+  if (/\b(vp sales|head of sales|sales leader|ae\b|account executive|gtm|revenue)\b/i.test(text)) return "Founder-Led Sales Transition";
+  if (/\b(head of eng|head of engineering|engineering manager|eng leader|engineering leadership|cto|vp engineering)\b/i.test(text)) return "Engineering Leadership Bottleneck";
+  if (/\b(more senior|senior person|adult in the room|experienced|too junior|not senior enough|run themselves|autonomy|independent)\b/i.test(text)) return "Senior Ownership Gap";
+  if (/\b(generalist|chief of staff|founder.?s office|operator|wear many hats|do everything|all of it)\b/i.test(text)) return "Role Compression / Generalist Hire";
+  if (/\b(urgent|asap|fast|yesterday|panic|lost|left|need now|quickly)\b/i.test(text)) return "Urgent Hiring Triage";
+  if (/\b(pm|product manager|head of product|product lead|priorities|prioritization|alignment|product execution|ship)\b/i.test(text)) return "Product/Execution Ownership Gap";
+  if (/\b(customer ops|implementation|support|success|onboarding|customer success|deployment)\b/i.test(text)) return "Customer Ops / Implementation Gap";
+  return "Unknown / Needs Clarification";
+}
+
+function isMarketIntelMode(currentRead?: CurrentRead) {
+  return currentRead?.mode === "execution" || currentRead?.mode === "sourcing";
 }
 
 function shouldAutoRenameThread(thread: ChatThread) {
@@ -1301,12 +1312,16 @@ function isCurrentRead(value: unknown): value is CurrentRead {
   const read = value as CurrentRead;
   return (
     (read.mode === "discovery" || read.mode === "thesis" || read.mode === "calibration" || read.mode === "execution" || read.mode === "sourcing") &&
+    typeof read.thesisTitle === "string" &&
     typeof read.observation === "string" &&
     typeof read.hypothesis === "string" &&
     typeof read.risk === "string" &&
     (read.confidence === "low" || read.confidence === "medium" || read.confidence === "high") &&
     typeof read.whatWouldChangeMyMind === "string" &&
     typeof read.nextBestMove === "string" &&
+    Array.isArray(read.calibratedScope) &&
+    Array.isArray(read.evidence) &&
+    Array.isArray(read.openTensions) &&
     (typeof read.statedRole === "undefined" || typeof read.statedRole === "string") &&
     (typeof read.likelyArchetype === "undefined" || typeof read.likelyArchetype === "string")
   );
@@ -1552,12 +1567,16 @@ function RightIntelligenceRail({
 function CurrentReadRail({ currentRead }: { currentRead?: CurrentRead }) {
   const read = currentRead || {
     mode: "discovery",
+    thesisTitle: "Unknown / Needs Clarification",
     observation: "No real founder signal yet.",
     hypothesis: "The hiring problem is still unnamed.",
     risk: "If Tina commits too early, a vague role label becomes fake conviction.",
     confidence: "low",
     whatWouldChangeMyMind: "One concrete description of what is breaking today.",
     nextBestMove: "Ask what changed that makes this hire feel necessary now.",
+    calibratedScope: [],
+    evidence: [],
+    openTensions: ["the actual business problem behind the role"],
     likelyArchetype: "Unknown / Needs Clarification"
   } satisfies CurrentRead;
 
@@ -1567,12 +1586,21 @@ function CurrentReadRail({ currentRead }: { currentRead?: CurrentRead }) {
         <div className="flex items-start justify-between gap-2">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Current Read</p>
-            <h3 className="mt-2 text-base font-semibold leading-5 text-[#171717]">{read.likelyArchetype || "Unknown / Needs Clarification"}</h3>
+            <h3 className="mt-2 text-base font-semibold leading-5 text-[#171717]">{read.thesisTitle || "Unknown / Needs Clarification"}</h3>
           </div>
           <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[10px] font-medium capitalize text-[#6F675E] ring-1 ring-[#E5DCD1]">
             {read.mode}
           </span>
         </div>
+        {read.calibratedScope.length ? (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {read.calibratedScope.slice(0, 4).map((scope) => (
+              <span key={scope} className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-[#625A52] ring-1 ring-[#E5DCD1]">
+                {scope}
+              </span>
+            ))}
+          </div>
+        ) : null}
       </section>
 
       <CurrentReadField label="Observation" value={read.observation} />
@@ -1581,6 +1609,7 @@ function CurrentReadRail({ currentRead }: { currentRead?: CurrentRead }) {
       <CurrentReadField label="Confidence" value={read.confidence} />
       <CurrentReadField label="What Would Change My Mind" value={read.whatWouldChangeMyMind} />
       <CurrentReadField label="Next Best Move" value={read.nextBestMove} strong />
+      {read.openTensions.length ? <CurrentReadField label="Open Tensions" value={read.openTensions.join(" · ")} /> : null}
 
       <section className="rounded-lg border border-dashed border-[#DED5CA] bg-[#FFFCF7] p-3">
         <p className="text-xs leading-5 text-[#8A8178]">
@@ -4753,8 +4782,8 @@ function deriveSourcingStrategy(
 function buildMissionHeader(canonicalSearchState: CanonicalSearchState, messages: TinaMvpMessage[], currentRead?: CurrentRead) {
   const founderText = messages.filter((message) => message.role === "founder").map((message) => message.content).join(" ").toLowerCase();
   const allText = messages.map((message) => message.content).join(" ").toLowerCase();
-  const controlledTitle = currentRead?.likelyArchetype && currentRead.likelyArchetype !== "Unknown / Needs Clarification" ? currentRead.likelyArchetype : "";
-  const role = compactMissionPart(controlledTitle || (canonicalSearchState.roleTitle && canonicalSearchState.roleTitle !== "Role forming" ? canonicalSearchState.roleTitle : "this search"));
+  const controlledTitle = currentRead?.thesisTitle && currentRead.thesisTitle !== "Unknown / Needs Clarification" ? currentRead.thesisTitle : "";
+  const role = compactMissionPart(controlledTitle || (currentRead ? "Unknown / Needs Clarification" : "this search"));
   const constraints = [
     /\b(us|u\.s\.|usa|united states)\b/.test(founderText) && /\bcanada|canadian\b/.test(founderText) ? "US/Canada" : "",
     canonicalSearchState.location && !/forming/i.test(canonicalSearchState.location) ? canonicalSearchState.location : "",

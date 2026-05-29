@@ -16,24 +16,37 @@ export type CurrentReadArchetype =
 
 export type CurrentRead = {
   mode: CurrentReadMode;
+  thesisTitle: CurrentReadArchetype;
   observation: string;
   hypothesis: string;
   risk: string;
   confidence: "low" | "medium" | "high";
   whatWouldChangeMyMind: string;
   nextBestMove: string;
+  calibratedScope: string[];
+  evidence: string[];
+  openTensions: string[];
   statedRole?: string;
   likelyArchetype?: CurrentReadArchetype;
 };
 
+export type CurrentReadAction = {
+  label: string;
+  prompt: string;
+};
+
 const UNKNOWN_READ: CurrentRead = {
   mode: "discovery",
+  thesisTitle: "Unknown / Needs Clarification",
   observation: "No real founder signal yet.",
   hypothesis: "The hiring problem is still unnamed.",
   risk: "If Tina commits too early, the product will turn a vague role label into a fake search plan.",
   confidence: "low",
   whatWouldChangeMyMind: "One concrete description of what is breaking today.",
   nextBestMove: "Ask what changed that makes this hire feel necessary now.",
+  calibratedScope: [],
+  evidence: [],
+  openTensions: ["the actual business problem behind the role"],
   likelyArchetype: "Unknown / Needs Clarification"
 };
 
@@ -54,18 +67,23 @@ export function buildCurrentRead(input: {
   const roleFamily = input.canonicalSearchState?.roleFamily || "other";
   const statedRole = cleanStatedRole(input.canonicalSearchState?.roleTitle || "");
   const likelyArchetype = inferArchetype(text, roleFamily);
+  const openTensions = collectCurrentReadTensions(text, input.canonicalSearchState);
   const confidence = inferConfidence(meaningfulSignals, input.workingThesis?.confidence);
   const mode = inferCurrentReadMode(text, latestText, meaningfulSignals, input.canonicalSearchState);
   const read = buildReadForArchetype(likelyArchetype, text, statedRole);
 
   return {
     mode,
+    thesisTitle: likelyArchetype,
     observation: read.observation,
     hypothesis: read.hypothesis,
     risk: read.risk,
     confidence,
     whatWouldChangeMyMind: read.whatWouldChangeMyMind,
     nextBestMove: read.nextBestMove,
+    calibratedScope: collectCalibratedScope(text, input.canonicalSearchState, likelyArchetype),
+    evidence: founderMessages.map((message) => message.content.trim()).filter(Boolean).slice(-5),
+    openTensions,
     ...(statedRole ? { statedRole } : {}),
     likelyArchetype
   };
@@ -75,6 +93,7 @@ export function formatCurrentReadForPrompt(read: CurrentRead) {
   return [
     "Current Read:",
     `Mode: ${read.mode}`,
+    `Thesis title: ${read.thesisTitle}`,
     `Observation: ${read.observation}`,
     `Hypothesis: ${read.hypothesis}`,
     `Risk: ${read.risk}`,
@@ -83,12 +102,47 @@ export function formatCurrentReadForPrompt(read: CurrentRead) {
     `Next best move: ${read.nextBestMove}`,
     read.statedRole ? `Stated role: ${read.statedRole}` : "",
     read.likelyArchetype ? `Likely archetype: ${read.likelyArchetype}` : "",
+    read.calibratedScope.length ? `Calibrated scope: ${read.calibratedScope.join(" | ")}` : "",
+    read.evidence.length ? `Evidence: ${read.evidence.join(" | ")}` : "",
+    read.openTensions.length ? `Open tensions: ${read.openTensions.join(" | ")}` : "",
     "Thesis commitment rule: after 1-2 meaningful founder answers, state what you think is really going on. Use this shape when the conversation needs crystallizing: “Here’s what I think is really going on: … This is probably not: … It is more likely: … The next best move: …”. If you cannot form a thesis yet, say exactly which missing signal prevents it. Do not keep circling discovery once this read has medium or high confidence."
   ].filter(Boolean).join("\n");
 }
 
 export function currentReadTitle(read?: CurrentRead) {
-  return read?.likelyArchetype || "Unknown / Needs Clarification";
+  return read?.thesisTitle || read?.likelyArchetype || "Unknown / Needs Clarification";
+}
+
+export function actionButtonsForCurrentRead(read?: Pick<CurrentRead, "mode">, hasTasteSignal = false): CurrentReadAction[] {
+  if (!read || read.mode === "discovery" || read.mode === "thesis") {
+    return [
+      { label: "Pressure-test role shape", prompt: "Pressure-test the role shape for this hiring thesis." },
+      { label: "Clarify ownership gap", prompt: "Clarify the ownership gap behind this hire." },
+      { label: "Compare role archetypes", prompt: "Compare the likely role archetypes for this problem." }
+    ];
+  }
+
+  if (read.mode === "calibration") {
+    return [
+      { label: "Define scorecard", prompt: "Define a lightweight scorecard for this hiring thesis." },
+      { label: "Build candidate archetype", prompt: "Build the candidate archetype for this hiring thesis." },
+      { label: "Set must-have signals", prompt: "Set the must-have signals for this hire." }
+    ];
+  }
+
+  const executionActions: CurrentReadAction[] = [
+    { label: "Create interview plan", prompt: "Create an interview plan for this hiring thesis." },
+    { label: "Source against this thesis", prompt: "Source against this hiring thesis." },
+    { label: "Build search lanes", prompt: "Build search lanes for this hiring thesis." }
+  ];
+
+  if (read.mode === "execution") return executionActions;
+
+  return [
+    { label: "Source against this thesis", prompt: "Source against this hiring thesis." },
+    ...(hasTasteSignal ? [{ label: "Find people like this", prompt: "Find people like the strongest saved or selected profiles." }] : []),
+    { label: "Refine Talent Pool", prompt: "Refine this search based on my Talent Pool feedback. Find another batch." }
+  ];
 }
 
 export function buildCurrentReadResponseSketch(messages: TinaMvpMessage[]) {
@@ -220,6 +274,33 @@ function inferConfidence(meaningfulSignals: number, thesisConfidence?: WorkingTh
   if (thesisConfidence === "high" || meaningfulSignals >= 4) return "high";
   if (thesisConfidence === "medium" || meaningfulSignals >= 2) return "medium";
   return "low";
+}
+
+function collectCalibratedScope(text: string, state: CanonicalSearchState | undefined, archetype: CurrentReadArchetype) {
+  const scope = [
+    state?.roleTitle && state.roleTitle !== "Role forming" ? state.roleTitle : "",
+    state?.location && state.location !== "Location forming" ? state.location : "",
+    state?.seniority && state.seniority !== "Seniority forming" ? state.seniority : "",
+    ...(state?.mustHaveSignals || [])
+  ].filter(Boolean);
+
+  if (!scope.length && archetype !== "Unknown / Needs Clarification") scope.push(archetype);
+  if (/\bautonomy|independent|run themselves|mostly me|founder\b/i.test(text)) scope.push("decision ownership");
+  if (/\bpriorit|alignment\b/i.test(text)) scope.push("prioritization clarity");
+  if (/\burgent|asap|fast\b/i.test(text)) scope.push("speed pressure");
+
+  return Array.from(new Set(scope)).slice(0, 5);
+}
+
+function collectCurrentReadTensions(text: string, state?: CanonicalSearchState) {
+  const tensions: string[] = [];
+  if (state?.location === "Location forming") tensions.push("location / remote constraint");
+  if (state?.seniority === "Seniority forming") tensions.push("seniority and authority level");
+  if (/\bautonomy|independent|run themselves|mostly me|founder\b/i.test(text)) tensions.push("founder readiness to give away decisions");
+  if (/\bpriorit|alignment\b/i.test(text)) tensions.push("decision rights vs execution bandwidth");
+  if (/\bfast|urgent|asap|left|lost\b/i.test(text)) tensions.push("short-term coverage vs permanent role shape");
+  if (!tensions.length) tensions.push("the real problem behind the role");
+  return Array.from(new Set(tensions)).slice(0, 4);
 }
 
 function cleanStatedRole(roleTitle: string) {

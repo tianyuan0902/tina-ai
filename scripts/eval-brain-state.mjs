@@ -2,7 +2,7 @@ import { buildBrainState } from "../.tmp/eval-brain-state/lib/brain/buildBrainSt
 import { buildCanonicalSearchState, formatCanonicalSearchStateForPrompt } from "../.tmp/eval-brain-state/lib/brain/canonicalSearchState.js";
 import { evaluateSourcingReadiness } from "../.tmp/eval-brain-state/lib/tina/sourcing-readiness.js";
 import { buildExpandedPublicTalentSearchQueries, buildPublicTalentSearchQueries } from "../.tmp/eval-brain-state/lib/tina/search-query-builder.js";
-import { buildCurrentRead, buildCurrentReadResponseSketch, currentReadTitle } from "../.tmp/eval-brain-state/lib/tina-mvp/current-read.js";
+import { actionButtonsForCurrentRead, buildCurrentRead, buildCurrentReadResponseSketch, currentReadTitle } from "../.tmp/eval-brain-state/lib/tina-mvp/current-read.js";
 import { buildFounderModel, buildFounderModelResponseSketch } from "../.tmp/eval-brain-state/lib/tina-mvp/founder-model.js";
 import { buildWorkingThesis, buildWorkingThesisResponseSketch, formatWorkingThesisForPrompt } from "../.tmp/eval-brain-state/lib/tina-mvp/working-thesis.js";
 import { TINA_SYSTEM_PROMPT } from "../.tmp/eval-brain-state/lib/tina-mvp/system-prompt.js";
@@ -309,12 +309,24 @@ let concreteMoveCount = 0;
 for (const scenario of currentReadScenarios) {
   const read = buildCurrentRead({ messages: scenario.messages });
   const responseSketch = buildCurrentReadResponseSketch(scenario.messages);
+  const actions = actionButtonsForCurrentRead(read).map((action) => action.label);
   expectEqual(read.likelyArchetype, scenario.archetype, `${scenario.name} should map to controlled archetype`);
+  expectEqual(read.thesisTitle, scenario.archetype, `${scenario.name} should store thesisTitle as controlled archetype`);
   expectEqual(currentReadTitle(read), scenario.archetype, `${scenario.name} title should use controlled archetype`);
-  expectNotIncludes([read.likelyArchetype], /\b(i think|need|find|can't|every deal|asap)\b/i, `${scenario.name} should not use raw founder text as title`);
+  expectNotIncludes([read.thesisTitle], /\b(i think|need|find|can't|every deal|asap|software engineer|founder'?s office)\b/i, `${scenario.name} should not use raw or stale fallback title`);
+  expectAtLeast(read.calibratedScope.length, 1, `${scenario.name} should expose calibrated scope for Current Read UI`);
+  expectAtLeast(read.evidence.length, 1, `${scenario.name} should carry evidence for thesis state`);
+  expectAtLeast(read.openTensions.length, 1, `${scenario.name} should carry open tensions for thesis state`);
   expectIncludes([responseSketch], /Here’s what I think is really going on:/i, `${scenario.name} should commit a clear thesis by turn 2`);
   expectIncludes([responseSketch], /The next best move:/i, `${scenario.name} should include concrete next best move`);
   expectNotIncludes([read.mode], /^execution$|^sourcing$/, `${scenario.name} should not show Market Intel before execution`);
+  if (read.mode === "discovery" || read.mode === "thesis") {
+    expectEqual(actions.join(" | "), "Pressure-test role shape | Clarify ownership gap | Compare role archetypes", `${scenario.name} discovery/thesis actions should be mode-aware`);
+  }
+  if (read.mode === "calibration") {
+    expectEqual(actions.join(" | "), "Define scorecard | Build candidate archetype | Set must-have signals", `${scenario.name} calibration actions should be mode-aware`);
+  }
+  expectNotIncludes(actions, /Source candidates|Refine Talent Pool/i, `${scenario.name} should not show sourcing buttons before execution`);
   if (read.mode === "thesis" || read.mode === "calibration") committedThesisCount += 1;
   if (read.nextBestMove.length > 20) concreteMoveCount += 1;
 }
