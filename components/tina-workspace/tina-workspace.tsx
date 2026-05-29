@@ -1373,7 +1373,7 @@ function MarketIntelRail({
           )) : (
             <p className="rounded-lg border border-dashed border-[#DED5CA] bg-[#FFFCF7] px-3 py-4 text-center text-xs text-[#8A8178]">
               {sourcingBatch?.filteredCount
-                ? `Tina filtered ${sourcingBatch.filteredCount} weak or wrong-fit public results. Relax location, title, seniority, or exact industry to test second-best archetypes.`
+                ? `Tina filtered ${sourcingBatch.filteredCount} weak or wrong-fit public results. Next best: keep the real operating proof, then relax one surface constraint.`
                 : "Profiles will appear here after Tina finds role-fit matches."}
             </p>
           )}

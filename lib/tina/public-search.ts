@@ -358,6 +358,7 @@ type RoleFunction = "engineering" | "product" | "design" | "gtm" | "operations" 
 function classifyRequestedRoleFunction(hiringContext: string): RoleFunction {
   const text = hiringContext.toLowerCase();
 
+  if (/\b(plant manager|plant|factory|manufacturing|production manager|operations director|quality operations|fda|iso|medical device|pharma|regulated manufacturing)\b/.test(text)) return "operations";
   if (/\b(account executive|ae|sales|gtm|growth|revenue|business development|bd)\b/.test(text)) return "gtm";
   if (/\b(recruiter|sourcer|talent acquisition|recruiting)\b/.test(text)) return "recruiting";
   if (/\b(people|hr|human resources|people ops|head of people)\b/.test(text)) return "people";

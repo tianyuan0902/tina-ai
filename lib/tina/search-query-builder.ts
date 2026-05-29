@@ -5,7 +5,8 @@ const SEARCH_TERMS = {
   operator: ["startup operator", "founder office operator"],
   design: ["founding product designer", "product designer"],
   gtm: ["founding account executive", "startup gtm", "sales leader", "growth operator"],
-  web3: ["Solidity engineer", "smart contract engineer", "DeFi engineer", "protocol engineer"]
+  web3: ["Solidity engineer", "smart contract engineer", "DeFi engineer", "protocol engineer"],
+  plant: ["plant manager", "manufacturing operations manager", "operations director", "quality operations leader"]
 };
 
 export type PublicTalentSearchRefinement = {
@@ -25,6 +26,20 @@ export function buildPublicTalentSearchQueries(hiringContext: string, refinement
   const domainTerm = inferDomainTerm(text);
   const qualifier = positiveTerm || domainTerm;
   const engineeringSearch = isEngineeringSearch(text);
+
+  if (isPlantSearch(text)) {
+    const location = inferLocationTerm(text);
+    const domain = inferPlantDomainTerm(text);
+    const terms = roleTerms.length ? roleTerms : SEARCH_TERMS.plant;
+
+    return [
+      `site:linkedin.com/in "${terms[0]}" "${location || domain || "manufacturing"}"`,
+      `site:linkedin.com/in "${terms[1] || "manufacturing operations manager"}" "${domain || "regulated manufacturing"}"`,
+      `site:linkedin.com/in "${terms[2] || "operations director"}" "${location || "Midwest"}" "${domain || "manufacturing"}"`,
+      `site:linkedin.com/in "${terms[3] || "quality operations leader"}" "FDA" "ISO"`,
+      `site:linkedin.com/in "plant manager" "scale-up" "${domain || "manufacturing"}"`
+    ].slice(0, 5);
+  }
 
   if (engineeringSearch) {
     const engineeringTerms = roleTerms.some((term) => /\bengineer|developer\b/i.test(term))
@@ -54,6 +69,26 @@ function isEngineeringSearch(text: string) {
   return /\b(engineer|developer|software|full-stack|full stack|backend|frontend|ml engineer|ai engineer|product engineer|founding engineer|solidity|smart contract|technical founder)\b/.test(text);
 }
 
+function isPlantSearch(text: string) {
+  return /\b(plant manager|plant|factory|manufacturing|production manager|operations director|quality operations|fda|iso|medical device|pharma)\b/.test(text);
+}
+
+function inferLocationTerm(text: string) {
+  if (/\bpeoria\b/.test(text)) return "Peoria Illinois";
+  if (/\bchicago\b/.test(text)) return "Chicago";
+  if (/\bindianapolis\b/.test(text)) return "Indianapolis";
+  if (/\bsf|san francisco|bay area\b/.test(text)) return "San Francisco";
+  return "";
+}
+
+function inferPlantDomainTerm(text: string) {
+  if (/\bhealthcare|medical device|medtech\b/.test(text)) return "medical device manufacturing";
+  if (/\bpharma|biotech\b/.test(text)) return "pharma manufacturing";
+  if (/\bfood production|food manufacturing\b/.test(text)) return "food manufacturing";
+  if (/\bfda|iso|regulated\b/.test(text)) return "regulated manufacturing";
+  return "";
+}
+
 function inferDomainTerm(text: string) {
   if (/\b(nlp|document parsing|language model)\b/.test(text)) return "NLP";
   if (/\b(fintech|banking|fraud|credit|underwriting|compliance)\b/.test(text)) return "fintech";
@@ -65,6 +100,7 @@ function inferRoleTerms(text: string) {
   const explicitProductRole = /\b(pm|product manager|founding pm|head of product|product lead)\b/.test(text);
   const explicitEngineeringRole = /\b(engineer|developer|solidity|smartcontract|smart contract engineer|protocol engineer|code|coding)\b/.test(text);
 
+  if (isPlantSearch(text)) return SEARCH_TERMS.plant;
   if (/\b(operator|ops|operations|chief of staff|founder office)\b/.test(text)) return SEARCH_TERMS.operator;
   if (/\b(gtm|sales|account executive|ae|growth|revenue)\b/.test(text)) return SEARCH_TERMS.gtm;
   if (explicitProductRole) return SEARCH_TERMS.product;

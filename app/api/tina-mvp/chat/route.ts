@@ -55,12 +55,13 @@ export async function POST(request: Request) {
 
   const promisedSourcingMessage = getPromisedSourcingMessage(cleanMessages);
   const shouldRunPromisedSourcing = isSourcingConfirmationRequest(cleanMessages);
+  const shouldRunAdjacentLane = isAdjacentLaneConfirmationRequest(cleanMessages);
 
-  if (isPublicProfileSearchRequest(latestUserMessage.content) || shouldRunPromisedSourcing) {
-    const searchTriggerMessage = shouldRunPromisedSourcing ? promisedSourcingMessage || "this hiring lane" : latestUserMessage.content;
+  if (isPublicProfileSearchRequest(latestUserMessage.content) || shouldRunPromisedSourcing || shouldRunAdjacentLane) {
+    const searchTriggerMessage = shouldRunPromisedSourcing || shouldRunAdjacentLane ? promisedSourcingMessage || getPreviousTinaMessage(cleanMessages) || "this hiring lane" : latestUserMessage.content;
     const isRefinementSearch = isSourcingRefinementRequest(latestUserMessage.content) && Boolean(refinementSummary);
     const readiness = evaluateSourcingReadiness(cleanMessages);
-    const allowLowConfidenceSearch = shouldRunPromisedSourcing || /\b(source anyway|search anyway|pull anyway|continue|go ahead|show me anyway)\b/i.test(latestUserMessage.content);
+    const allowLowConfidenceSearch = shouldRunPromisedSourcing || shouldRunAdjacentLane || /\b(source anyway|search anyway|pull anyway|continue|go ahead|show me anyway)\b/i.test(latestUserMessage.content);
 
     if (readiness.readinessStatus === "needs_calibration" || (readiness.readinessStatus === "low_confidence_search" && !allowLowConfidenceSearch)) {
       return NextResponse.json({
@@ -74,7 +75,11 @@ export async function POST(request: Request) {
       });
     }
 
-    const refinement = isRefinementSearch ? buildSourcingRefinementDebug(refinementSummary, cleanMessages) : undefined;
+    const refinement = isRefinementSearch
+      ? buildSourcingRefinementDebug(refinementSummary, cleanMessages)
+      : shouldRunAdjacentLane
+        ? buildAdjacentLaneRefinement(cleanMessages)
+        : undefined;
     const hiringContext = [
       cleanMessages.map((message) => message.content).join("\n"),
       readiness.searchThesis ? `Search thesis:\n${readiness.searchThesis}` : "",
@@ -271,9 +276,9 @@ function buildProfileSearchResponse(message: string, metadata: SourcingBatchMeta
   if (validCount === 0) {
     const reason = filteredCount ? ` I filtered out ${filteredCount} false positives because ${filteredReason}.` : "";
     return [
-      `I found public results, but none passed role-fit validation.${reason}`,
-      `The exact lane is too tight for this pass, so I’d test second-best archetypes instead: local adjacent operators, same-industry leaders in nearby hubs, or one-level-up/down titles with the right operating proof.`,
-      `Which tradeoff should I relax first: location, title, seniority, or exact industry?`
+      `I found public results, but I wouldn’t put them in front of you as candidates.${reason}`,
+      buildSecondBestLaneRecommendation(message),
+      `The tradeoff is worth being explicit about: stay local and accept a slightly adjacent title, or keep the exact title and widen geography. I’d start with the first one.`
     ].join(" ");
   }
 
@@ -300,6 +305,24 @@ function buildProfileSearchResponse(message: string, metadata: SourcingBatchMeta
     validationLead || `I found ${validCount} valid public calibration ${validCount === 1 ? "profile" : "profiles"} for ${scope}.`,
     `Use Yes/No as signal, not final judgment.${qualityNote}${filteredNote}`
   ].join(" ");
+}
+
+function buildSecondBestLaneRecommendation(message: string) {
+  const text = message.toLowerCase();
+
+  if (/\b(plant|manufacturing|factory|healthcare|medical device|pharma|peoria)\b/.test(text)) {
+    return "For this search, I’d stop treating “Plant Manager in Peoria healthcare” as the only acceptable doorway. The better next option is someone who has run regulated healthcare, medical-device, pharma, or food-manufacturing operations within driving range, even if their title is Operations Director, Manufacturing Manager, or Quality Operations Lead. That keeps the hard part intact: FDA/ISO discipline, labor leadership, and rapid scale-up pressure.";
+  }
+
+  if (/\b(engineer|technical|software|ai|ml)\b/.test(text)) {
+    return "The better next option is not a looser engineer search; it’s a proof-based search. I’d look for builders with shipped product evidence first, then adjacent technical founders or product engineers whose titles are messy but whose work shows they actually built under real constraints.";
+  }
+
+  if (/\b(product|pm|designer)\b/.test(text)) {
+    return "The better next option is to search for the operating pattern, not the cleanest title. I’d compare explicit product owners against operators or designers who repeatedly turned messy customer context into decisions, then use that contrast to calibrate what kind of judgment you actually need.";
+  }
+
+  return "The better next option is to preserve the real operating proof and loosen only one surface constraint. Usually that means adjacent titles with the same work, nearby markets with more supply, or one level up/down on seniority.";
 }
 
 function buildSourcingReadinessResponse(readiness: ReturnType<typeof evaluateSourcingReadiness>) {
@@ -399,6 +422,46 @@ function isSourcingConfirmationRequest(messages: TinaMvpMessage[]) {
   return Boolean(promised);
 }
 
+function isAdjacentLaneConfirmationRequest(messages: TinaMvpMessage[]) {
+  const latest = [...messages].reverse().find((message) => message.role === "founder");
+  if (!latest || !/\b(sure|ok|okay|go ahead|sounds good|yes|yep|try that|do that|that works|show me|run it)\b/i.test(latest.content)) {
+    return false;
+  }
+
+  const previous = getPreviousTinaMessage(messages).toLowerCase();
+  return /\b(better next option|adjacent title|nearby markets|surface constraint|driving range|exact title and widen geography|operations director|manufacturing manager|quality operations)\b/.test(previous);
+}
+
+function buildAdjacentLaneRefinement(messages: TinaMvpMessage[]) {
+  const context = messages.map((message) => message.content).join(" ").toLowerCase();
+
+  if (/\b(plant|manufacturing|factory|healthcare|medical device|pharma|peoria)\b/.test(context)) {
+    return {
+      positivePatterns: [
+        "regulated healthcare manufacturing operations",
+        "FDA ISO quality operations",
+        "plant leadership within driving range"
+      ],
+      negativePatterns: ["generic startup operator", "gtm", "finance", "software product"],
+      updatedSearchThesis: "Preserve regulated manufacturing operating proof; relax exact Plant Manager title before widening geography.",
+      updatedQueries: [
+        'site:linkedin.com/in "operations director" "healthcare manufacturing" "Peoria"',
+        'site:linkedin.com/in "manufacturing operations manager" "medical device" "Illinois"',
+        'site:linkedin.com/in "plant manager" "regulated manufacturing" "Chicago"',
+        'site:linkedin.com/in "quality operations" "FDA" "ISO" "manufacturing"',
+        'site:linkedin.com/in "production manager" "medical device manufacturing" "Midwest"'
+      ]
+    };
+  }
+
+  return {
+    positivePatterns: ["same operating proof", "adjacent title", "nearby market"],
+    negativePatterns: ["wrong function", "generic title match"],
+    updatedSearchThesis: "Preserve the real operating proof and relax one surface constraint.",
+    updatedQueries: undefined
+  };
+}
+
 function getPromisedSourcingMessage(messages: TinaMvpMessage[]) {
   const latestFounderIndex = [...messages].map((message, index) => ({ message, index })).reverse().find((item) => item.message.role === "founder")?.index;
   const priorMessages = typeof latestFounderIndex === "number" ? messages.slice(0, latestFounderIndex) : messages;
@@ -410,6 +473,12 @@ function getPromisedSourcingMessage(messages: TinaMvpMessage[]) {
   const calibrationQuestion = /\b(tighten those first|hold off|would be noisy|title-shaped|what would make|what role family|should we bias)\b/i.test(content);
 
   return promisedList && !calibrationQuestion ? content : "";
+}
+
+function getPreviousTinaMessage(messages: TinaMvpMessage[]) {
+  const latestFounderIndex = [...messages].map((message, index) => ({ message, index })).reverse().find((item) => item.message.role === "founder")?.index;
+  const priorMessages = typeof latestFounderIndex === "number" ? messages.slice(0, latestFounderIndex) : messages;
+  return [...priorMessages].reverse().find((message) => message.role === "tina")?.content || "";
 }
 
 function inferRequestedScope(message: string) {
