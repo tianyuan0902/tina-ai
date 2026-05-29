@@ -406,7 +406,7 @@ function Sidebar({
   }
 
   return (
-    <aside className="flex w-32 shrink-0 flex-col border-r border-[#E6E0D8] bg-white px-2 py-4 shadow-[14px_0_44px_rgba(23,23,23,0.025)] md:w-36 lg:w-44 xl:w-52 xl:px-3">
+    <aside className="flex h-full min-h-0 w-32 shrink-0 flex-col border-r border-[#E6E0D8] bg-white px-2 py-4 shadow-[14px_0_44px_rgba(23,23,23,0.025)] md:w-36 lg:w-44 xl:w-52 xl:px-3">
       <div className="mb-5 px-2">
         <p className="font-serif text-xl font-semibold tracking-normal xl:text-2xl">Tina</p>
       </div>
@@ -420,8 +420,8 @@ function Sidebar({
         <ArrowRight className="h-4 w-4" />
       </button>
 
-      <div className="px-2 text-xs font-medium text-[#6F675E]">Conversations</div>
-      <div className="mt-3 grid min-w-0 gap-1.5">
+      <div className="shrink-0 px-2 text-xs font-medium text-[#6F675E]">Conversations</div>
+      <div className="mt-3 grid min-h-0 min-w-0 flex-1 content-start gap-1.5 overflow-y-auto overscroll-contain pb-8 pr-1">
         {threads.map((thread) => (
           <div
             key={thread.id}
