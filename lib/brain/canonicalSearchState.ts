@@ -206,6 +206,8 @@ function inferCanonicalLocation(value: string) {
   if (/\bnyc|new york\b/.test(text)) return "New York";
   if (/\bchicago\b/.test(text)) return "Chicago";
   if (/\bindianapolis\b/.test(text)) return "Indianapolis";
+  if (/\bus|u\.s\.|usa|united states\b/.test(text)) return "United States";
+  if (/\b(no location constraint|location flexible|anywhere|global|distributed)\b/.test(text)) return "Flexible / remote";
   if (/\bremote\b/.test(text) && !/\b(don't want remote|dont want remote|not remote|no remote|strictly local)\b/.test(text)) return "Remote";
   return "Location forming";
 }
@@ -221,9 +223,20 @@ function inferCanonicalSeniority(value: string, roleTitle: string) {
 
 function inferMustHaveSignals(text: string, family: CanonicalRoleFamily) {
   const signals: string[] = [];
-  if (family === "manufacturing operations") signals.push("floor leadership", "quality ownership", "people accountability");
-  if (family === "engineering") signals.push(/\binfrastructure|platform|sre\b/.test(text) ? "infrastructure depth" : "shipping proof", "technical ownership");
-  if (family === "product") signals.push("product judgment", "customer signal");
+  if (family === "manufacturing operations") {
+    if (/\bfloor|plant floor|shop floor|line leadership\b/.test(text)) signals.push("floor leadership");
+    if (/\bquality|fda|iso|regulated\b/.test(text)) signals.push("quality ownership");
+    if (/\bpeople|team|headcount|shift|labor\b/.test(text)) signals.push("people accountability");
+  }
+  if (family === "engineering") {
+    if (/\binfrastructure|platform|sre|distributed systems?\b/.test(text)) signals.push("infrastructure depth");
+    if (/\b(shipped|built|owned|delivered|production|mainnet)\b/.test(text)) signals.push("shipping proof");
+    if (/\btechnical ownership|ownership|end-to-end|end to end\b/.test(text)) signals.push("technical ownership");
+  }
+  if (family === "product") {
+    if (/\bproduct judgment|judgment|prioritization|tradeoff|trade-off\b/.test(text)) signals.push("product judgment");
+    if (/\bcustomer|user|activation|onboarding|conversion\b/.test(text)) signals.push("customer signal");
+  }
   if (/\bhealthcare|medical device|fda|iso|regulated\b/.test(text)) signals.push("regulated environment");
   if (/\brapid|scale|asap|urgent\b/.test(text)) signals.push("scale-up pace");
   return unique(signals);

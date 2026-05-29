@@ -1752,13 +1752,7 @@ function buildMarketIntelSnapshot(
   const scopeTitle = canonicalSearchState.roleTitle && canonicalSearchState.roleTitle !== "Role forming"
     ? canonicalSearchState.roleTitle
     : marketScopeTitle(brainState, sourcingStrategy);
-  const nonNegotiables = (canonicalSearchState.mustHaveSignals.length
-    ? canonicalSearchState.mustHaveSignals
-    : uniqueStrings([
-      ...sourcingStrategy.mustHaveSignals,
-      ...brainState.seekSignals,
-      ...sourcingStrategy.seek
-    ])).slice(0, 3);
+  const nonNegotiables = canonicalSearchState.mustHaveSignals.slice(0, 3);
   const poolSize = canonicalSearchState.talentPoolSize !== "Forming"
     ? canonicalSearchState.talentPoolSize
     : inferPoolSize(brainState, leads, sourcingStrategy, conversationText);

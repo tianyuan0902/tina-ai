@@ -95,6 +95,54 @@ export async function POST(request: Request) {
     });
   }
 
+  if (!shouldRunProfileSearch && isOverbroadFounderAnswer(latestUserMessage.content)) {
+    return NextResponse.json({
+      message: {
+        id: `tina-overbroad-answer-${Date.now()}`,
+        role: "tina",
+        content: buildOverbroadAnswerResponse(canonicalSearchState)
+      },
+      canonicalSearchState,
+      source: "local_conversation_move"
+    });
+  }
+
+  if (!shouldRunProfileSearch && isAlignmentSignal(latestUserMessage.content)) {
+    return NextResponse.json({
+      message: {
+        id: `tina-alignment-signal-${Date.now()}`,
+        role: "tina",
+        content: buildAlignmentSignalResponse(canonicalSearchState)
+      },
+      canonicalSearchState,
+      source: "local_conversation_move"
+    });
+  }
+
+  if (!shouldRunProfileSearch && isPartialCoverageSignal(latestUserMessage.content)) {
+    return NextResponse.json({
+      message: {
+        id: `tina-partial-coverage-${Date.now()}`,
+        role: "tina",
+        content: buildPartialCoverageResponse(canonicalSearchState)
+      },
+      canonicalSearchState,
+      source: "local_conversation_move"
+    });
+  }
+
+  if (!shouldRunProfileSearch && isAgreementOnlySignal(latestUserMessage.content)) {
+    return NextResponse.json({
+      message: {
+        id: `tina-agreement-${Date.now()}`,
+        role: "tina",
+        content: buildAgreementProgressionResponse(canonicalSearchState, cleanMessages)
+      },
+      canonicalSearchState,
+      source: "local_conversation_move"
+    });
+  }
+
   const initialReadiness = evaluateSourcingReadiness(cleanMessages);
 
   if (isBareCalibrationRequest(latestUserMessage.content) && initialReadiness.readinessStatus === "needs_calibration") {
@@ -102,7 +150,7 @@ export async function POST(request: Request) {
       message: {
         id: `tina-sourcing-readiness-${Date.now()}`,
         role: "tina",
-        content: buildSourcingReadinessResponse(initialReadiness),
+        content: buildSourcingReadinessResponse(initialReadiness, latestUserMessage.content, canonicalSearchState),
         sourcingReadiness: initialReadiness
       },
       canonicalSearchState,
@@ -115,6 +163,20 @@ export async function POST(request: Request) {
     const isRefinementSearch = isSourcingRefinementRequest(latestUserMessage.content) && Boolean(refinementSummary);
     const readiness = initialReadiness;
     const explicitSourceRequest = isPublicProfileSearchRequest(latestUserMessage.content) || shouldRunPromisedSourcing || shouldRunAdjacentLane || shouldContinueSourcing;
+
+    if (explicitSourceRequest && needsLocationAlignmentBeforeSourcing(canonicalSearchState, latestUserMessage.content)) {
+      return NextResponse.json({
+        message: {
+          id: `tina-location-before-sourcing-${Date.now()}`,
+          role: "tina",
+          content: buildLocationAlignmentResponse(canonicalSearchState),
+          sourcingReadiness: readiness
+        },
+        canonicalSearchState,
+        source: "sourcing_readiness"
+      });
+    }
+
     const allowCalibrationBatch = explicitSourceRequest && canRunCalibrationBatch(canonicalSearchState);
     const allowLowConfidenceSearch = allowCalibrationBatch || shouldRunPromisedSourcing || shouldRunAdjacentLane || shouldContinueSourcing || /\b(source anyway|search anyway|pull anyway|continue|go ahead|show me anyway)\b/i.test(latestUserMessage.content);
 
@@ -123,7 +185,7 @@ export async function POST(request: Request) {
         message: {
           id: `tina-sourcing-readiness-${Date.now()}`,
           role: "tina",
-          content: buildSourcingReadinessResponse(readiness),
+          content: buildSourcingReadinessResponse(readiness, latestUserMessage.content, canonicalSearchState),
           sourcingReadiness: readiness
         },
         canonicalSearchState,
@@ -177,10 +239,12 @@ export async function POST(request: Request) {
   const companyContext = await retrieveCompanyContext(latestUserMessage.content);
   const formattedCompanyContext = formatCompanyContext(companyContext);
   const liveJdRequest = isLiveJdRequest(latestUserMessage.content);
+  const adaptiveModeInstruction = buildAdaptiveModeInstruction(latestUserMessage.content, cleanMessages);
   const instructions = [
     TINA_SYSTEM_PROMPT,
     "If the founder gives company or product context, treat it as hiring calibration input. Infer what kinds of candidates may fit the company, product surface, customer environment, and operating stage. Do not ask why the company context matters.",
-    "For normal chat, keep the answer compact, complete, and human. Sound like you are thinking with the founder in real time. Use contractions. Avoid stiff phrases like 'there are three key dimensions' or 'the optimal approach'. Tina is an AI talent partner: sourcing is the visible output, talent judgment is the engine. If the founder gives enough signal for a useful first pass, act first and state your working assumptions. Ask only when the missing information would make the search useless. Ask at most one question per response, never a multi-part intake question. Do not ask permission for the obvious next move; make a recommendation like a Head of Talent. If the founder asks for candidates, profiles, people, top schools, top companies, SF, fintech, AI infra, PM, or Product Eng, treat it as hiring/sourcing work. Use 'I have enough for a first pass,' 'I’ll make a working assumption,' 'I’ll filter hard,' 'I’d widen title before geography,' or 'This is too thin to source well yet — give me one proof signal.' Do not say 'How is this relevant?', 'I’m missing role outcome', 'must-have signals are required', 'please provide', 'source lanes', 'calibration status', or 'canonical state'. Do not over-calibrate before showing candidates. Preserve market intel and calibration as supporting intelligence. Do not say you are pulling, sharing, or preparing a candidate list later unless actual profile leads are included in this response.",
+    "For normal chat, keep the answer compact, complete, and human. Sound like you are thinking with the founder in real time. Use contractions. Avoid stiff phrases like 'there are three key dimensions' or 'the optimal approach'. Tina is a Hiring Decision Engine: first diagnose the business problem, organizational context, and whether hiring is actually the right intervention. Your goal is to help the founder think; the task is secondary. Every response needs at least one observation the founder is unlikely to have articulated themselves. Do not merely summarize. On every follow-up, interpret the founder's latest answer before moving the workflow forward: what did it reveal, what ambiguity remains, what tradeoff was exposed, and what assumption surfaced? Once a meaningful signal has been extracted, do not keep rephrasing it; update the working hypothesis and produce a new observation. If the founder names a role but has not asked for candidates yet, do not jump to sourcing or intake fields. Ask one earned diagnostic question such as what changed, what is breaking, who owns the work now, or what fails if nobody is hired. If the founder gives enough signal for useful guidance, make the recommendation instead of asking more questions. If the founder explicitly asks for candidates, profiles, people, top schools, top companies, SF, fintech, AI infra, PM, or Product Eng, treat it as sourcing work, but do not blindly fill the req when the founder has just exposed a major unresolved tradeoff. Agreement is not permission to switch into scorecards or candidate evaluation process. Use 'I have enough for a first pass,' 'I’ll make a working assumption,' and 'I’ll filter hard' only when the tradeoff is clear enough. Do not say 'How is this relevant?', 'I’m missing role outcome', 'must-have signals are required', 'please provide', 'source lanes', 'calibration status', or 'canonical state'. Avoid 'Sounds like you need', 'The practical implication is', 'This implies', and 'scorecard'. Do not ask location, level, compensation, company lanes, or must-have skills unless the answer materially changes the recommendation. Do not say you are pulling, sharing, or preparing a candidate list later unless actual profile leads are included in this response.",
+    adaptiveModeInstruction,
     "The structured search state is the current internal truth. If it conflicts with older messages, trust that state and the founder's latest correction. Do not mention the state object. Do not describe a different role family, location, seniority, or market lane.",
     canonicalSearchStateText,
     liveJdRequest
@@ -314,7 +378,7 @@ export async function POST(request: Request) {
       message: {
         id: `tina-sourcing-readiness-${Date.now()}`,
         role: "tina",
-        content: buildSourcingReadinessResponse(readiness),
+        content: buildSourcingReadinessResponse(readiness, latestUserMessage.content, canonicalSearchState),
         sourcingReadiness: readiness
       },
       canonicalSearchState,
@@ -347,6 +411,46 @@ function isAssistantPromisingProfileList(message: string) {
   return promiseLanguage && listLanguage && !onlyOffering;
 }
 
+function buildAdaptiveModeInstruction(latestUserMessage: string, messages: TinaMvpMessage[]) {
+  const mode = inferAdaptiveMode(latestUserMessage, messages);
+  const modeGuidance: Record<string, string> = {
+    discovery: "Adaptive mode: Discovery. The founder is unsure or the root cause is unclear. Make one observation, explain why the premise needs diagnosis, and ask one sharp question about what is actually breaking. Do not source yet.",
+    calibration: "Adaptive mode: Calibration. The role direction is plausible but tradeoffs are not defined. Interpret the founder's latest answer before advancing: what does it reveal, what ambiguity remains, what tradeoff was exposed, and what assumption surfaced? Use Observation → Risk → One Sharp Question if you ask anything. Do not ask intake-field questions. If the founder gave role, domain/company, and geography, do not restart diagnosis; calibrate the search lane and move toward sourcing.",
+    execution: "Adaptive mode: Execution. The problem, role, and success criteria are clear enough. Stop diagnosing, make the recommendation, and move toward candidate strategy or sourcing.",
+    market_reality: "Adaptive mode: Market Reality. The issue is feasibility, pool size, compensation, timing, or an unusually difficult profile. Discuss market reality and tradeoffs. Do not over-diagnose the role.",
+    sourcing: "Adaptive mode: Sourcing. The founder explicitly asked for candidates, profiles, people, or a list. Execute sourcing if possible. Do not restart discovery.",
+    subjective_quality: "Adaptive mode: Calibration. The founder used subjective quality language like best, elite, top-tier, 10x, or world-class. Translate that into observable behavior before treating it as a requirement."
+  };
+
+  return modeGuidance[mode];
+}
+
+function inferAdaptiveMode(latestUserMessage: string, messages: TinaMvpMessage[]) {
+  const text = latestUserMessage.toLowerCase();
+  if (isOverbroadFounderAnswer(latestUserMessage)) return "calibration";
+  if (isPublicProfileSearchRequest(latestUserMessage) || /\b(show|pull|source|find|get|build)\b.*\b(profiles?|candidates?|people|leads?|list)\b/i.test(latestUserMessage)) return "sourcing";
+  if (/\b(best|world[-\s]?class|elite|top[-\s]?tier|10x|rockstar)\b/i.test(latestUserMessage)) return "subjective_quality";
+  if (/\b(market|feasible|realistic|comp|compensation|salary|equity|timeline|time to fill|pool|supply|hard to find|rare|one of the best)\b/i.test(latestUserMessage)) return "market_reality";
+  if (hasRoleSignal(text) && (hasDomainOrCompanySignal(text) || hasGeographySignal(text))) return "calibration";
+  if (/\b(i think|maybe|not sure|unsure|overwhelmed|don['’]?t know|who to hire|need a pm\b|need a head of product\b)\b/i.test(latestUserMessage)) return "discovery";
+  if (/\b(own|owns|nobody owns|conversion dropped|activation|reliability|bottleneck|build infrastructure|reduce founder|clear success|because)\b/i.test(latestUserMessage)) return "execution";
+
+  const founderMessages = messages.filter((message) => message.role === "founder").length;
+  return founderMessages >= 3 ? "calibration" : "discovery";
+}
+
+function hasRoleSignal(text: string) {
+  return /\b(engineer|developer|pm|product manager|designer|operator|gtm|sales|recruiter|plant manager|manager|head of|lead|chief of staff)\b/.test(text);
+}
+
+function hasDomainOrCompanySignal(text: string) {
+  return /\b(company|called|fintech|web3|crypto|protocol|smart contract|smartcontract|solidity|healthcare|ai|ml|marketplace|devtools|saas|security|payments?)\b/.test(text);
+}
+
+function hasGeographySignal(text: string) {
+  return /\b(us|u\.s\.|usa|united states|remote|sf|san francisco|bay area|new york|nyc|chicago|peoria|austin|seattle|london)\b/.test(text);
+}
+
 function shouldUseRequestCanonicalState(
   latestUserMessage: string,
   computed: CanonicalSearchState,
@@ -366,6 +470,42 @@ function canRunCalibrationBatch(state: CanonicalSearchState) {
       state.mustHaveSignals.length > 0 ||
       state.sourceCompanyLanes.length > 0
     );
+}
+
+function needsLocationAlignmentBeforeSourcing(state: CanonicalSearchState, message: string) {
+  if (state.location && state.location !== "Location forming") return false;
+  if (/\b(location flexible|no location constraint|anywhere|global|remote ok|remote is fine|distributed)\b/i.test(message)) return false;
+  return state.roleFamily !== "other" && state.roleTitle !== "Role forming";
+}
+
+function buildLocationAlignmentResponse(state: CanonicalSearchState) {
+  const role = readableRole(state);
+  const seniority = suggestSeniorityForSearch(state);
+  const comp = suggestCompForSearch(state, seniority);
+
+  return [
+    `I would not pull profiles yet — geography will change this search more than another sentence of role nuance.`,
+    `My working read is ${seniority} for ${role}: senior enough to own judgment and tradeoffs, not necessarily a full executive hire. I’d use ${comp} as a directional comp band until the market tells us otherwise.`,
+    `What location should I anchor first: SF/Bay Area, NYC, remote US, or somewhere else? Once we align that, I’ll add location, seniority, and comp to the search criteria before pulling candidates.`
+  ].join("\n\n");
+}
+
+function suggestSeniorityForSearch(state: CanonicalSearchState) {
+  if (state.seniority && state.seniority !== "Seniority forming") return state.seniority;
+  if (state.roleFamily === "product") return "Senior / Lead PM";
+  if (state.roleFamily === "engineering") return "Senior IC / Lead";
+  if (state.roleFamily === "manufacturing operations") return "Senior Manager / Director";
+  if (state.roleFamily === "gtm") return "Senior IC / early lead";
+  return "senior operator";
+}
+
+function suggestCompForSearch(state: CanonicalSearchState, seniority: string) {
+  if (state.compensation && state.compensation !== "Comp forming") return state.compensation;
+  if (state.roleFamily === "product" && /lead|senior/i.test(seniority)) return "$180k-$260k base plus equity";
+  if (state.roleFamily === "engineering" && /senior|lead|staff|principal/i.test(seniority)) return "$200k-$300k+ base plus equity";
+  if (state.roleFamily === "manufacturing operations") return "market-local cash comp plus relocation support if needed";
+  if (state.roleFamily === "gtm") return "market base/OTE plus meaningful upside";
+  return "market senior-level comp";
 }
 
 function isBareCalibrationRequest(message: string) {
@@ -410,8 +550,13 @@ function enforceAdvisorTone(text: string, state: CanonicalSearchState) {
   let cleaned = text.replace(permissionPattern, `\n\n${buildAdvisorNextMove(state)}`).trim();
   cleaned = cleaned.replace(/\bNot surprising\b/gi, "It is a hard search");
   cleaned = cleaned.replace(/\bNext move:\s*/gi, "");
+  cleaned = cleaned.replace(/\bThe practical implication is\b/gi, "The sharper read is");
+  cleaned = cleaned.replace(/\bThis implies\b/gi, "The hidden assumption is");
+  cleaned = cleaned.replace(/\bSounds like you need\b/gi, "The risk is assuming you need");
+  cleaned = cleaned.replace(/\bI['’]?d kick off with a focused scorecard[\s\S]*$/i, buildFounderPsychologyObservation(state));
+  cleaned = cleaned.replace(/\bfocused scorecard\b/gi, "working thesis");
 
-  if (hasUsefulFirstPassState(state)) {
+  if (hasUsefulFirstPassState(state) && isExecutionBiasedAnswer(cleaned)) {
     cleaned = cleaned.replace(
       /\n\n(?:What(?:'|’)?s|What is|Which|Should I|Want me to|Would you like me to|Do you want me to)[\s\S]*$/i,
       `\n\n${buildAdvisorNextMove(state)}`
@@ -419,6 +564,10 @@ function enforceAdvisorTone(text: string, state: CanonicalSearchState) {
   }
 
   return cleaned.replace(/\n{3,}/g, "\n\n");
+}
+
+function isExecutionBiasedAnswer(text: string) {
+  return /\b(i have enough|i’ll run|i'll run|i’d run|i'd run|i’ll filter|i'll filter|first pass|pull profiles|source profiles|candidate batch)\b/i.test(text);
 }
 
 function hasUsefulFirstPassState(state: CanonicalSearchState) {
@@ -530,9 +679,12 @@ function buildSecondBestLaneRecommendation(message: string) {
   return "The better next option is to preserve the real operating proof and loosen only one surface constraint. Usually that means adjacent titles with the same work, nearby markets with more supply, or one level up/down on seniority.";
 }
 
-function buildSourcingReadinessResponse(readiness: ReturnType<typeof evaluateSourcingReadiness>) {
-  const missing = (readiness.blockingMissing?.length ? readiness.blockingMissing : readiness.missingSignals).slice(0, 2).join(" and ");
-  const questions = readiness.followUpQuestions.slice(0, 1).join(" ");
+function buildSourcingReadinessResponse(
+  readiness: ReturnType<typeof evaluateSourcingReadiness>,
+  latestUserMessage: string,
+  state: CanonicalSearchState
+) {
+  const focalPoint = identifyAmbiguousFocalPoint(latestUserMessage, state);
 
   if (readiness.readinessStatus === "low_confidence_search") {
     return [
@@ -542,9 +694,62 @@ function buildSourcingReadinessResponse(readiness: ReturnType<typeof evaluateSou
   }
 
   return [
-    `That’s okay — I can start with a few assumptions, but I need one anchor so the first pass is not just decorative title matching.`,
-    questions || `What is the role/function, location, or one proof signal that would make someone worth reviewing?`
+    focalPoint.observation,
+    focalPoint.risk,
+    focalPoint.question
   ].join("\n\n");
+}
+
+function identifyAmbiguousFocalPoint(message: string, state: CanonicalSearchState) {
+  const text = message.toLowerCase();
+  const role = readableRole(state);
+
+  if (/\bbest\b/.test(text)) {
+    return {
+      observation: `The word “best” is doing too much work here.`,
+      risk: `Best PM for a founder-led zero-to-one product, best PM for scaling a known motion, and best PM for cleaning up execution are three different people.`,
+      question: `Best at what: customer discovery, product taste, execution discipline, or making the founder less central?`
+    };
+  }
+
+  if (/\b(world[-\s]?class|elite|top[-\s]?tier|10x|rockstar)\b/.test(text)) {
+    const match = message.match(/\b(world[-\s]?class|elite|top[-\s]?tier|10x|rockstar)\b/i)?.[0] || "top-tier";
+    return {
+      observation: `The phrase “${match}” is the fuzzy part.`,
+      risk: `If we leave that subjective, we’ll optimize for pedigree or charisma instead of the behavior that actually changes the team.`,
+      question: `What would make someone feel ${match}: speed of judgment, quality of taste, depth of craft, or ability to carry ambiguity?`
+    };
+  }
+
+  if (/\bpm|product manager|head of product|product lead\b/.test(text)) {
+    return {
+      observation: `“${role}” is still a broad label.`,
+      risk: `A PM who finds customer signal, a PM who drives execution, and a PM who makes the founder less central will search very differently.`,
+      question: `Which ambiguity matters most right now: customer signal, priorities, execution, or founder bottleneck?`
+    };
+  }
+
+  if (/\bengineer|developer|technical|software|platform|infrastructure\b/.test(text)) {
+    return {
+      observation: `“${role}” could mean several different building lanes.`,
+      risk: `Title-matching too early can pull people who look technical but have not done the specific kind of building you need.`,
+      question: `Which proof matters most: shipped product, infrastructure depth, technical ownership, or domain experience?`
+    };
+  }
+
+  if (/\bmanager|operator|operations|gtm|sales|designer|recruiter\b/.test(text)) {
+    return {
+      observation: `The title is less ambiguous than the job it needs to do.`,
+      risk: `If we do not name the operating problem, we may find someone impressive who solves the wrong kind of mess.`,
+      question: `What is the messy part this person needs to take off your plate first?`
+    };
+  }
+
+  return {
+    observation: `The ambiguous part is the job behind the title.`,
+    risk: `If we search from the label alone, we’ll get plausible profiles without knowing what they need to change in the company.`,
+    question: `What is the thing this person needs to make easier first?`
+  };
 }
 
 function isFounderUncertain(message: string) {
@@ -553,6 +758,116 @@ function isFounderUncertain(message: string) {
 
 function isHardSearchSignal(message: string) {
   return /\b(hard to find|hard finding|been hard|difficult to find|struggling to find|can['’]?t find|haven['’]?t found|search has been hard|sourcing.*hard)\b/i.test(message);
+}
+
+function isOverbroadFounderAnswer(message: string) {
+  return /^\s*(all of it|everything|both|all three|all four|all|yes all|probably all of it)\s*[.!?]*\s*$/i.test(message);
+}
+
+function isAlignmentSignal(message: string) {
+  return /\b(alignment|prioritization|prioritisation|priorities)\b/i.test(message) &&
+    !/\b(profile|profiles|candidate|candidates|people|source|pull|find)\b/i.test(message);
+}
+
+function buildAlignmentSignalResponse(state: CanonicalSearchState) {
+  const role = readableRole(state);
+  const productLine = state.roleFamily === "product" || /\bpm|product/i.test(state.roleTitle)
+    ? `That points to a PM who can turn messy disagreement into a decision, not just keep everyone informed.`
+    : `That points to someone who can create decision clarity, not just coordinate the room.`;
+
+  return [
+    `Alignment is usually what founders call the problem when nobody owns the final decision.`,
+    `${productLine} For a ${role}, I’d be careful not to over-index on “strong communicator” — that can become meeting fluency without real authority.`,
+    `Where does prioritization actually break today: too many inputs, unclear owner, weak product judgment, or people disagreeing and escalating back to you?`
+  ].join("\n\n");
+}
+
+function isPartialCoverageSignal(message: string) {
+  return /\b(i have|we have|there is|there's|got)\b.*\b(person|someone|pm|engineer|operator|lead)\b.*\b(not enough|isn['’]?t enough|not working|still stuck|still on me|not moving|not solving)\b/i.test(message) ||
+    /\bnot enough\b/i.test(message) && /\b(person|someone|coverage|help|pm|engineer)\b/i.test(message);
+}
+
+function isAgreementOnlySignal(message: string) {
+  return /^\s*(sounds great|sounds good|makes sense|that makes sense|great|ok|okay|yes|yeah|yep|got it|agree|agreed)\s*[.!?]*\s*$/i.test(message);
+}
+
+function buildAgreementProgressionResponse(state: CanonicalSearchState, messages: TinaMvpMessage[]) {
+  const conversationText = messages.map((message) => message.content).join(" ").toLowerCase();
+
+  if (state.roleFamily === "product" || /\bpm|product/i.test(state.roleTitle)) {
+    if (/\bautonom|run themselves|independent|decision|judgment|mostly me|founder\b/.test(conversationText)) {
+      return [
+        `One thing I’d keep in mind: founders often say they want autonomy, then struggle to give it away once they find the person.`,
+        `That is usually harder than the hiring itself. The search is not just for a PM with judgment; it is for someone you will actually let make product calls before they have earned perfect trust.`,
+        `The next useful question is not candidate evaluation yet. It is where you are most likely to pull decisions back: priorities, customer interpretation, engineering tradeoffs, or final product taste.`
+      ].join("\n\n");
+    }
+
+    return [
+      `The thesis is moving from “hire a PM” to “reduce founder decision load without adding process.”`,
+      `That is a different search. A polished roadmap person may look safe and still leave you as the real product brain.`,
+      `The next thing I’d pressure-test is where the PM needs to take real authority first: priorities, customer signal, or shipping tradeoffs.`
+    ].join("\n\n");
+  }
+
+  return [
+    `The useful part is that the hiring problem is starting to separate from the job title.`,
+    `That usually means the next risk is hiring for competence when the company actually needs leverage: someone who changes where decisions live.`,
+    `Before turning this into process, I’d pressure-test which decision you most want to stop carrying yourself.`
+  ].join("\n\n");
+}
+
+function buildFounderPsychologyObservation(state: CanonicalSearchState) {
+  if (state.roleFamily === "product" || /\bpm|product/i.test(state.roleTitle)) {
+    return [
+      `One thing I’d keep in mind: founders often say they want autonomy, then struggle to give it away once they find the person.`,
+      `That is usually harder than the hiring itself. The search is partly for PM judgment, but partly for the founder’s willingness to let that judgment stand before trust feels fully proven.`
+    ].join("\n\n");
+  }
+
+  return `One thing I’d keep in mind: the hire only creates leverage if the founder is willing to move decisions out of their own hands. That is usually harder than spotting a competent candidate.`;
+}
+
+function buildPartialCoverageResponse(state: CanonicalSearchState) {
+  const role = readableRole(state);
+
+  if (state.roleFamily === "product" || /\bpm|product/i.test(state.roleTitle)) {
+    return [
+      `Having a person but still feeling the gap usually means the missing thing is authority, judgment, or leverage — not raw PM bandwidth.`,
+      `The risk is hiring another ${role} who reports information back to you instead of taking work off your plate. I’d want to know whether the current person is blocked by skill, mandate, or the founder still being the real decision-maker.`,
+      `What can they not own end-to-end today: choosing priorities, saying no, driving engineering, or making product calls without you?`
+    ].join("\n\n");
+  }
+
+  return [
+    `Having someone in the seat but still feeling the gap usually means the role is missing leverage, not effort.`,
+    `The risk is adding another similar profile and accidentally increasing coordination load while the real bottleneck stays with you.`,
+    `What is the current person unable to take off your plate: decisions, execution, team pressure, or customer/context judgment?`
+  ].join("\n\n");
+}
+
+function buildOverbroadAnswerResponse(state: CanonicalSearchState) {
+  if (state.roleFamily === "product" || /\bpm|product/i.test(state.roleTitle)) {
+    return [
+      `That answer is useful, but not because it resolves the search.`,
+      `It tells me this PM role is carrying too many jobs: customer discovery, product taste, execution discipline, and probably some founder leverage. The tradeoff is real — one person can be strong across two or three of those, but if we screen for all of them equally, we’ll either end up with a very expensive Head of Product profile or a polished generalist who is not actually great at the hard part.`,
+      `I’d force the first cut: do you need this person to find the right thing, decide the right thing, or get the right thing shipped?`
+    ].join("\n\n");
+  }
+
+  if (state.roleFamily === "engineering") {
+    return [
+      `That answer is a signal: the role is probably carrying more surface area than one hire can cleanly own.`,
+      `The tradeoff is depth versus coverage. If we screen for every technical strength at once, we’ll get impressive profiles but not necessarily the person who solves the bottleneck.`,
+      `What matters most first: architecture depth, shipping speed, technical leadership, or domain proof?`
+    ].join("\n\n");
+  }
+
+  return [
+    `That tells me the role is still doing too much work in your head.`,
+    `The risk is not that the requirement is wrong; it’s that we search for a universal candidate and lose the actual problem this person needs to solve.`,
+    `What would you rather protect first: speed, judgment, craft depth, or taking work off the founder?`
+  ].join("\n\n");
 }
 
 function buildFounderUncertainResponse(state: CanonicalSearchState) {

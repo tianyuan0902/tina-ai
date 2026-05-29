@@ -41,7 +41,7 @@ export function evaluateSourcingReadiness(messages: TinaMvpMessage[] | string): 
       label: "role outcome",
       points: 20,
       present: /\b(solve|own|owns|responsible|outcome|first 30|first 60|first 90|problem|bottleneck|reduce|improve|ship|build|deliver|delivery|mainnet|production|clarity|customer|revenue|quality|execution)\b/i.test(text),
-      question: "What would make this hire a clear yes in the first 30-60 days?"
+      question: "Which part is most ambiguous right now: the role, the problem, or the bar?"
     },
     {
       label: "target function/title",
@@ -106,11 +106,11 @@ export function evaluateSourcingReadiness(messages: TinaMvpMessage[] | string): 
 }
 
 function hasLocationOrRemoteSignal(text: string) {
-  return /\b(remote|hybrid|onsite|sf|san francisco|bay area|new york|nyc|austin|seattle|london|chicago|peoria|location|timezone|no location constraint|location flexible|remote ok|remote is fine)\b/i.test(text);
+  return /\b(remote|hybrid|onsite|sf|san francisco|bay area|new york|nyc|austin|seattle|london|chicago|peoria|us|u\.s\.|usa|united states|location|timezone|no location constraint|location flexible|remote ok|remote is fine)\b/i.test(text);
 }
 
 function hasProofDomainOrOutcomeSignal(text: string, roleFamily: string) {
-  if (/\b(fintech|healthcare|ai|llm|ml|machine learning|regulated|security|infra|infrastructure|platform|backend|distributed|customer|workflow|startup|seed|series [abc]|shipped|built|owned|led|deliver|production|quality|fda|iso|mainnet|defi|web3)\b/i.test(text)) return true;
+  if (/\b(fintech|healthcare|ai|llm|ml|machine learning|regulated|security|infra|infrastructure|platform|backend|distributed|customer|workflow|startup|seed|series [abc]|shipped|built|owned|led|deliver|production|quality|fda|iso|mainnet|defi|web3|crypto|protocol|smart contract|smartcontract|solidity|company is called|company called)\b/i.test(text)) return true;
   if (/\b(solve|own|owns|responsible|outcome|problem|bottleneck|reduce|improve|ship|build|delivery|clarity|revenue|execution)\b/i.test(text)) return true;
   return roleFamily !== "general" && /\b(senior|founding|staff|principal|lead|head)\b/i.test(text);
 }

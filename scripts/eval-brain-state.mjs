@@ -75,6 +75,15 @@ const readinessCases = [
       expectAtLeast(readiness.blockingMissing.length, 1, "vague PM should have a true blocker");
       expectEqual(readiness.followUpQuestions.length, 1, "vague PM should ask only one sharp question");
     }
+  },
+  {
+    name: "smart contract bridge US is calibration not discovery",
+    input: "Find me a smart contract engineer in US, my company is called bridge.xyz.",
+    assert(readiness) {
+      expectIncludes(["low_confidence_search", "ready_to_source"], readiness.readinessStatus, "smart contract + company + geography should be enough for calibration");
+      expectEqual(readiness.blockingMissing.length, 0, "smart contract bridge request should not restart discovery with blockers");
+      expectEqual(readiness.followUpQuestions.length, 0, "smart contract bridge request should not ask intake questions from readiness");
+    }
   }
 ];
 
@@ -87,8 +96,85 @@ for (const testCase of readinessCases) {
 if (!/do not ask permission for the obvious next recruiting move/i.test(TINA_SYSTEM_PROMPT)) {
   throw new Error("system prompt should tell Tina not to ask permission for obvious recruiting moves.");
 }
-if (!/Head of Talent/i.test(TINA_SYSTEM_PROMPT)) {
-  throw new Error("system prompt should position Tina as a Head of Talent style advisor.");
+if (!/Hiring Decision Engine/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should position Tina as a Hiring Decision Engine.");
+}
+if (!/not an AI recruiter, ATS, sourcing assistant, or intake form/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should explicitly distinguish Tina from recruiting/sourcing tools.");
+}
+if (!/Hiring is only one possible outcome/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should say hiring is only one possible outcome.");
+}
+if (!/Help the founder think\. The task is secondary/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should make helping the founder think primary.");
+}
+if (!/Every response should contain at least one observation the founder is unlikely to have articulated themselves/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should require opinion density in every response.");
+}
+if (!/Once you have extracted a meaningful signal, do not keep rephrasing that same signal/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should require thesis progression after meaningful signals.");
+}
+if (!/Problem → Organization → Human → Candidate/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should encode the new reasoning model.");
+}
+if (!/diagnose before sourcing/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should require diagnosis before sourcing.");
+}
+if (!/what happens if nobody is hired/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should explore whether a hire is actually needed.");
+}
+if (!/Adaptive advisor engine/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should include the adaptive advisor engine.");
+}
+for (const modeName of ["Discovery mode", "Calibration mode", "Execution mode", "Market Reality mode", "Sourcing mode"]) {
+  if (!TINA_SYSTEM_PROMPT.includes(modeName)) {
+    throw new Error(`system prompt should define ${modeName}.`);
+  }
+}
+if (!/assess founder clarity, problem clarity, role clarity, hiring confidence, and market reality/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should assess clarity and market reality before choosing behavior.");
+}
+if (!/Challenge ambiguity, not the founder/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should challenge ambiguity, not founders.");
+}
+if (!/best, world-class, elite, top-tier, 10x, or rockstar/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should handle subjective quality language.");
+}
+if (!/Ask only when the answer would materially change your recommendation/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should require questions to materially change recommendations.");
+}
+if (!/most ambiguous word, assumption, or requirement/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should make the ambiguous word or assumption the focal point.");
+}
+if (!/what does it reveal, what ambiguity remains, what tradeoff was exposed, and what assumption surfaced/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should require interpreting founder answers before workflow progress.");
+}
+if (!/agreement is not permission to switch into process/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should keep agreement turns advisory, not process-driven.");
+}
+if (!/before pulling real public profiles, location or remote\/geography must be aligned/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should require location alignment before public profile pulls.");
+}
+if (!/suggest likely seniority and directional comp/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should propose seniority and comp before sourcing when location is missing.");
+}
+if (!/Founders often say they want autonomy, then struggle to give it away/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should include founder-psychology autonomy insight.");
+}
+if (!/Alignment.*nobody owns the final decision/is.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should include non-obvious alignment insight.");
+}
+if (!/reports information back to you instead of taking work off your plate/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should include non-obvious independent PM insight.");
+}
+if (!/Do not default to "what success looks like"/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should ban default success-looking questions.");
+}
+if (!/Observation → Risk → One Sharp Question/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should require observation, risk, then one sharp question before asking.");
+}
+if (!/role \+ domain\/company \+ geography/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should treat role + domain/company + geography as calibration, not discovery.");
 }
 if (!/plausibly about profiles, candidates, people, roles, sourcing/i.test(TINA_SYSTEM_PROMPT)) {
   throw new Error("system prompt should treat plausible sourcing and candidate asks as in-scope.");
@@ -105,6 +191,9 @@ if (!/Start with a human acknowledgement or direct read/i.test(TINA_SYSTEM_PROMP
 if (/ask briefly why it is relevant|How is this relevant\?/i.test(TINA_SYSTEM_PROMPT)) {
   throw new Error("system prompt should not tell Tina to challenge relevance for plausible hiring asks.");
 }
+if (/I’d kick off with a focused scorecard/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should not encourage scorecard/process mode on agreement.");
+}
 if (!/when the founder says they do not know yet/i.test(TINA_SYSTEM_PROMPT)) {
   throw new Error("system prompt should have a natural move for founder uncertainty.");
 }
@@ -116,6 +205,9 @@ if (/Not surprising/i.test(TINA_SYSTEM_PROMPT)) {
 }
 if (!/"Next move:"/i.test(TINA_SYSTEM_PROMPT)) {
   throw new Error("system prompt should explicitly ban the mechanical Next move label.");
+}
+if (!/What location\?|What level\?|What compensation\?/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should explicitly avoid transactional intake questions.");
 }
 console.log("PASS advisor tone prompt guard");
 
@@ -295,6 +387,18 @@ const canonicalCases = [
       expectEqual(state.location, "San Francisco", "SF should normalize to San Francisco");
       expectIncludes([queries], /product engineer/i, "sourcing queries should target product engineers");
       expectNotIncludes([queries], /AI Infrastructure Engineer/i, "latest product eng request should not keep stale AI infra title");
+    }
+  },
+  {
+    name: "smart contract bridge scope stays light",
+    messages: [
+      { id: "founder-smart-contract-bridge", role: "founder", content: "Find me a smart contract engineer in US, my company is called bridge.xyz." }
+    ],
+    assert(state) {
+      expectEqual(state.roleTitle, "Smart Contract Engineer", "smart contract request should set role title");
+      expectEqual(state.roleFamily, "engineering", "smart contract engineer should be engineering");
+      expectEqual(state.location, "United States", "US should normalize to United States");
+      expectNotIncludes(state.mustHaveSignals, /shipping proof|technical ownership/i, "scope chips should not invent strong proof signals");
     }
   }
 ];
