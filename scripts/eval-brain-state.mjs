@@ -3,6 +3,7 @@ import { buildCanonicalSearchState, formatCanonicalSearchStateForPrompt } from "
 import { evaluateSourcingReadiness } from "../.tmp/eval-brain-state/lib/tina/sourcing-readiness.js";
 import { buildExpandedPublicTalentSearchQueries, buildPublicTalentSearchQueries } from "../.tmp/eval-brain-state/lib/tina/search-query-builder.js";
 import { buildFounderModel, buildFounderModelResponseSketch } from "../.tmp/eval-brain-state/lib/tina-mvp/founder-model.js";
+import { buildWorkingThesis, buildWorkingThesisResponseSketch, formatWorkingThesisForPrompt } from "../.tmp/eval-brain-state/lib/tina-mvp/working-thesis.js";
 import { TINA_SYSTEM_PROMPT } from "../.tmp/eval-brain-state/lib/tina-mvp/system-prompt.js";
 
 const cases = [
@@ -235,6 +236,30 @@ expectAtMost(overlap, 0.5, "founder-model response overlap should not exceed 50%
 expectIncludes([founderResponseA], /previous company|founder leverage|40 people|routing back/i, "repeat founder response should use repeat-founder failure mode");
 expectIncludes([founderResponseB], /first startup|\$3M|founder overload|product signal/i, "first-time founder response should use first-time-founder failure mode");
 console.log("PASS founder model response differentiation");
+
+const pmThesisMessages = [
+  { id: "pm-thesis-1", role: "founder", content: "I need a PM." },
+  { id: "pm-thesis-2", role: "founder", content: "Priorities." },
+  { id: "pm-thesis-3", role: "founder", content: "Mostly me." },
+  { id: "pm-thesis-4", role: "founder", content: "I need them to run themselves." },
+  { id: "pm-thesis-5", role: "founder", content: "Sounds great." }
+];
+const pmWorkingThesis = buildWorkingThesis(pmThesisMessages);
+const pmWorkingThesisPrompt = formatWorkingThesisForPrompt(pmWorkingThesis);
+const pmWorkingThesisSketch = buildWorkingThesisResponseSketch(pmThesisMessages);
+
+expectIncludes([pmWorkingThesis.currentHypothesis], /senior independent|independent thinker|coordinator/i, "working thesis should update toward senior independent product thinker");
+expectIncludes(pmWorkingThesis.evidence, /I need a PM/i, "working thesis should track initial PM evidence");
+expectIncludes(pmWorkingThesis.evidence, /Mostly me/i, "working thesis should track founder bottleneck evidence");
+expectIncludes(pmWorkingThesis.evidence, /run themselves/i, "working thesis should track autonomy evidence");
+expectIncludes(pmWorkingThesis.resolvedSignals, /prioritization|founder|independent|accepted/i, "working thesis should track resolved signals");
+expectIncludes(pmWorkingThesis.openTensions, /location|authority|decision/i, "working thesis should track unresolved tensions");
+expectIncludes([pmWorkingThesis.latestInsight], /Agreement added no new evidence|advance/i, "agreement should advance instead of rediagnose");
+expectNotIncludes([pmWorkingThesisSketch], /founder leverage.*founder leverage|autonomy.*autonomy|judgment.*judgment/i, "agreement response sketch should not repeat the same diagnosis");
+expectIncludes([pmWorkingThesisSketch], /role shape|search lane|concrete/i, "agreement response sketch should move to a concrete next step");
+expectIncludes([pmWorkingThesisPrompt], /Do not repeat the latest insight/i, "working thesis prompt should prevent repeated insights");
+expectIncludes([pmWorkingThesisPrompt], /If the thesis is stable, move to recommendation/i, "working thesis prompt should move stable thesis forward");
+console.log("PASS working thesis progression");
 
 const canonicalCases = [
   {

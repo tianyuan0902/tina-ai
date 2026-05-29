@@ -7,6 +7,7 @@ import { getRequestedProfileCount, searchPublicProfileBatch } from "@/lib/tina/p
 import { evaluateSourcingReadiness } from "@/lib/tina/sourcing-readiness";
 import { buildFounderModel, formatFounderModelForPrompt } from "@/lib/tina-mvp/founder-model";
 import { TINA_SYSTEM_PROMPT } from "@/lib/tina-mvp/system-prompt";
+import { buildWorkingThesis, buildWorkingThesisWithAssistant, formatWorkingThesisForPrompt, type WorkingThesis } from "@/lib/tina-mvp/working-thesis";
 import type { ProfileLead, SourcingBatchMetadata } from "@/lib/tina/profile-lead-types";
 import type { TinaMvpMessage } from "@/lib/tina-mvp/types";
 
@@ -21,10 +22,11 @@ type OpenAIInputMessage = {
 };
 
 export async function POST(request: Request) {
-  const { messages, sourcingRefinementSummary, canonicalSearchState: requestCanonicalSearchState } = (await request.json()) as {
+  const { messages, sourcingRefinementSummary, canonicalSearchState: requestCanonicalSearchState, workingThesis: requestWorkingThesis } = (await request.json()) as {
     messages?: TinaMvpMessage[];
     sourcingRefinementSummary?: string;
     canonicalSearchState?: CanonicalSearchState;
+    workingThesis?: WorkingThesis;
   };
   const cleanMessages = normalizeMessages(messages);
   const latestUserMessage = [...cleanMessages].reverse().find((message) => message.role === "founder");
@@ -39,6 +41,11 @@ export async function POST(request: Request) {
   const canonicalSearchStateText = formatCanonicalSearchStateForPrompt(canonicalSearchState);
   const founderModel = buildFounderModel(cleanMessages, canonicalSearchState);
   const founderModelText = formatFounderModelForPrompt(founderModel);
+  const computedWorkingThesis = buildWorkingThesis(cleanMessages, canonicalSearchState);
+  const workingThesis = shouldUseRequestWorkingThesis(latestUserMessage?.content || "", computedWorkingThesis, requestWorkingThesis)
+    ? requestWorkingThesis!
+    : computedWorkingThesis;
+  const workingThesisText = formatWorkingThesisForPrompt(workingThesis);
 
   if (!cleanMessages.length || !latestUserMessage) {
     return NextResponse.json({ error: "No founder message was provided." }, { status: 400 });
@@ -58,6 +65,7 @@ export async function POST(request: Request) {
         content: "That’s outside Tina’s lane. Bring me back to the hire, the team, or the talent question and I’ll be useful."
       },
       canonicalSearchState,
+      workingThesis,
       source: "local_scope_guard"
     });
   }
@@ -70,6 +78,7 @@ export async function POST(request: Request) {
         content: "Got it. I’ll treat those as the wrong lane. What should I bias toward instead: PM, operator, GTM, designer, founder-adjacent generalist, or something more specific?"
       },
       canonicalSearchState,
+      workingThesis,
       source: "local_profile_feedback"
     });
   }
@@ -82,6 +91,7 @@ export async function POST(request: Request) {
         content: buildFounderUncertainResponse(canonicalSearchState)
       },
       canonicalSearchState,
+      workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildFounderUncertainResponse(canonicalSearchState), canonicalSearchState),
       source: "local_conversation_move"
     });
   }
@@ -94,6 +104,7 @@ export async function POST(request: Request) {
         content: buildHardSearchResponse(canonicalSearchState)
       },
       canonicalSearchState,
+      workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildHardSearchResponse(canonicalSearchState), canonicalSearchState),
       source: "local_conversation_move"
     });
   }
@@ -106,6 +117,7 @@ export async function POST(request: Request) {
         content: buildOverbroadAnswerResponse(canonicalSearchState)
       },
       canonicalSearchState,
+      workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildOverbroadAnswerResponse(canonicalSearchState), canonicalSearchState),
       source: "local_conversation_move"
     });
   }
@@ -118,6 +130,7 @@ export async function POST(request: Request) {
         content: buildAlignmentSignalResponse(canonicalSearchState)
       },
       canonicalSearchState,
+      workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildAlignmentSignalResponse(canonicalSearchState), canonicalSearchState),
       source: "local_conversation_move"
     });
   }
@@ -130,6 +143,7 @@ export async function POST(request: Request) {
         content: buildPartialCoverageResponse(canonicalSearchState)
       },
       canonicalSearchState,
+      workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildPartialCoverageResponse(canonicalSearchState), canonicalSearchState),
       source: "local_conversation_move"
     });
   }
@@ -142,6 +156,7 @@ export async function POST(request: Request) {
         content: buildAgreementProgressionResponse(canonicalSearchState, cleanMessages)
       },
       canonicalSearchState,
+      workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildAgreementProgressionResponse(canonicalSearchState, cleanMessages), canonicalSearchState),
       source: "local_conversation_move"
     });
   }
@@ -157,6 +172,7 @@ export async function POST(request: Request) {
         sourcingReadiness: initialReadiness
       },
       canonicalSearchState,
+      workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildSourcingReadinessResponse(initialReadiness, latestUserMessage.content, canonicalSearchState), canonicalSearchState),
       source: "sourcing_readiness"
     });
   }
@@ -176,6 +192,7 @@ export async function POST(request: Request) {
           sourcingReadiness: readiness
         },
         canonicalSearchState,
+        workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildLocationAlignmentResponse(canonicalSearchState), canonicalSearchState),
         source: "sourcing_readiness"
       });
     }
@@ -192,6 +209,7 @@ export async function POST(request: Request) {
           sourcingReadiness: readiness
         },
         canonicalSearchState,
+        workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildSourcingReadinessResponse(readiness, latestUserMessage.content, canonicalSearchState), canonicalSearchState),
         source: "sourcing_readiness"
       });
     }
@@ -204,6 +222,7 @@ export async function POST(request: Request) {
     const hiringContext = [
       `Canonical search state:\n${canonicalSearchStateText}`,
       founderModelText,
+      workingThesisText,
       cleanMessages.map((message) => message.content).join("\n"),
       readiness.searchThesis ? `Search thesis:\n${readiness.searchThesis}` : "",
       refinementSummary ? `Talent Pool feedback summary for sourcing refinement:\n${refinementSummary}` : "",
@@ -234,6 +253,7 @@ export async function POST(request: Request) {
         sourcingReadiness: readiness
       },
       canonicalSearchState: responseCanonicalSearchState,
+      workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildProfileSearchResponse(shouldRunPromisedSourcing ? "this hiring lane" : latestUserMessage.content, metadata, isRefinementSearch), responseCanonicalSearchState),
       profileLeads,
       source: "public_search"
     });
@@ -250,6 +270,7 @@ export async function POST(request: Request) {
     "For normal chat, keep the answer compact, complete, and human. Sound like you are thinking with the founder in real time. Use contractions. Avoid stiff phrases like 'there are three key dimensions' or 'the optimal approach'. Tina is a Hiring Decision Engine: first diagnose the business problem, organizational context, and whether hiring is actually the right intervention. Your goal is to help the founder think; the task is secondary. Every response needs at least one observation the founder is unlikely to have articulated themselves. Do not merely summarize. On every follow-up, interpret the founder's latest answer before moving the workflow forward: what did it reveal, what ambiguity remains, what tradeoff was exposed, and what assumption surfaced? Once a meaningful signal has been extracted, do not keep rephrasing it; update the working hypothesis and produce a new observation. If the founder names a role but has not asked for candidates yet, do not jump to sourcing or intake fields. Ask one earned diagnostic question such as what changed, what is breaking, who owns the work now, or what fails if nobody is hired. If the founder gives enough signal for useful guidance, make the recommendation instead of asking more questions. If the founder explicitly asks for candidates, profiles, people, top schools, top companies, SF, fintech, AI infra, PM, or Product Eng, treat it as sourcing work, but do not blindly fill the req when the founder has just exposed a major unresolved tradeoff. Agreement is not permission to switch into scorecards or candidate evaluation process. Use 'I have enough for a first pass,' 'I’ll make a working assumption,' and 'I’ll filter hard' only when the tradeoff is clear enough. Do not say 'How is this relevant?', 'I’m missing role outcome', 'must-have signals are required', 'please provide', 'source lanes', 'calibration status', or 'canonical state'. Avoid 'Sounds like you need', 'The practical implication is', 'This implies', and 'scorecard'. Do not ask location, level, compensation, company lanes, or must-have skills unless the answer materially changes the recommendation. Do not say you are pulling, sharing, or preparing a candidate list later unless actual profile leads are included in this response.",
     adaptiveModeInstruction,
     founderModelText,
+    workingThesisText,
     "The structured search state is the current internal truth. If it conflicts with older messages, trust that state and the founder's latest correction. Do not mention the state object. Do not describe a different role family, location, seniority, or market lane.",
     canonicalSearchStateText,
     liveJdRequest
@@ -299,6 +320,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       message: buildLocalFallbackMessage(cleanMessages, "missing_api_key"),
       canonicalSearchState,
+      workingThesis,
       source: "local_fallback",
       debugCode: "missing_api_key"
     });
@@ -311,6 +333,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       message: buildLocalFallbackMessage(cleanMessages, "network_error"),
       canonicalSearchState,
+      workingThesis,
       source: "local_fallback",
       debugCode: "network_error"
     });
@@ -326,6 +349,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       message: buildLocalFallbackMessage(cleanMessages, debugCode),
       canonicalSearchState,
+      workingThesis,
       source: "local_fallback",
       debugCode
     });
@@ -338,6 +362,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       message: buildLocalFallbackMessage(cleanMessages, "empty_response"),
       canonicalSearchState,
+      workingThesis,
       source: "local_fallback",
       debugCode: "empty_response"
     });
@@ -352,6 +377,7 @@ export async function POST(request: Request) {
       const requestedCount = getRequestedProfileCount(`${latestUserMessage.content}\n${advisorText}`);
       const hiringContext = [
         `Canonical search state:\n${canonicalSearchStateText}`,
+        workingThesisText,
         cleanMessages.map((message) => message.content).join("\n"),
         `Tina said she was pulling a shortlist; convert that promise into actual public profile sourcing.`,
         readiness.searchThesis ? `Search thesis:\n${readiness.searchThesis}` : "",
@@ -374,6 +400,7 @@ export async function POST(request: Request) {
           sourcingReadiness: readiness
         },
         canonicalSearchState: responseCanonicalSearchState,
+        workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildProfileSearchResponse("this hiring lane", metadata, false), responseCanonicalSearchState),
         profileLeads,
         source: "public_search"
       });
@@ -387,6 +414,7 @@ export async function POST(request: Request) {
         sourcingReadiness: readiness
       },
       canonicalSearchState,
+      workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildSourcingReadinessResponse(readiness, latestUserMessage.content, canonicalSearchState), canonicalSearchState),
       source: "sourcing_readiness"
     });
   }
@@ -400,6 +428,7 @@ export async function POST(request: Request) {
       content: advisorText
     },
     canonicalSearchState,
+    workingThesis: buildWorkingThesisWithAssistant(cleanMessages, advisorText, canonicalSearchState),
     source: "openai",
     responseId: data.id
   });
@@ -465,6 +494,16 @@ function shouldUseRequestCanonicalState(
   if (!isPublicProfileSearchRequest(latestUserMessage) && !/^\s*(yes|sure|go ahead|ok|okay|do it)\s*[.!?]*\s*$/i.test(latestUserMessage)) return false;
   if (computed.roleFamily !== "other" && computed.roleTitle !== "Role forming") return false;
   return provided.roleFamily !== "other" && provided.roleTitle !== "Role forming";
+}
+
+function shouldUseRequestWorkingThesis(
+  latestUserMessage: string,
+  computed: WorkingThesis,
+  provided?: WorkingThesis
+) {
+  if (!provided) return false;
+  if (computed.evidence.length >= provided.evidence.length) return false;
+  return /^\s*(yes|sure|go ahead|ok|okay|sounds good|sounds great|great|makes sense)\s*[.!?]*\s*$/i.test(latestUserMessage);
 }
 
 function canRunCalibrationBatch(state: CanonicalSearchState) {

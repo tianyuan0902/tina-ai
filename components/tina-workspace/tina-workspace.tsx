@@ -21,6 +21,7 @@ import type { BrainState } from "@/lib/brain/types";
 import type { ProfileLead, SourcingBatchMetadata } from "@/lib/tina/profile-lead-types";
 import { evaluateSourcingReadiness, type SourcingReadiness } from "@/lib/tina/sourcing-readiness";
 import type { TinaChatApiResponse, TinaMvpMessage } from "@/lib/tina-mvp/types";
+import type { WorkingThesis } from "@/lib/tina-mvp/working-thesis";
 
 type ChatThread = {
   id: string;
@@ -35,6 +36,7 @@ const ACTIVE_THREAD_STORAGE_KEY = "tina:mvp:active-thread-id";
 const PROFILE_LEAD_STATUS_STORAGE_KEY = "tina:mvp:profile-lead-status";
 const BRAIN_STATE_STORAGE_KEY = "tina:mvp:brain-state";
 const CANONICAL_SEARCH_STATE_STORAGE_KEY = "tina:mvp:canonical-search-state";
+const WORKING_THESIS_STORAGE_KEY = "tina:mvp:working-thesis";
 const MAX_FEEDBACK_SUMMARY_LEADS = 8;
 
 const typingPhrases = ["Shaping the search", "Reading candidate signal", "Tightening the Talent Pool"];
@@ -498,6 +500,7 @@ function HomeCommandCenter({
   const [profileLeadStatus, setProfileLeadStatus] = useState<Record<string, ProfileLeadStatus>>({});
   const [storedBrainStates, setStoredBrainStates] = useState<Record<string, BrainState>>({});
   const [storedCanonicalSearchStates, setStoredCanonicalSearchStates] = useState<Record<string, CanonicalSearchState>>({});
+  const [storedWorkingTheses, setStoredWorkingTheses] = useState<Record<string, WorkingThesis>>({});
   const [showFullConversation, setShowFullConversation] = useState(false);
   const [isClientMounted, setIsClientMounted] = useState(false);
   const [pendingActionText, setPendingActionText] = useState("");
@@ -519,6 +522,7 @@ function HomeCommandCenter({
   const canonicalSearchState = storedCanonicalSearchState && isStoredCanonicalStateFresh(storedCanonicalSearchState, fallbackCanonicalSearchState)
     ? storedCanonicalSearchState
     : fallbackCanonicalSearchState;
+  const workingThesis = storedWorkingTheses[activeThread.id];
   const canonicalProfileIds = useMemo(
     () => new Set(canonicalSearchState.candidateProfiles.map((lead) => lead.id)),
     [canonicalSearchState]
@@ -606,6 +610,7 @@ function HomeCommandCenter({
     setProfileLeadStatus(readProfileLeadStatus());
     setStoredBrainStates(readStoredBrainStates());
     setStoredCanonicalSearchStates(readStoredCanonicalSearchStates());
+    setStoredWorkingTheses(readStoredWorkingTheses());
   }, []);
 
   useEffect(() => {
@@ -651,12 +656,13 @@ function HomeCommandCenter({
       const response = await fetch("/api/tina-mvp/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: nextMessages,
-          sourcingRefinementSummary: options?.sourcingRefinementSummary,
-          canonicalSearchState
-        })
-      });
+          body: JSON.stringify({
+            messages: nextMessages,
+            sourcingRefinementSummary: options?.sourcingRefinementSummary,
+            canonicalSearchState,
+            workingThesis
+          })
+        });
       const data = (await response.json()) as TinaChatApiResponse | { error?: string };
 
       if (!response.ok || !("message" in data)) throw new Error("Tina lost context.");
@@ -665,6 +671,13 @@ function HomeCommandCenter({
         setStoredCanonicalSearchStates((current) => {
           const next = { ...current, [activeThread.id]: data.canonicalSearchState! };
           window.localStorage.setItem(CANONICAL_SEARCH_STATE_STORAGE_KEY, JSON.stringify(next));
+          return next;
+        });
+      }
+      if (data.workingThesis) {
+        setStoredWorkingTheses((current) => {
+          const next = { ...current, [activeThread.id]: data.workingThesis! };
+          window.localStorage.setItem(WORKING_THESIS_STORAGE_KEY, JSON.stringify(next));
           return next;
         });
       }
@@ -1173,6 +1186,22 @@ function readStoredCanonicalSearchStates() {
   }
 }
 
+function readStoredWorkingTheses() {
+  try {
+    const rawStates = window.localStorage.getItem(WORKING_THESIS_STORAGE_KEY);
+    if (!rawStates) return {};
+    const parsed = JSON.parse(rawStates) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+
+    return Object.fromEntries(
+      Object.entries(parsed)
+        .filter((entry): entry is [string, WorkingThesis] => typeof entry[0] === "string" && isWorkingThesis(entry[1]))
+    );
+  } catch {
+    return {};
+  }
+}
+
 function readStoredThreads() {
   try {
     const rawThreads = window.localStorage.getItem(THREAD_STORAGE_KEY);
@@ -1216,6 +1245,19 @@ function isCanonicalSearchState(value: unknown): value is CanonicalSearchState {
     typeof state.location === "string" &&
     Array.isArray(state.mustHaveSignals) &&
     Array.isArray(state.candidateProfiles);
+}
+
+function isWorkingThesis(value: unknown): value is WorkingThesis {
+  if (!value || typeof value !== "object") return false;
+  const thesis = value as WorkingThesis;
+  return typeof thesis.currentHypothesis === "string" &&
+    (thesis.confidence === "low" || thesis.confidence === "medium" || thesis.confidence === "high") &&
+    Array.isArray(thesis.evidence) &&
+    Array.isArray(thesis.resolvedSignals) &&
+    Array.isArray(thesis.openTensions) &&
+    Array.isArray(thesis.alternativeExplanations) &&
+    typeof thesis.latestInsight === "string" &&
+    (typeof thesis.nextBestQuestion === "undefined" || typeof thesis.nextBestQuestion === "string");
 }
 
 function isStoredCanonicalStateFresh(stored: CanonicalSearchState, fallback: CanonicalSearchState) {
