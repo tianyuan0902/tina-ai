@@ -4,6 +4,7 @@ import { evaluateSourcingReadiness } from "../.tmp/eval-brain-state/lib/tina/sou
 import { buildExpandedPublicTalentSearchQueries, buildPublicTalentSearchQueries } from "../.tmp/eval-brain-state/lib/tina/search-query-builder.js";
 import { actionButtonsForCurrentRead, buildCurrentRead, buildCurrentReadResponseSketch, currentReadTitle } from "../.tmp/eval-brain-state/lib/tina-mvp/current-read.js";
 import { buildFounderModel, buildFounderModelResponseSketch } from "../.tmp/eval-brain-state/lib/tina-mvp/founder-model.js";
+import { buildSignalMap } from "../.tmp/eval-brain-state/lib/tina-mvp/signal-map.js";
 import { buildWorkingThesis, buildWorkingThesisResponseSketch, formatWorkingThesisForPrompt } from "../.tmp/eval-brain-state/lib/tina-mvp/working-thesis.js";
 import { TINA_SYSTEM_PROMPT } from "../.tmp/eval-brain-state/lib/tina-mvp/system-prompt.js";
 
@@ -266,7 +267,7 @@ expectIncludes([pmWorkingThesisSketch], /role shape|search lane|concrete/i, "agr
 expectIncludes([pmWorkingThesisPrompt], /Do not repeat the latest insight/i, "working thesis prompt should prevent repeated insights");
 expectIncludes([pmWorkingThesisPrompt], /If the thesis is stable, move to recommendation/i, "working thesis prompt should move stable thesis forward");
 expectEqual(pmCurrentRead.mode, "execution", "multi-turn PM conversation should progress from diagnosis into execution");
-expectEqual(pmCurrentReadActions.join(" | "), "Create interview plan | Source against this thesis | Build search lanes", "execution actions should replace diagnostic buttons once enough signal exists");
+expectEqual(pmCurrentReadActions.join(" | "), "Build signal map | Create interview plan | Source against this thesis | Build search lanes", "execution actions should replace diagnostic buttons once enough signal exists");
 console.log("PASS working thesis progression");
 
 const currentReadScenarios = [
@@ -278,7 +279,7 @@ const currentReadScenarios = [
     ],
     archetype: "Founder-Led Sales Transition",
     expectedNextBestMove: /Separate founder-only wins from repeatable wins/i,
-    expectedActions: "Separate founder-only wins | Define sales handoff | Build scorecard"
+    expectedActions: "Separate founder-only wins | Build signal map | Define sales handoff | Build scorecard"
   },
   {
     name: "Head of Eng",
@@ -289,7 +290,7 @@ const currentReadScenarios = [
     archetype: "Engineering Leadership Bottleneck",
     expectedNextBestMove: /Define the 3 decisions this hire must own without founder approval/i,
     expectedRisk: /coordination layer, not leverage/i,
-    expectedActions: "Define decision ownership | Compare Head of Eng vs EM vs Staff+ Lead | Build scorecard"
+    expectedActions: "Define decision ownership | Build signal map | Compare Head of Eng vs EM vs Staff+ Lead | Build scorecard"
   },
   {
     name: "Someone More Senior",
@@ -299,7 +300,7 @@ const currentReadScenarios = [
     ],
     archetype: "Senior Ownership Gap",
     expectedNextBestMove: /Define the decisions this person must own independently/i,
-    expectedActions: "Define decision ownership | Calibrate seniority | Build scorecard"
+    expectedActions: "Define decision ownership | Build signal map | Calibrate seniority | Build scorecard"
   },
   {
     name: "Generalist",
@@ -309,7 +310,7 @@ const currentReadScenarios = [
     ],
     archetype: "Role Compression / Generalist Hire",
     expectedNextBestMove: /Pick the primary lane/i,
-    expectedActions: "Split the role | Pick primary lane | Compare archetypes"
+    expectedActions: "Split the role | Build signal map | Pick primary lane | Compare archetypes"
   },
   {
     name: "Hire Fast",
@@ -319,7 +320,7 @@ const currentReadScenarios = [
     ],
     archetype: "Urgent Hiring Triage",
     expectedNextBestMove: /Define the 30-day coverage problem/i,
-    expectedActions: "Define 30-day coverage | Split interim vs permanent | Build triage plan"
+    expectedActions: "Define 30-day coverage | Build signal map | Split interim vs permanent | Build triage plan"
   }
 ];
 let committedThesisCount = 0;
@@ -354,6 +355,19 @@ for (const scenario of currentReadScenarios) {
 expectAtLeast(committedThesisCount, 4, "current read should state a thesis by turn 2 in at least 4/5 scenarios");
 expectAtLeast(concreteMoveCount, 4, "current read should give a concrete next best move in at least 4/5 scenarios");
 console.log("PASS current read thesis commitment scenarios");
+
+const engineeringSignalMap = buildSignalMap(buildCurrentRead({ messages: currentReadScenarios[1].messages }));
+expectEqual(engineeringSignalMap.derivedFromThesisTitle, "Engineering Leadership Bottleneck", "signal map should derive from thesis title");
+expectIncludes(engineeringSignalMap.mustProveSignals, /decision ownership|execution rhythm|morale/i, "engineering leadership signal map should focus on bottleneck evidence");
+expectIncludes(engineeringSignalMap.falsePositives, /process-heavy EM|Senior IC/i, "engineering leadership signal map should include thesis-specific false positives");
+expectIncludes(engineeringSignalMap.interviewProbes, /founder|product and engineering|operating rhythm/i, "engineering leadership signal map should include thesis-specific probes");
+expectIncludes([engineeringSignalMap.bestCandidateArchetype], /founder-led decisions|delegated technical/i, "engineering leadership signal map should identify best candidate archetype");
+
+const productSignalMap = buildSignalMap(buildCurrentRead({ messages: pmThesisMessages }));
+expectEqual(productSignalMap.derivedFromThesisTitle, "Senior Ownership Gap", "PM progression signal map should derive from the evolved ownership thesis");
+expectIncludes(productSignalMap.mustProveSignals, /founder direction|judgment calls|founder dependency/i, "PM progression signal map should focus on ownership evidence");
+expectNotIncludes(productSignalMap.mustProveSignals, /generic Head of Engineering|large team/i, "PM progression signal map should not use unrelated generic criteria");
+console.log("PASS signal map thesis-specific criteria");
 
 const canonicalCases = [
   {

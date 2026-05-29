@@ -21,6 +21,7 @@ import type { BrainState } from "@/lib/brain/types";
 import type { ProfileLead, SourcingBatchMetadata } from "@/lib/tina/profile-lead-types";
 import { evaluateSourcingReadiness, type SourcingReadiness } from "@/lib/tina/sourcing-readiness";
 import { actionButtonsForCurrentRead, type CurrentRead, type CurrentReadArchetype } from "@/lib/tina-mvp/current-read";
+import type { SignalMap } from "@/lib/tina-mvp/signal-map";
 import type { TinaChatApiResponse, TinaMvpMessage } from "@/lib/tina-mvp/types";
 import type { WorkingThesis } from "@/lib/tina-mvp/working-thesis";
 
@@ -39,6 +40,7 @@ const BRAIN_STATE_STORAGE_KEY = "tina:mvp:brain-state";
 const CANONICAL_SEARCH_STATE_STORAGE_KEY = "tina:mvp:canonical-search-state";
 const WORKING_THESIS_STORAGE_KEY = "tina:mvp:working-thesis";
 const CURRENT_READ_STORAGE_KEY = "tina:mvp:current-read";
+const SIGNAL_MAP_STORAGE_KEY = "tina:mvp:signal-map";
 const MAX_FEEDBACK_SUMMARY_LEADS = 8;
 
 const typingPhrases = ["Shaping the search", "Reading candidate signal", "Tightening the Talent Pool"];
@@ -502,6 +504,7 @@ function HomeCommandCenter({
   const [storedCanonicalSearchStates, setStoredCanonicalSearchStates] = useState<Record<string, CanonicalSearchState>>({});
   const [storedWorkingTheses, setStoredWorkingTheses] = useState<Record<string, WorkingThesis>>({});
   const [storedCurrentReads, setStoredCurrentReads] = useState<Record<string, CurrentRead>>({});
+  const [storedSignalMaps, setStoredSignalMaps] = useState<Record<string, SignalMap>>({});
   const [showFullConversation, setShowFullConversation] = useState(false);
   const [isClientMounted, setIsClientMounted] = useState(false);
   const [pendingActionText, setPendingActionText] = useState("");
@@ -525,6 +528,8 @@ function HomeCommandCenter({
     : fallbackCanonicalSearchState;
   const workingThesis = storedWorkingTheses[activeThread.id];
   const currentRead = storedCurrentReads[activeThread.id];
+  const storedSignalMap = storedSignalMaps[activeThread.id];
+  const signalMap = storedSignalMap && isSignalMapFresh(storedSignalMap, currentRead) ? storedSignalMap : undefined;
   const canonicalProfileIds = useMemo(
     () => new Set(canonicalSearchState.candidateProfiles.map((lead) => lead.id)),
     [canonicalSearchState]
@@ -614,6 +619,7 @@ function HomeCommandCenter({
     setStoredCanonicalSearchStates(readStoredCanonicalSearchStates());
     setStoredWorkingTheses(readStoredWorkingTheses());
     setStoredCurrentReads(readStoredCurrentReads());
+    setStoredSignalMaps(readStoredSignalMaps());
   }, []);
 
   useEffect(() => {
@@ -664,7 +670,8 @@ function HomeCommandCenter({
             sourcingRefinementSummary: options?.sourcingRefinementSummary,
             canonicalSearchState,
             workingThesis,
-            currentRead
+            currentRead,
+            signalMap
           })
         });
       const data = (await response.json()) as TinaChatApiResponse | { error?: string };
@@ -689,6 +696,13 @@ function HomeCommandCenter({
         setStoredCurrentReads((current) => {
           const next = { ...current, [activeThread.id]: data.currentRead! };
           window.localStorage.setItem(CURRENT_READ_STORAGE_KEY, JSON.stringify(next));
+          return next;
+        });
+      }
+      if (data.signalMap) {
+        setStoredSignalMaps((current) => {
+          const next = { ...current, [activeThread.id]: data.signalMap! };
+          window.localStorage.setItem(SIGNAL_MAP_STORAGE_KEY, JSON.stringify(next));
           return next;
         });
       }
@@ -1282,6 +1296,22 @@ function readStoredCurrentReads() {
   }
 }
 
+function readStoredSignalMaps() {
+  try {
+    const rawStates = window.localStorage.getItem(SIGNAL_MAP_STORAGE_KEY);
+    if (!rawStates) return {};
+    const parsed = JSON.parse(rawStates) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+
+    return Object.fromEntries(
+      Object.entries(parsed)
+        .filter((entry): entry is [string, SignalMap] => typeof entry[0] === "string" && isSignalMap(entry[1]))
+    );
+  } catch {
+    return {};
+  }
+}
+
 function readStoredThreads() {
   try {
     const rawThreads = window.localStorage.getItem(THREAD_STORAGE_KEY);
@@ -1358,6 +1388,22 @@ function isCurrentRead(value: unknown): value is CurrentRead {
     (typeof read.statedRole === "undefined" || typeof read.statedRole === "string") &&
     (typeof read.likelyArchetype === "undefined" || typeof read.likelyArchetype === "string")
   );
+}
+
+function isSignalMap(value: unknown): value is SignalMap {
+  if (!value || typeof value !== "object") return false;
+  const map = value as SignalMap;
+  return Array.isArray(map.mustProveSignals) &&
+    Array.isArray(map.weakSignals) &&
+    Array.isArray(map.falsePositives) &&
+    Array.isArray(map.interviewProbes) &&
+    typeof map.bestCandidateArchetype === "string" &&
+    typeof map.derivedFromThesisTitle === "string";
+}
+
+function isSignalMapFresh(signalMap: SignalMap, currentRead?: CurrentRead) {
+  if (!currentRead) return false;
+  return signalMap.derivedFromThesisTitle === (currentRead.likelyArchetype || currentRead.thesisTitle);
 }
 
 function isStoredCanonicalStateFresh(stored: CanonicalSearchState, fallback: CanonicalSearchState) {
@@ -4271,34 +4317,60 @@ function deriveInlineSignals(messages: TinaMvpMessage[]) {
   if (!founderMessages.length) return [];
 
   const text = founderMessages.map((message) => message.content).join(" ").toLowerCase();
-  const depth = founderMessages.length;
+  const latestFounder = founderMessages[founderMessages.length - 1]?.content || "";
   const isAI = /\b(ai|llm|model|agent|machine learning|ml)\b/.test(text);
   const isProduct = /\b(product|customer|workflow|pm|designer|design)\b/.test(text);
   const isOperator = /\b(operator|ops|operations|chief of staff|founder office|bottleneck)\b/.test(text);
-  const isSenior = /\b(senior|lead|founding|head of|principal|staff)\b/.test(text);
-  const domain = /\b(fintech|healthcare|medical|crypto|web3|security|sales|gtm|domain)\b/.test(text);
-  const speed = /\b(fast|quick|speed|urgent|young|sharp|high slope|move)\b/.test(text);
+  const hasFounderBottleneck = /\b(founder|mostly me|my plate|less dependent|bottleneck|without me|run themselves)\b/.test(text);
+  const hasDecisionOwnership = /\b(own|owns|ownership|decision|decisions|priorit(y|ies|ization)|judgment|autonom(y|ous)|independent)\b/.test(text);
+  const hasRoleCompression = /\b(all of it|everything|many hats|generalist|chief of staff|operator|too many jobs|three jobs)\b/.test(text);
+  const hasArtifactRequest = isPlanningArtifactRequest(latestFounder);
+  const hasSourcingEvidence = messages.some((message) => Boolean(message.sourcingBatch) || Boolean(message.profileLeads?.length));
+  const hasMarketRequest = isMarketRealityRequest(latestFounder);
+  const hasLocationEvidence = /\b(remote|hybrid|onsite|sf|san francisco|bay area|nyc|new york|peoria|chicago|austin|seattle|london|us|u\.s\.|usa|united states)\b/.test(text);
+  const hasCompEvidence = /\b(comp|compensation|salary|equity|\$\d|budget|pay range|cash)\b/.test(text);
+  const canShowMarketChip = hasSourcingEvidence || hasMarketRequest || hasLocationEvidence || hasCompEvidence;
   const signals: string[] = [];
 
-  if (isAI && isProduct) {
-    signals.push("Candidate pool shrinks ~38%");
-    signals.push("Adjacent backgrounds detected");
+  if (hasDecisionOwnership) {
+    signals.push("Decision ownership");
+  } else if (hasFounderBottleneck) {
+    signals.push("Founder bottleneck");
+  } else if (hasRoleCompression) {
+    signals.push("Role compression");
+  } else if (isAI && isProduct) {
+    signals.push("Must-have signals forming");
   } else if (isAI) {
-    signals.push("AI talent pool narrowing");
+    signals.push("Technical signal forming");
   } else if (isOperator) {
-    signals.push("Founder-adjacent operator lane forming");
+    signals.push("Ownership gap forming");
   } else if (isProduct) {
     signals.push("Product judgment becoming primary signal");
   } else {
-    signals.push("Role clarity still forming");
+    signals.push("Thesis tightening");
   }
 
-  if (domain) signals.push("Domain filter increases market pressure");
-  if (isSenior || speed) signals.push("Compensation pressure increasing");
-  if (depth >= 2) signals.push("Strongest markets: SF, NYC");
-  if (depth >= 3) signals.push("Calibration read stabilizing");
+  if (hasFounderBottleneck && !signals.includes("Founder bottleneck")) signals.push("Founder bottleneck");
+  if (hasRoleCompression && !signals.includes("Role compression")) signals.push("Role compression");
+  if (hasArtifactRequest && /\b(scorecard|criteria|rubric)\b/i.test(latestFounder)) signals.push("Scorecard ready");
+  if (hasArtifactRequest && /\b(interview plan)\b/i.test(latestFounder)) signals.push("Interview plan ready");
+  if (hasArtifactRequest && /\b(must[-\s]?have|signal map|candidate archetype|role shape|tradeoffs?)\b/i.test(latestFounder)) signals.push("Must-have signals");
+  if (founderMessages.length >= 3) signals.push("Calibration read stabilizing");
+
+  if (canShowMarketChip) {
+    if (hasSourcingEvidence) signals.push("Talent Pool evidence added");
+    if (hasLocationEvidence) signals.push(locationSignalChip(text));
+    if (hasCompEvidence) signals.push("Comp constraint noted");
+  }
 
   return Array.from(new Set(signals));
+}
+
+function locationSignalChip(text: string) {
+  if (/\b(remote)\b/.test(text)) return "Remote constraint noted";
+  if (/\b(sf|san francisco|bay area)\b/.test(text)) return "SF constraint noted";
+  if (/\b(nyc|new york)\b/.test(text)) return "NYC constraint noted";
+  return "Location constraint noted";
 }
 
 function calibrationInterpretation(calibration: LiveCalibration) {

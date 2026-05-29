@@ -129,6 +129,7 @@ export function actionButtonsForCurrentRead(read?: Pick<CurrentRead, "mode" | "l
     if (read.likelyArchetype === "Engineering Leadership Bottleneck") {
       return [
         { label: "Define decision ownership", prompt: "Define the 3 decisions this engineering leader must own without founder approval." },
+        { label: "Build signal map", prompt: "Build signal map for this engineering leadership bottleneck." },
         { label: "Compare Head of Eng vs EM vs Staff+ Lead", prompt: "Compare whether this thesis needs a Head of Engineering, Engineering Manager, or Staff-plus technical lead." },
         { label: "Build scorecard", prompt: "Build a lightweight scorecard for this engineering leadership bottleneck." }
       ];
@@ -137,6 +138,7 @@ export function actionButtonsForCurrentRead(read?: Pick<CurrentRead, "mode" | "l
     if (read.likelyArchetype === "Founder-Led Sales Transition") {
       return [
         { label: "Separate founder-only wins", prompt: "Separate founder-only sales wins from repeatable wins." },
+        { label: "Build signal map", prompt: "Build signal map for this founder-led sales transition." },
         { label: "Define sales handoff", prompt: "Define what a first sales leader must take off the founder." },
         { label: "Build scorecard", prompt: "Build a lightweight scorecard for this founder-led sales transition." }
       ];
@@ -145,6 +147,7 @@ export function actionButtonsForCurrentRead(read?: Pick<CurrentRead, "mode" | "l
     if (read.likelyArchetype === "Senior Ownership Gap") {
       return [
         { label: "Define decision ownership", prompt: "Define the decisions this senior hire must own without founder approval." },
+        { label: "Build signal map", prompt: "Build signal map for this senior ownership gap." },
         { label: "Calibrate seniority", prompt: "Calibrate the seniority level needed for this ownership gap." },
         { label: "Build scorecard", prompt: "Build a lightweight scorecard for this senior ownership gap." }
       ];
@@ -153,6 +156,7 @@ export function actionButtonsForCurrentRead(read?: Pick<CurrentRead, "mode" | "l
     if (read.likelyArchetype === "Role Compression / Generalist Hire") {
       return [
         { label: "Split the role", prompt: "Split this compressed generalist role into cleaner responsibility lanes." },
+        { label: "Build signal map", prompt: "Build signal map for this role compression problem." },
         { label: "Pick primary lane", prompt: "Pick the primary lane this hire should actually solve first." },
         { label: "Compare archetypes", prompt: "Compare the likely archetypes for this role-compression problem." }
       ];
@@ -161,6 +165,7 @@ export function actionButtonsForCurrentRead(read?: Pick<CurrentRead, "mode" | "l
     if (read.likelyArchetype === "Urgent Hiring Triage") {
       return [
         { label: "Define 30-day coverage", prompt: "Define what must be covered in the next 30 days before shaping the permanent hire." },
+        { label: "Build signal map", prompt: "Build signal map for this urgent hiring triage." },
         { label: "Split interim vs permanent", prompt: "Separate the urgent coverage problem from the permanent role shape." },
         { label: "Build triage plan", prompt: "Build a hiring triage plan for this urgent gap." }
       ];
@@ -169,6 +174,7 @@ export function actionButtonsForCurrentRead(read?: Pick<CurrentRead, "mode" | "l
     if (read.likelyArchetype === "Product/Execution Ownership Gap") {
       return [
         { label: "Define decision ownership", prompt: "Define which product decisions this hire must own without founder approval." },
+        { label: "Build signal map", prompt: "Build signal map for this product ownership gap." },
         { label: "Compare PM archetypes", prompt: "Compare product archetypes for this ownership gap." },
         { label: "Build scorecard", prompt: "Build a lightweight scorecard for this product ownership gap." }
       ];
@@ -176,12 +182,14 @@ export function actionButtonsForCurrentRead(read?: Pick<CurrentRead, "mode" | "l
 
     return [
       { label: "Define scorecard", prompt: "Define a lightweight scorecard for this hiring thesis." },
+      { label: "Build signal map", prompt: "Build signal map for this hiring thesis." },
       { label: "Build candidate archetype", prompt: "Build the candidate archetype for this hiring thesis." },
       { label: "Set must-have signals", prompt: "Set the must-have signals for this hire." }
     ];
   }
 
   const executionActions: CurrentReadAction[] = [
+    { label: "Build signal map", prompt: "Build signal map for this hiring thesis." },
     { label: "Create interview plan", prompt: "Create an interview plan for this hiring thesis." },
     { label: "Source against this thesis", prompt: "Source against this hiring thesis." },
     { label: "Build search lanes", prompt: "Build search lanes for this hiring thesis." }

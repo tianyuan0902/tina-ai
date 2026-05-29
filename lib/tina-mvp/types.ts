@@ -3,6 +3,7 @@ import type { CanonicalSearchState } from "@/lib/brain/canonicalSearchState";
 import type { SourcingReadiness } from "@/lib/tina/sourcing-readiness";
 import type { CurrentRead } from "@/lib/tina-mvp/current-read";
 import type { WorkingThesis } from "@/lib/tina-mvp/working-thesis";
+import type { SignalMap } from "@/lib/tina-mvp/signal-map";
 
 export type TinaMvpRole = "founder" | "tina";
 
@@ -33,6 +34,7 @@ export type TinaChatApiResponse = {
   canonicalSearchState?: CanonicalSearchState;
   workingThesis?: WorkingThesis;
   currentRead?: CurrentRead;
+  signalMap?: SignalMap;
   profileLeads?: ProfileLead[];
   marketIntel?: unknown;
   source: "openai" | "local_scope_guard" | "local_profile_feedback" | "local_conversation_move" | "local_fallback" | "public_search" | "sourcing_readiness";

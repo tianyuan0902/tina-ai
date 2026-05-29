@@ -7,6 +7,7 @@ import { getRequestedProfileCount, searchPublicProfileBatch } from "@/lib/tina/p
 import { evaluateSourcingReadiness } from "@/lib/tina/sourcing-readiness";
 import { buildCurrentRead, formatCurrentReadForPrompt, type CurrentRead } from "@/lib/tina-mvp/current-read";
 import { buildFounderModel, formatFounderModelForPrompt } from "@/lib/tina-mvp/founder-model";
+import { buildSignalMap, buildSignalMapResponse, formatSignalMapForPrompt, type SignalMap } from "@/lib/tina-mvp/signal-map";
 import { TINA_SYSTEM_PROMPT } from "@/lib/tina-mvp/system-prompt";
 import { buildWorkingThesis, buildWorkingThesisWithAssistant, formatWorkingThesisForPrompt, type WorkingThesis } from "@/lib/tina-mvp/working-thesis";
 import type { ProfileLead, SourcingBatchMetadata } from "@/lib/tina/profile-lead-types";
@@ -23,12 +24,13 @@ type OpenAIInputMessage = {
 };
 
 export async function POST(request: Request) {
-  const { messages, sourcingRefinementSummary, canonicalSearchState: requestCanonicalSearchState, workingThesis: requestWorkingThesis, currentRead: requestCurrentRead } = (await request.json()) as {
+  const { messages, sourcingRefinementSummary, canonicalSearchState: requestCanonicalSearchState, workingThesis: requestWorkingThesis, currentRead: requestCurrentRead, signalMap: requestSignalMap } = (await request.json()) as {
     messages?: TinaMvpMessage[];
     sourcingRefinementSummary?: string;
     canonicalSearchState?: CanonicalSearchState;
     workingThesis?: WorkingThesis;
     currentRead?: CurrentRead;
+    signalMap?: SignalMap;
   };
   const cleanMessages = normalizeMessages(messages);
   const latestUserMessage = [...cleanMessages].reverse().find((message) => message.role === "founder");
@@ -53,6 +55,10 @@ export async function POST(request: Request) {
     ? requestCurrentRead!
     : computedCurrentRead;
   const currentReadText = formatCurrentReadForPrompt(currentRead);
+  const signalMap = requestSignalMap && requestSignalMap.derivedFromThesisTitle === (currentRead.likelyArchetype || currentRead.thesisTitle)
+    ? requestSignalMap
+    : undefined;
+  const signalMapText = formatSignalMapForPrompt(signalMap);
 
   if (!cleanMessages.length || !latestUserMessage) {
     return NextResponse.json({ error: "No founder message was provided." }, { status: 400 });
@@ -75,6 +81,7 @@ export async function POST(request: Request) {
       canonicalSearchState,
       workingThesis,
       currentRead,
+      signalMap,
       source: "local_scope_guard"
     });
   }
@@ -89,6 +96,7 @@ export async function POST(request: Request) {
       canonicalSearchState,
       workingThesis,
       currentRead,
+      signalMap,
       source: "local_profile_feedback"
     });
   }
@@ -103,6 +111,7 @@ export async function POST(request: Request) {
       canonicalSearchState,
       workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildFounderUncertainResponse(canonicalSearchState), canonicalSearchState),
       currentRead,
+      signalMap,
       source: "local_conversation_move"
     });
   }
@@ -117,6 +126,7 @@ export async function POST(request: Request) {
       canonicalSearchState,
       workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildHardSearchResponse(canonicalSearchState), canonicalSearchState),
       currentRead,
+      signalMap,
       source: "local_conversation_move"
     });
   }
@@ -131,6 +141,7 @@ export async function POST(request: Request) {
       canonicalSearchState,
       workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildOverbroadAnswerResponse(canonicalSearchState), canonicalSearchState),
       currentRead,
+      signalMap,
       source: "local_conversation_move"
     });
   }
@@ -145,6 +156,7 @@ export async function POST(request: Request) {
       canonicalSearchState,
       workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildAlignmentSignalResponse(canonicalSearchState), canonicalSearchState),
       currentRead,
+      signalMap,
       source: "local_conversation_move"
     });
   }
@@ -159,6 +171,7 @@ export async function POST(request: Request) {
       canonicalSearchState,
       workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildPartialCoverageResponse(canonicalSearchState), canonicalSearchState),
       currentRead,
+      signalMap,
       source: "local_conversation_move"
     });
   }
@@ -173,6 +186,25 @@ export async function POST(request: Request) {
       canonicalSearchState,
       workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildAgreementProgressionResponse(canonicalSearchState, cleanMessages), canonicalSearchState),
       currentRead,
+      signalMap,
+      source: "local_conversation_move"
+    });
+  }
+
+  if (!shouldRunProfileSearch && isSignalMapRequest(latestUserMessage.content)) {
+    const nextSignalMap = buildSignalMap(currentRead, canonicalSearchState);
+    const responseContent = buildSignalMapResponse(nextSignalMap);
+
+    return NextResponse.json({
+      message: {
+        id: `tina-signal-map-${Date.now()}`,
+        role: "tina",
+        content: responseContent
+      },
+      canonicalSearchState,
+      workingThesis: buildWorkingThesisWithAssistant(cleanMessages, responseContent, canonicalSearchState),
+      currentRead,
+      signalMap: nextSignalMap,
       source: "local_conversation_move"
     });
   }
@@ -190,6 +222,7 @@ export async function POST(request: Request) {
       canonicalSearchState,
       workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildSourcingReadinessResponse(initialReadiness, latestUserMessage.content, canonicalSearchState), canonicalSearchState),
       currentRead,
+      signalMap,
       source: "sourcing_readiness"
     });
   }
@@ -211,6 +244,7 @@ export async function POST(request: Request) {
         canonicalSearchState,
         workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildLocationAlignmentResponse(canonicalSearchState), canonicalSearchState),
         currentRead,
+        signalMap,
         source: "sourcing_readiness"
       });
     }
@@ -229,6 +263,7 @@ export async function POST(request: Request) {
         canonicalSearchState,
         workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildSourcingReadinessResponse(readiness, latestUserMessage.content, canonicalSearchState), canonicalSearchState),
         currentRead,
+        signalMap,
         source: "sourcing_readiness"
       });
     }
@@ -243,6 +278,7 @@ export async function POST(request: Request) {
       founderModelText,
       workingThesisText,
       currentReadText,
+      signalMapText,
       cleanMessages.map((message) => message.content).join("\n"),
       readiness.searchThesis ? `Search thesis:\n${readiness.searchThesis}` : "",
       refinementSummary ? `Talent Pool feedback summary for sourcing refinement:\n${refinementSummary}` : "",
@@ -275,6 +311,7 @@ export async function POST(request: Request) {
       canonicalSearchState: responseCanonicalSearchState,
       workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildProfileSearchResponse(shouldRunPromisedSourcing ? "this hiring lane" : latestUserMessage.content, metadata, isRefinementSearch), responseCanonicalSearchState),
       currentRead: buildCurrentRead({ messages: cleanMessages, canonicalSearchState: responseCanonicalSearchState, workingThesis, previousRead: currentRead }),
+      signalMap,
       profileLeads,
       source: "public_search"
     });
@@ -293,6 +330,7 @@ export async function POST(request: Request) {
     founderModelText,
     workingThesisText,
     currentReadText,
+    signalMapText,
     "The structured search state is the current internal truth. If it conflicts with older messages, trust that state and the founder's latest correction. Do not mention the state object. Do not describe a different role family, location, seniority, or market lane.",
     canonicalSearchStateText,
     liveJdRequest
@@ -344,6 +382,7 @@ export async function POST(request: Request) {
       canonicalSearchState,
       workingThesis,
       currentRead,
+      signalMap,
       source: "local_fallback",
       debugCode: "missing_api_key"
     });
@@ -358,6 +397,7 @@ export async function POST(request: Request) {
       canonicalSearchState,
       workingThesis,
       currentRead,
+      signalMap,
       source: "local_fallback",
       debugCode: "network_error"
     });
@@ -375,6 +415,7 @@ export async function POST(request: Request) {
       canonicalSearchState,
       workingThesis,
       currentRead,
+      signalMap,
       source: "local_fallback",
       debugCode
     });
@@ -405,6 +446,7 @@ export async function POST(request: Request) {
         `Canonical search state:\n${canonicalSearchStateText}`,
         workingThesisText,
         currentReadText,
+        signalMapText,
         cleanMessages.map((message) => message.content).join("\n"),
         `Tina said she was pulling a shortlist; convert that promise into actual public profile sourcing.`,
         readiness.searchThesis ? `Search thesis:\n${readiness.searchThesis}` : "",
@@ -429,6 +471,7 @@ export async function POST(request: Request) {
         canonicalSearchState: responseCanonicalSearchState,
         workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildProfileSearchResponse("this hiring lane", metadata, false), responseCanonicalSearchState),
         currentRead: buildCurrentRead({ messages: cleanMessages, canonicalSearchState: responseCanonicalSearchState, workingThesis, previousRead: currentRead }),
+        signalMap,
         profileLeads,
         source: "public_search"
       });
@@ -444,6 +487,7 @@ export async function POST(request: Request) {
       canonicalSearchState,
       workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildSourcingReadinessResponse(readiness, latestUserMessage.content, canonicalSearchState), canonicalSearchState),
       currentRead,
+      signalMap,
       source: "sourcing_readiness"
     });
   }
@@ -459,6 +503,7 @@ export async function POST(request: Request) {
     canonicalSearchState,
     workingThesis: buildWorkingThesisWithAssistant(cleanMessages, advisorText, canonicalSearchState),
     currentRead,
+    signalMap,
     source: "openai",
     responseId: data.id
   });
@@ -519,6 +564,10 @@ function hasGeographySignal(text: string) {
 function isPlanningArtifactRequest(message: string) {
   const text = message.toLowerCase();
   return /\b(hiring thesis|must[-\s]?have signals?|signal map|scorecard|candidate archetype|interview plan|criteria|rubric|role shape|tradeoffs?)\b/.test(text);
+}
+
+function isSignalMapRequest(message: string) {
+  return /\b(signal map|build signal map|must[-\s]?prove signals?|must[-\s]?have signals?)\b/i.test(message);
 }
 
 function shouldUseRequestCanonicalState(
