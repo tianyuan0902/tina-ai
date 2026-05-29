@@ -20,6 +20,7 @@ import { buildCanonicalSearchState, type CanonicalSearchState } from "@/lib/brai
 import type { BrainState } from "@/lib/brain/types";
 import type { ProfileLead, SourcingBatchMetadata } from "@/lib/tina/profile-lead-types";
 import { evaluateSourcingReadiness, type SourcingReadiness } from "@/lib/tina/sourcing-readiness";
+import type { CurrentRead } from "@/lib/tina-mvp/current-read";
 import type { TinaChatApiResponse, TinaMvpMessage } from "@/lib/tina-mvp/types";
 import type { WorkingThesis } from "@/lib/tina-mvp/working-thesis";
 
@@ -37,6 +38,7 @@ const PROFILE_LEAD_STATUS_STORAGE_KEY = "tina:mvp:profile-lead-status";
 const BRAIN_STATE_STORAGE_KEY = "tina:mvp:brain-state";
 const CANONICAL_SEARCH_STATE_STORAGE_KEY = "tina:mvp:canonical-search-state";
 const WORKING_THESIS_STORAGE_KEY = "tina:mvp:working-thesis";
+const CURRENT_READ_STORAGE_KEY = "tina:mvp:current-read";
 const MAX_FEEDBACK_SUMMARY_LEADS = 8;
 
 const typingPhrases = ["Shaping the search", "Reading candidate signal", "Tightening the Talent Pool"];
@@ -501,6 +503,7 @@ function HomeCommandCenter({
   const [storedBrainStates, setStoredBrainStates] = useState<Record<string, BrainState>>({});
   const [storedCanonicalSearchStates, setStoredCanonicalSearchStates] = useState<Record<string, CanonicalSearchState>>({});
   const [storedWorkingTheses, setStoredWorkingTheses] = useState<Record<string, WorkingThesis>>({});
+  const [storedCurrentReads, setStoredCurrentReads] = useState<Record<string, CurrentRead>>({});
   const [showFullConversation, setShowFullConversation] = useState(false);
   const [isClientMounted, setIsClientMounted] = useState(false);
   const [pendingActionText, setPendingActionText] = useState("");
@@ -523,6 +526,7 @@ function HomeCommandCenter({
     ? storedCanonicalSearchState
     : fallbackCanonicalSearchState;
   const workingThesis = storedWorkingTheses[activeThread.id];
+  const currentRead = storedCurrentReads[activeThread.id];
   const canonicalProfileIds = useMemo(
     () => new Set(canonicalSearchState.candidateProfiles.map((lead) => lead.id)),
     [canonicalSearchState]
@@ -587,7 +591,7 @@ function HomeCommandCenter({
   const latestBatchRead = buildTalentBatchRead(currentLatestProfileLeadItems.length ? currentLatestProfileLeadItems : visibleProfileLeadItems);
   const displayedMessages = hasCandidateResults && !showFullConversation ? latestConversationExchange(messages) : messages;
   const hiddenMessageCount = Math.max(0, messages.length - displayedMessages.length);
-  const missionHeader = buildMissionHeader(canonicalSearchState, messages);
+  const missionHeader = buildMissionHeader(canonicalSearchState, messages, currentRead);
   const handleRefineSearch = () => {
     const summary = buildTalentPoolFeedbackSummary(currentLatestProfileLeadItems, profileLeadStatus);
     if (summary) {
@@ -611,6 +615,7 @@ function HomeCommandCenter({
     setStoredBrainStates(readStoredBrainStates());
     setStoredCanonicalSearchStates(readStoredCanonicalSearchStates());
     setStoredWorkingTheses(readStoredWorkingTheses());
+    setStoredCurrentReads(readStoredCurrentReads());
   }, []);
 
   useEffect(() => {
@@ -660,7 +665,8 @@ function HomeCommandCenter({
             messages: nextMessages,
             sourcingRefinementSummary: options?.sourcingRefinementSummary,
             canonicalSearchState,
-            workingThesis
+            workingThesis,
+            currentRead
           })
         });
       const data = (await response.json()) as TinaChatApiResponse | { error?: string };
@@ -681,7 +687,14 @@ function HomeCommandCenter({
           return next;
         });
       }
-      onMessagesChange(finalMessages, data.canonicalSearchState ? titleFromCanonicalSearchState(data.canonicalSearchState) : undefined);
+      if (data.currentRead) {
+        setStoredCurrentReads((current) => {
+          const next = { ...current, [activeThread.id]: data.currentRead! };
+          window.localStorage.setItem(CURRENT_READ_STORAGE_KEY, JSON.stringify(next));
+          return next;
+        });
+      }
+      onMessagesChange(finalMessages, data.currentRead ? titleFromCurrentRead(data.currentRead) : data.canonicalSearchState ? titleFromCanonicalSearchState(data.canonicalSearchState) : undefined);
       onSynthesis(data.message.content);
     } catch {
       const errorMessage: TinaMvpMessage = {
@@ -798,6 +811,7 @@ function HomeCommandCenter({
         isClientMounted={isClientMounted}
         messages={messages}
         canonicalSearchState={canonicalSearchState}
+        currentRead={currentRead}
       />
     </div>
   );
@@ -1088,6 +1102,12 @@ function titleFromCanonicalSearchState(state: CanonicalSearchState) {
   return roleTitle;
 }
 
+function titleFromCurrentRead(read: CurrentRead) {
+  return read.likelyArchetype && read.likelyArchetype !== "Unknown / Needs Clarification"
+    ? read.likelyArchetype
+    : "";
+}
+
 function shouldAutoRenameThread(thread: ChatThread) {
   return !thread.manuallyRenamed && isProvisionalThreadTitle(thread.title);
 }
@@ -1202,6 +1222,22 @@ function readStoredWorkingTheses() {
   }
 }
 
+function readStoredCurrentReads() {
+  try {
+    const rawStates = window.localStorage.getItem(CURRENT_READ_STORAGE_KEY);
+    if (!rawStates) return {};
+    const parsed = JSON.parse(rawStates) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+
+    return Object.fromEntries(
+      Object.entries(parsed)
+        .filter((entry): entry is [string, CurrentRead] => typeof entry[0] === "string" && isCurrentRead(entry[1]))
+    );
+  } catch {
+    return {};
+  }
+}
+
 function readStoredThreads() {
   try {
     const rawThreads = window.localStorage.getItem(THREAD_STORAGE_KEY);
@@ -1258,6 +1294,22 @@ function isWorkingThesis(value: unknown): value is WorkingThesis {
     Array.isArray(thesis.alternativeExplanations) &&
     typeof thesis.latestInsight === "string" &&
     (typeof thesis.nextBestQuestion === "undefined" || typeof thesis.nextBestQuestion === "string");
+}
+
+function isCurrentRead(value: unknown): value is CurrentRead {
+  if (!value || typeof value !== "object") return false;
+  const read = value as CurrentRead;
+  return (
+    (read.mode === "discovery" || read.mode === "thesis" || read.mode === "calibration" || read.mode === "execution" || read.mode === "sourcing") &&
+    typeof read.observation === "string" &&
+    typeof read.hypothesis === "string" &&
+    typeof read.risk === "string" &&
+    (read.confidence === "low" || read.confidence === "medium" || read.confidence === "high") &&
+    typeof read.whatWouldChangeMyMind === "string" &&
+    typeof read.nextBestMove === "string" &&
+    (typeof read.statedRole === "undefined" || typeof read.statedRole === "string") &&
+    (typeof read.likelyArchetype === "undefined" || typeof read.likelyArchetype === "string")
+  );
 }
 
 function isStoredCanonicalStateFresh(stored: CanonicalSearchState, fallback: CanonicalSearchState) {
@@ -1438,7 +1490,8 @@ function RightIntelligenceRail({
   refineLabel,
   isClientMounted,
   messages,
-  canonicalSearchState
+  canonicalSearchState,
+  currentRead
 }: {
   sourcingStrategy: SourcingStrategy;
   brainState: BrainState;
@@ -1455,38 +1508,95 @@ function RightIntelligenceRail({
   isClientMounted: boolean;
   messages: TinaMvpMessage[];
   canonicalSearchState: CanonicalSearchState;
+  currentRead?: CurrentRead;
 }) {
   const visibleItems = isClientMounted ? prioritizeLatestProfileLeadItems(profileLeadItems, latestProfileLeadItems) : [];
+  const showCurrentRead = !currentRead || currentRead.mode === "discovery" || currentRead.mode === "thesis" || currentRead.mode === "calibration";
 
   return (
     <aside className="hidden h-full min-h-0 min-w-0 max-w-full overflow-y-auto md:block md:pt-2 xl:pt-3">
       <section className="min-h-[calc(100%-0.75rem)] min-w-0 overflow-hidden rounded-xl border border-[#E7E3DD] bg-white shadow-[0_22px_70px_rgba(23,23,23,0.055)]">
         <div className="border-b border-[#ECE7E1] bg-white px-3 py-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Market Intel</p>
-          <h2 className="mt-1 text-base font-semibold text-[#171717]">Hiring market read</h2>
-          <p className="mt-1 text-xs leading-5 text-[#625A52]">Updated as Tina learns.</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">{showCurrentRead ? "Current Read" : "Market Intel"}</p>
+          <h2 className="mt-1 text-base font-semibold text-[#171717]">{showCurrentRead ? "Hiring thesis" : "Hiring market read"}</h2>
+          <p className="mt-1 text-xs leading-5 text-[#625A52]">{showCurrentRead ? "Tina’s committed read of the problem." : "Updated as Tina learns."}</p>
         </div>
 
         <div className="min-w-0 overflow-hidden p-3">
-          <MarketIntelRail
-            brainState={brainState}
-            sourcingStrategy={sourcingStrategy}
-            items={visibleItems}
-            latestItems={latestProfileLeadItems}
-            statuses={profileLeadStatus}
-            onProfileLeadStatusChange={onProfileLeadStatusChange}
-            onRefineSearch={onRefineSearch}
-            feedbackRead={feedbackRead}
-            hasFeedback={hasFeedback}
-            refineLabel={refineLabel}
-            isClientMounted={isClientMounted}
-            messages={messages}
-            sourcingBatch={sourcingBatch}
-            canonicalSearchState={canonicalSearchState}
-          />
+          {showCurrentRead ? (
+            <CurrentReadRail currentRead={currentRead} />
+          ) : (
+            <MarketIntelRail
+              brainState={brainState}
+              sourcingStrategy={sourcingStrategy}
+              items={visibleItems}
+              latestItems={latestProfileLeadItems}
+              statuses={profileLeadStatus}
+              onProfileLeadStatusChange={onProfileLeadStatusChange}
+              onRefineSearch={onRefineSearch}
+              feedbackRead={feedbackRead}
+              hasFeedback={hasFeedback}
+              refineLabel={refineLabel}
+              isClientMounted={isClientMounted}
+              messages={messages}
+              sourcingBatch={sourcingBatch}
+              canonicalSearchState={canonicalSearchState}
+            />
+          )}
         </div>
       </section>
     </aside>
+  );
+}
+
+function CurrentReadRail({ currentRead }: { currentRead?: CurrentRead }) {
+  const read = currentRead || {
+    mode: "discovery",
+    observation: "No real founder signal yet.",
+    hypothesis: "The hiring problem is still unnamed.",
+    risk: "If Tina commits too early, a vague role label becomes fake conviction.",
+    confidence: "low",
+    whatWouldChangeMyMind: "One concrete description of what is breaking today.",
+    nextBestMove: "Ask what changed that makes this hire feel necessary now.",
+    likelyArchetype: "Unknown / Needs Clarification"
+  } satisfies CurrentRead;
+
+  return (
+    <div className="grid gap-3">
+      <section className="rounded-lg border border-[#E2D8CD] bg-[#FFFCF7] p-3">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Current Read</p>
+            <h3 className="mt-2 text-base font-semibold leading-5 text-[#171717]">{read.likelyArchetype || "Unknown / Needs Clarification"}</h3>
+          </div>
+          <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[10px] font-medium capitalize text-[#6F675E] ring-1 ring-[#E5DCD1]">
+            {read.mode}
+          </span>
+        </div>
+      </section>
+
+      <CurrentReadField label="Observation" value={read.observation} />
+      <CurrentReadField label="Hypothesis" value={read.hypothesis} strong />
+      <CurrentReadField label="Risk" value={read.risk} />
+      <CurrentReadField label="Confidence" value={read.confidence} />
+      <CurrentReadField label="What Would Change My Mind" value={read.whatWouldChangeMyMind} />
+      <CurrentReadField label="Next Best Move" value={read.nextBestMove} strong />
+
+      <section className="rounded-lg border border-dashed border-[#DED5CA] bg-[#FFFCF7] p-3">
+        <p className="text-xs leading-5 text-[#8A8178]">
+          Market reality will appear once Tina has enough conviction about the actual hiring problem.
+        </p>
+      </section>
+    </div>
+  );
+}
+
+function CurrentReadField({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <section className="rounded-lg border border-[#E2D8CD] bg-white p-3">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8A8178]">{label}</p>
+      <p className={`mt-1.5 text-sm leading-5 ${strong ? "font-semibold text-[#171717]" : "text-[#4B453F]"}`}>{value}</p>
+    </section>
   );
 }
 
@@ -4640,10 +4750,11 @@ function deriveSourcingStrategy(
   };
 }
 
-function buildMissionHeader(canonicalSearchState: CanonicalSearchState, messages: TinaMvpMessage[]) {
+function buildMissionHeader(canonicalSearchState: CanonicalSearchState, messages: TinaMvpMessage[], currentRead?: CurrentRead) {
   const founderText = messages.filter((message) => message.role === "founder").map((message) => message.content).join(" ").toLowerCase();
   const allText = messages.map((message) => message.content).join(" ").toLowerCase();
-  const role = compactMissionPart(canonicalSearchState.roleTitle && canonicalSearchState.roleTitle !== "Role forming" ? canonicalSearchState.roleTitle : "this search");
+  const controlledTitle = currentRead?.likelyArchetype && currentRead.likelyArchetype !== "Unknown / Needs Clarification" ? currentRead.likelyArchetype : "";
+  const role = compactMissionPart(controlledTitle || (canonicalSearchState.roleTitle && canonicalSearchState.roleTitle !== "Role forming" ? canonicalSearchState.roleTitle : "this search"));
   const constraints = [
     /\b(us|u\.s\.|usa|united states)\b/.test(founderText) && /\bcanada|canadian\b/.test(founderText) ? "US/Canada" : "",
     canonicalSearchState.location && !/forming/i.test(canonicalSearchState.location) ? canonicalSearchState.location : "",

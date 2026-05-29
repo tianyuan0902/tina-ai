@@ -2,6 +2,7 @@ import { buildBrainState } from "../.tmp/eval-brain-state/lib/brain/buildBrainSt
 import { buildCanonicalSearchState, formatCanonicalSearchStateForPrompt } from "../.tmp/eval-brain-state/lib/brain/canonicalSearchState.js";
 import { evaluateSourcingReadiness } from "../.tmp/eval-brain-state/lib/tina/sourcing-readiness.js";
 import { buildExpandedPublicTalentSearchQueries, buildPublicTalentSearchQueries } from "../.tmp/eval-brain-state/lib/tina/search-query-builder.js";
+import { buildCurrentRead, buildCurrentReadResponseSketch, currentReadTitle } from "../.tmp/eval-brain-state/lib/tina-mvp/current-read.js";
 import { buildFounderModel, buildFounderModelResponseSketch } from "../.tmp/eval-brain-state/lib/tina-mvp/founder-model.js";
 import { buildWorkingThesis, buildWorkingThesisResponseSketch, formatWorkingThesisForPrompt } from "../.tmp/eval-brain-state/lib/tina-mvp/working-thesis.js";
 import { TINA_SYSTEM_PROMPT } from "../.tmp/eval-brain-state/lib/tina-mvp/system-prompt.js";
@@ -260,6 +261,66 @@ expectIncludes([pmWorkingThesisSketch], /role shape|search lane|concrete/i, "agr
 expectIncludes([pmWorkingThesisPrompt], /Do not repeat the latest insight/i, "working thesis prompt should prevent repeated insights");
 expectIncludes([pmWorkingThesisPrompt], /If the thesis is stable, move to recommendation/i, "working thesis prompt should move stable thesis forward");
 console.log("PASS working thesis progression");
+
+const currentReadScenarios = [
+  {
+    name: "VP Sales",
+    messages: [
+      { id: "vp-sales-1", role: "founder", content: "I think we need a VP Sales." },
+      { id: "vp-sales-2", role: "founder", content: "Founder-led sales is working but I can't keep closing every deal." }
+    ],
+    archetype: "Founder-Led Sales Transition"
+  },
+  {
+    name: "Head of Eng",
+    messages: [
+      { id: "head-eng-1", role: "founder", content: "I need a Head of Eng." },
+      { id: "head-eng-2", role: "founder", content: "Technical decisions keep coming back to me and shipping is slowing down." }
+    ],
+    archetype: "Engineering Leadership Bottleneck"
+  },
+  {
+    name: "Someone More Senior",
+    messages: [
+      { id: "senior-1", role: "founder", content: "I need someone more senior." },
+      { id: "senior-2", role: "founder", content: "The team keeps escalating decisions and I need them to run themselves." }
+    ],
+    archetype: "Senior Ownership Gap"
+  },
+  {
+    name: "Generalist",
+    messages: [
+      { id: "generalist-1", role: "founder", content: "I need a generalist." },
+      { id: "generalist-2", role: "founder", content: "Honestly they need to do ops, customer stuff, founder office, kind of all of it." }
+    ],
+    archetype: "Role Compression / Generalist Hire"
+  },
+  {
+    name: "Hire Fast",
+    messages: [
+      { id: "fast-1", role: "founder", content: "We need to hire fast." },
+      { id: "fast-2", role: "founder", content: "Our lead left and I need coverage ASAP." }
+    ],
+    archetype: "Urgent Hiring Triage"
+  }
+];
+let committedThesisCount = 0;
+let concreteMoveCount = 0;
+for (const scenario of currentReadScenarios) {
+  const read = buildCurrentRead({ messages: scenario.messages });
+  const responseSketch = buildCurrentReadResponseSketch(scenario.messages);
+  expectEqual(read.likelyArchetype, scenario.archetype, `${scenario.name} should map to controlled archetype`);
+  expectEqual(currentReadTitle(read), scenario.archetype, `${scenario.name} title should use controlled archetype`);
+  expectNotIncludes([read.likelyArchetype], /\b(i think|need|find|can't|every deal|asap)\b/i, `${scenario.name} should not use raw founder text as title`);
+  expectIncludes([responseSketch], /Here’s what I think is really going on:/i, `${scenario.name} should commit a clear thesis by turn 2`);
+  expectIncludes([responseSketch], /The next best move:/i, `${scenario.name} should include concrete next best move`);
+  expectNotIncludes([read.mode], /^execution$|^sourcing$/, `${scenario.name} should not show Market Intel before execution`);
+  if (read.mode === "thesis" || read.mode === "calibration") committedThesisCount += 1;
+  if (read.nextBestMove.length > 20) concreteMoveCount += 1;
+}
+expectAtLeast(committedThesisCount, 4, "current read should state a thesis by turn 2 in at least 4/5 scenarios");
+expectAtLeast(concreteMoveCount, 4, "current read should give a concrete next best move in at least 4/5 scenarios");
+console.log("PASS current read thesis commitment scenarios");
 
 const canonicalCases = [
   {

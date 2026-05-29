@@ -1,6 +1,7 @@
 import type { ProfileLead, SourcingBatchMetadata } from "@/lib/tina/profile-lead-types";
 import type { CanonicalSearchState } from "@/lib/brain/canonicalSearchState";
 import type { SourcingReadiness } from "@/lib/tina/sourcing-readiness";
+import type { CurrentRead } from "@/lib/tina-mvp/current-read";
 import type { WorkingThesis } from "@/lib/tina-mvp/working-thesis";
 
 export type TinaMvpRole = "founder" | "tina";
@@ -31,6 +32,7 @@ export type TinaChatApiResponse = {
   message: TinaMvpMessage;
   canonicalSearchState?: CanonicalSearchState;
   workingThesis?: WorkingThesis;
+  currentRead?: CurrentRead;
   profileLeads?: ProfileLead[];
   marketIntel?: unknown;
   source: "openai" | "local_scope_guard" | "local_profile_feedback" | "local_conversation_move" | "local_fallback" | "public_search" | "sourcing_readiness";

@@ -5,6 +5,7 @@ import { retrieveBrainContext } from "@/lib/brain/retrieveBrainContext";
 import { formatCompanyContext, isCompanyContextMessage, retrieveCompanyContext } from "@/lib/tina/company-context";
 import { getRequestedProfileCount, searchPublicProfileBatch } from "@/lib/tina/public-search";
 import { evaluateSourcingReadiness } from "@/lib/tina/sourcing-readiness";
+import { buildCurrentRead, formatCurrentReadForPrompt, type CurrentRead } from "@/lib/tina-mvp/current-read";
 import { buildFounderModel, formatFounderModelForPrompt } from "@/lib/tina-mvp/founder-model";
 import { TINA_SYSTEM_PROMPT } from "@/lib/tina-mvp/system-prompt";
 import { buildWorkingThesis, buildWorkingThesisWithAssistant, formatWorkingThesisForPrompt, type WorkingThesis } from "@/lib/tina-mvp/working-thesis";
@@ -22,11 +23,12 @@ type OpenAIInputMessage = {
 };
 
 export async function POST(request: Request) {
-  const { messages, sourcingRefinementSummary, canonicalSearchState: requestCanonicalSearchState, workingThesis: requestWorkingThesis } = (await request.json()) as {
+  const { messages, sourcingRefinementSummary, canonicalSearchState: requestCanonicalSearchState, workingThesis: requestWorkingThesis, currentRead: requestCurrentRead } = (await request.json()) as {
     messages?: TinaMvpMessage[];
     sourcingRefinementSummary?: string;
     canonicalSearchState?: CanonicalSearchState;
     workingThesis?: WorkingThesis;
+    currentRead?: CurrentRead;
   };
   const cleanMessages = normalizeMessages(messages);
   const latestUserMessage = [...cleanMessages].reverse().find((message) => message.role === "founder");
@@ -46,6 +48,11 @@ export async function POST(request: Request) {
     ? requestWorkingThesis!
     : computedWorkingThesis;
   const workingThesisText = formatWorkingThesisForPrompt(workingThesis);
+  const computedCurrentRead = buildCurrentRead({ messages: cleanMessages, canonicalSearchState, workingThesis, previousRead: requestCurrentRead });
+  const currentRead = shouldUseRequestCurrentRead(latestUserMessage?.content || "", computedCurrentRead, requestCurrentRead)
+    ? requestCurrentRead!
+    : computedCurrentRead;
+  const currentReadText = formatCurrentReadForPrompt(currentRead);
 
   if (!cleanMessages.length || !latestUserMessage) {
     return NextResponse.json({ error: "No founder message was provided." }, { status: 400 });
@@ -66,6 +73,7 @@ export async function POST(request: Request) {
       },
       canonicalSearchState,
       workingThesis,
+      currentRead,
       source: "local_scope_guard"
     });
   }
@@ -79,6 +87,7 @@ export async function POST(request: Request) {
       },
       canonicalSearchState,
       workingThesis,
+      currentRead,
       source: "local_profile_feedback"
     });
   }
@@ -92,6 +101,7 @@ export async function POST(request: Request) {
       },
       canonicalSearchState,
       workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildFounderUncertainResponse(canonicalSearchState), canonicalSearchState),
+      currentRead,
       source: "local_conversation_move"
     });
   }
@@ -105,6 +115,7 @@ export async function POST(request: Request) {
       },
       canonicalSearchState,
       workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildHardSearchResponse(canonicalSearchState), canonicalSearchState),
+      currentRead,
       source: "local_conversation_move"
     });
   }
@@ -118,6 +129,7 @@ export async function POST(request: Request) {
       },
       canonicalSearchState,
       workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildOverbroadAnswerResponse(canonicalSearchState), canonicalSearchState),
+      currentRead,
       source: "local_conversation_move"
     });
   }
@@ -131,6 +143,7 @@ export async function POST(request: Request) {
       },
       canonicalSearchState,
       workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildAlignmentSignalResponse(canonicalSearchState), canonicalSearchState),
+      currentRead,
       source: "local_conversation_move"
     });
   }
@@ -144,6 +157,7 @@ export async function POST(request: Request) {
       },
       canonicalSearchState,
       workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildPartialCoverageResponse(canonicalSearchState), canonicalSearchState),
+      currentRead,
       source: "local_conversation_move"
     });
   }
@@ -157,6 +171,7 @@ export async function POST(request: Request) {
       },
       canonicalSearchState,
       workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildAgreementProgressionResponse(canonicalSearchState, cleanMessages), canonicalSearchState),
+      currentRead,
       source: "local_conversation_move"
     });
   }
@@ -173,6 +188,7 @@ export async function POST(request: Request) {
       },
       canonicalSearchState,
       workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildSourcingReadinessResponse(initialReadiness, latestUserMessage.content, canonicalSearchState), canonicalSearchState),
+      currentRead,
       source: "sourcing_readiness"
     });
   }
@@ -193,6 +209,7 @@ export async function POST(request: Request) {
         },
         canonicalSearchState,
         workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildLocationAlignmentResponse(canonicalSearchState), canonicalSearchState),
+        currentRead,
         source: "sourcing_readiness"
       });
     }
@@ -210,6 +227,7 @@ export async function POST(request: Request) {
         },
         canonicalSearchState,
         workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildSourcingReadinessResponse(readiness, latestUserMessage.content, canonicalSearchState), canonicalSearchState),
+        currentRead,
         source: "sourcing_readiness"
       });
     }
@@ -223,6 +241,7 @@ export async function POST(request: Request) {
       `Canonical search state:\n${canonicalSearchStateText}`,
       founderModelText,
       workingThesisText,
+      currentReadText,
       cleanMessages.map((message) => message.content).join("\n"),
       readiness.searchThesis ? `Search thesis:\n${readiness.searchThesis}` : "",
       refinementSummary ? `Talent Pool feedback summary for sourcing refinement:\n${refinementSummary}` : "",
@@ -254,6 +273,7 @@ export async function POST(request: Request) {
       },
       canonicalSearchState: responseCanonicalSearchState,
       workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildProfileSearchResponse(shouldRunPromisedSourcing ? "this hiring lane" : latestUserMessage.content, metadata, isRefinementSearch), responseCanonicalSearchState),
+      currentRead: buildCurrentRead({ messages: cleanMessages, canonicalSearchState: responseCanonicalSearchState, workingThesis, previousRead: currentRead }),
       profileLeads,
       source: "public_search"
     });
@@ -271,6 +291,7 @@ export async function POST(request: Request) {
     adaptiveModeInstruction,
     founderModelText,
     workingThesisText,
+    currentReadText,
     "The structured search state is the current internal truth. If it conflicts with older messages, trust that state and the founder's latest correction. Do not mention the state object. Do not describe a different role family, location, seniority, or market lane.",
     canonicalSearchStateText,
     liveJdRequest
@@ -321,6 +342,7 @@ export async function POST(request: Request) {
       message: buildLocalFallbackMessage(cleanMessages, "missing_api_key"),
       canonicalSearchState,
       workingThesis,
+      currentRead,
       source: "local_fallback",
       debugCode: "missing_api_key"
     });
@@ -334,6 +356,7 @@ export async function POST(request: Request) {
       message: buildLocalFallbackMessage(cleanMessages, "network_error"),
       canonicalSearchState,
       workingThesis,
+      currentRead,
       source: "local_fallback",
       debugCode: "network_error"
     });
@@ -350,6 +373,7 @@ export async function POST(request: Request) {
       message: buildLocalFallbackMessage(cleanMessages, debugCode),
       canonicalSearchState,
       workingThesis,
+      currentRead,
       source: "local_fallback",
       debugCode
     });
@@ -363,6 +387,7 @@ export async function POST(request: Request) {
       message: buildLocalFallbackMessage(cleanMessages, "empty_response"),
       canonicalSearchState,
       workingThesis,
+      currentRead,
       source: "local_fallback",
       debugCode: "empty_response"
     });
@@ -378,6 +403,7 @@ export async function POST(request: Request) {
       const hiringContext = [
         `Canonical search state:\n${canonicalSearchStateText}`,
         workingThesisText,
+        currentReadText,
         cleanMessages.map((message) => message.content).join("\n"),
         `Tina said she was pulling a shortlist; convert that promise into actual public profile sourcing.`,
         readiness.searchThesis ? `Search thesis:\n${readiness.searchThesis}` : "",
@@ -401,6 +427,7 @@ export async function POST(request: Request) {
         },
         canonicalSearchState: responseCanonicalSearchState,
         workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildProfileSearchResponse("this hiring lane", metadata, false), responseCanonicalSearchState),
+        currentRead: buildCurrentRead({ messages: cleanMessages, canonicalSearchState: responseCanonicalSearchState, workingThesis, previousRead: currentRead }),
         profileLeads,
         source: "public_search"
       });
@@ -415,6 +442,7 @@ export async function POST(request: Request) {
       },
       canonicalSearchState,
       workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildSourcingReadinessResponse(readiness, latestUserMessage.content, canonicalSearchState), canonicalSearchState),
+      currentRead,
       source: "sourcing_readiness"
     });
   }
@@ -429,6 +457,7 @@ export async function POST(request: Request) {
     },
     canonicalSearchState,
     workingThesis: buildWorkingThesisWithAssistant(cleanMessages, advisorText, canonicalSearchState),
+    currentRead,
     source: "openai",
     responseId: data.id
   });
@@ -504,6 +533,17 @@ function shouldUseRequestWorkingThesis(
   if (!provided) return false;
   if (computed.evidence.length >= provided.evidence.length) return false;
   return /^\s*(yes|sure|go ahead|ok|okay|sounds good|sounds great|great|makes sense)\s*[.!?]*\s*$/i.test(latestUserMessage);
+}
+
+function shouldUseRequestCurrentRead(
+  latestUserMessage: string,
+  computed: CurrentRead,
+  provided?: CurrentRead
+) {
+  if (!provided) return false;
+  if (!/^\s*(yes|sure|go ahead|ok|okay|sounds good|sounds great|great|makes sense)\s*[.!?]*\s*$/i.test(latestUserMessage)) return false;
+  if (computed.confidence === "high") return false;
+  return provided.confidence === "medium" || provided.confidence === "high";
 }
 
 function canRunCalibrationBatch(state: CanonicalSearchState) {
