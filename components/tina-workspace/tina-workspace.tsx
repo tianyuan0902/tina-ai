@@ -1023,6 +1023,9 @@ function SignalMapBoard({ signalMap }: { signalMap: SignalMap }) {
 }
 
 function shortSignalText(value: string) {
+  const directLabel = signalMapLabel(value);
+  if (directLabel) return directLabel;
+
   const clean = value
     .replace(/^has\s+/i, "")
     .replace(/^can\s+/i, "")
@@ -1043,13 +1046,53 @@ function shortSignalText(value: string) {
     .replace(/\bcreates meetings but not speed\b/gi, "meetings, not speed")
     .replace(/[?.]$/g, "")
     .trim();
-  const words = clean.split(/\s+/).filter(Boolean);
-  return words.length > 8 ? `${words.slice(0, 8).join(" ")}...` : clean;
+
+  const clause = clean.split(/\s+(?:who|with|without|while|when|where|because|so)\s+|[;,:—]/)[0]?.trim() || clean;
+  const label = signalMapLabel(clause) || clause;
+  const words = label.split(/\s+/).filter(Boolean);
+  if (words.length <= 10) return label;
+  return keywordSignalLabel(label);
+}
+
+function signalMapLabel(value: string) {
+  const text = value.toLowerCase();
+  if (/decision ownership|own(ed|s)? .*decision|technical decisions|product decisions/.test(text)) return "Owns hard decisions";
+  if (/founder.*hand|founder.*central|founder.*depend|founder leverage|proxy/.test(text)) return "Reduces founder dependency";
+  if (/engineering execution rhythm|shipping cadence|execution rhythm|operating cadence/.test(text)) return "Improves team rhythm";
+  if (/trust|morale/.test(text)) return "Rebuilds trust and morale";
+  if (/ambig/.test(text)) return "Works through ambiguity";
+  if (/large team|mature company|big-company/.test(text)) return "Big-company manager";
+  if (/architecture.*no people|architecture-only|people leadership/.test(text)) return "Architecture without leadership";
+  if (/process-heavy|meetings.*speed|coordination layer/.test(text)) return "Process without speed";
+  if (/senior ic|individual contributor/.test(text)) return "Senior IC, not leader";
+  if (/product and engineering disagreed|product\/eng/.test(text)) return "Product/eng conflict";
+  if (/customer discovery|customer signal/.test(text)) return "Reads customer signal";
+  if (/product taste|product judgment/.test(text)) return "Sharp product judgment";
+  if (/prioriti[sz]ation|tradeoff/.test(text)) return "Makes tradeoff calls";
+  if (/startup pace|startup environment|messy startup/.test(text)) return "Startup operating proof";
+  if (/shipped|shipping|built|build/.test(text)) return "Real shipping proof";
+  if (/interview|probe|exercise/.test(text)) return "Concrete working example";
+  if (/audit|security/.test(text)) return "Security-critical proof";
+  if (/protocol|smart contract|solidity/.test(text)) return "Smart contract ownership";
+  return "";
+}
+
+function keywordSignalLabel(value: string) {
+  const text = value.toLowerCase();
+  if (/ownership/.test(text)) return "Clear ownership proof";
+  if (/judgment/.test(text)) return "Independent judgment";
+  if (/lead/.test(text)) return "Leadership under pressure";
+  if (/technical/.test(text)) return "Technical judgment";
+  if (/product/.test(text)) return "Product judgment";
+  if (/speed|fast/.test(text)) return "Speed without chaos";
+  const words = value.split(/\s+/).filter(Boolean).slice(0, 10);
+  return words.join(" ");
 }
 
 function shortProfileSentence(value: string) {
   const sentence = compactLeadText(value, 110).split(/[.!?]/)[0]?.trim() || value.trim();
-  return sentence.length > 110 ? `${sentence.slice(0, 107).trim()}...` : sentence;
+  if (sentence.length <= 110) return sentence;
+  return keywordSignalLabel(sentence);
 }
 
 function SourcingResultArtifact({ leads, sourcingBatch }: { leads: ProfileLead[]; sourcingBatch?: SourcingBatchMetadata }) {
