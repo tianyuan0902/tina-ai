@@ -16,6 +16,7 @@
     "lib/tina/sourcing-readiness.ts",
     "lib/tina/search-query-builder.ts",
     "lib/tina/profile-lead-types.ts",
+    "lib/tina-mvp/founder-model.ts",
     "lib/tina-mvp/system-prompt.ts",
     "lib/tina-mvp/types.ts"
   ]

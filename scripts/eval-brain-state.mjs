@@ -2,6 +2,7 @@ import { buildBrainState } from "../.tmp/eval-brain-state/lib/brain/buildBrainSt
 import { buildCanonicalSearchState, formatCanonicalSearchStateForPrompt } from "../.tmp/eval-brain-state/lib/brain/canonicalSearchState.js";
 import { evaluateSourcingReadiness } from "../.tmp/eval-brain-state/lib/tina/sourcing-readiness.js";
 import { buildExpandedPublicTalentSearchQueries, buildPublicTalentSearchQueries } from "../.tmp/eval-brain-state/lib/tina/search-query-builder.js";
+import { buildFounderModel, buildFounderModelResponseSketch } from "../.tmp/eval-brain-state/lib/tina-mvp/founder-model.js";
 import { TINA_SYSTEM_PROMPT } from "../.tmp/eval-brain-state/lib/tina-mvp/system-prompt.js";
 
 const cases = [
@@ -126,6 +127,15 @@ if (!/what happens if nobody is hired/i.test(TINA_SYSTEM_PROMPT)) {
 if (!/Adaptive advisor engine/i.test(TINA_SYSTEM_PROMPT)) {
   throw new Error("system prompt should include the adaptive advisor engine.");
 }
+if (!/generate a working founder model/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should require a working founder model before responding.");
+}
+if (!/Founder → Problem → Role reasoning/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should reason Founder → Problem → Role.");
+}
+if (!/challenge level, assumptions, examples, risks, and language/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should say founder model affects challenge, assumptions, examples, risks, and language.");
+}
 for (const modeName of ["Discovery mode", "Calibration mode", "Execution mode", "Market Reality mode", "Sourcing mode"]) {
   if (!TINA_SYSTEM_PROMPT.includes(modeName)) {
     throw new Error(`system prompt should define ${modeName}.`);
@@ -210,6 +220,21 @@ if (!/What location\?|What level\?|What compensation\?/i.test(TINA_SYSTEM_PROMPT
   throw new Error("system prompt should explicitly avoid transactional intake questions.");
 }
 console.log("PASS advisor tone prompt guard");
+
+const founderModelA = buildFounderModel([{ id: "founder-model-a", role: "founder", content: "Third company. 40 people. Need a PM." }]);
+const founderModelB = buildFounderModel([{ id: "founder-model-b", role: "founder", content: "This is my first startup. We raised $3M and I think I need a PM." }]);
+const founderResponseA = buildFounderModelResponseSketch("Third company. 40 people. Need a PM.");
+const founderResponseB = buildFounderModelResponseSketch("This is my first startup. We raised $3M and I think I need a PM.");
+const overlap = responseOverlap(founderResponseA, founderResponseB);
+
+expectEqual(founderModelA.founderProfile, "repeat_founder", "third company should build repeat founder model");
+expectEqual(founderModelA.companyStage, "40 people", "third company case should capture company size");
+expectEqual(founderModelB.founderProfile, "first_time_founder", "first startup should build first-time founder model");
+expectIncludes([founderModelB.companyStage], /raised \$3m/i, "first startup case should capture raise");
+expectAtMost(overlap, 0.5, "founder-model response overlap should not exceed 50%");
+expectIncludes([founderResponseA], /previous company|founder leverage|40 people|routing back/i, "repeat founder response should use repeat-founder failure mode");
+expectIncludes([founderResponseB], /first startup|\$3M|founder overload|product signal/i, "first-time founder response should use first-time-founder failure mode");
+console.log("PASS founder model response differentiation");
 
 const canonicalCases = [
   {
@@ -437,6 +462,25 @@ function expectNotIncludes(values, pattern, message) {
 
 function fail(message, actual, expected) {
   throw new Error(`${message}. Expected ${expected}, got ${JSON.stringify(actual)}.`);
+}
+
+function responseOverlap(a, b) {
+  const aTokens = significantTokens(a);
+  const bTokens = significantTokens(b);
+  const intersection = [...aTokens].filter((token) => bTokens.has(token)).length;
+  const denominator = Math.max(1, Math.min(aTokens.size, bTokens.size));
+  return intersection / denominator;
+}
+
+function significantTokens(value) {
+  const stop = new Set(["the", "and", "for", "that", "this", "with", "from", "before", "there", "where", "what", "need", "role", "pm", "would", "should", "into", "not", "you", "your", "they", "them", "because", "enough"]);
+  return new Set(
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9$ ]/g, " ")
+      .split(/\s+/)
+      .filter((token) => token.length > 3 && !stop.has(token))
+  );
 }
 
 function profileLeadFixture(overrides = {}) {

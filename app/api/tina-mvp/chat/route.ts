@@ -5,6 +5,7 @@ import { retrieveBrainContext } from "@/lib/brain/retrieveBrainContext";
 import { formatCompanyContext, isCompanyContextMessage, retrieveCompanyContext } from "@/lib/tina/company-context";
 import { getRequestedProfileCount, searchPublicProfileBatch } from "@/lib/tina/public-search";
 import { evaluateSourcingReadiness } from "@/lib/tina/sourcing-readiness";
+import { buildFounderModel, formatFounderModelForPrompt } from "@/lib/tina-mvp/founder-model";
 import { TINA_SYSTEM_PROMPT } from "@/lib/tina-mvp/system-prompt";
 import type { ProfileLead, SourcingBatchMetadata } from "@/lib/tina/profile-lead-types";
 import type { TinaMvpMessage } from "@/lib/tina-mvp/types";
@@ -36,6 +37,8 @@ export async function POST(request: Request) {
     ? requestCanonicalSearchState!
     : computedCanonicalSearchState;
   const canonicalSearchStateText = formatCanonicalSearchStateForPrompt(canonicalSearchState);
+  const founderModel = buildFounderModel(cleanMessages, canonicalSearchState);
+  const founderModelText = formatFounderModelForPrompt(founderModel);
 
   if (!cleanMessages.length || !latestUserMessage) {
     return NextResponse.json({ error: "No founder message was provided." }, { status: 400 });
@@ -200,6 +203,7 @@ export async function POST(request: Request) {
         : undefined;
     const hiringContext = [
       `Canonical search state:\n${canonicalSearchStateText}`,
+      founderModelText,
       cleanMessages.map((message) => message.content).join("\n"),
       readiness.searchThesis ? `Search thesis:\n${readiness.searchThesis}` : "",
       refinementSummary ? `Talent Pool feedback summary for sourcing refinement:\n${refinementSummary}` : "",
@@ -245,6 +249,7 @@ export async function POST(request: Request) {
     "If the founder gives company or product context, treat it as hiring calibration input. Infer what kinds of candidates may fit the company, product surface, customer environment, and operating stage. Do not ask why the company context matters.",
     "For normal chat, keep the answer compact, complete, and human. Sound like you are thinking with the founder in real time. Use contractions. Avoid stiff phrases like 'there are three key dimensions' or 'the optimal approach'. Tina is a Hiring Decision Engine: first diagnose the business problem, organizational context, and whether hiring is actually the right intervention. Your goal is to help the founder think; the task is secondary. Every response needs at least one observation the founder is unlikely to have articulated themselves. Do not merely summarize. On every follow-up, interpret the founder's latest answer before moving the workflow forward: what did it reveal, what ambiguity remains, what tradeoff was exposed, and what assumption surfaced? Once a meaningful signal has been extracted, do not keep rephrasing it; update the working hypothesis and produce a new observation. If the founder names a role but has not asked for candidates yet, do not jump to sourcing or intake fields. Ask one earned diagnostic question such as what changed, what is breaking, who owns the work now, or what fails if nobody is hired. If the founder gives enough signal for useful guidance, make the recommendation instead of asking more questions. If the founder explicitly asks for candidates, profiles, people, top schools, top companies, SF, fintech, AI infra, PM, or Product Eng, treat it as sourcing work, but do not blindly fill the req when the founder has just exposed a major unresolved tradeoff. Agreement is not permission to switch into scorecards or candidate evaluation process. Use 'I have enough for a first pass,' 'I’ll make a working assumption,' and 'I’ll filter hard' only when the tradeoff is clear enough. Do not say 'How is this relevant?', 'I’m missing role outcome', 'must-have signals are required', 'please provide', 'source lanes', 'calibration status', or 'canonical state'. Avoid 'Sounds like you need', 'The practical implication is', 'This implies', and 'scorecard'. Do not ask location, level, compensation, company lanes, or must-have skills unless the answer materially changes the recommendation. Do not say you are pulling, sharing, or preparing a candidate list later unless actual profile leads are included in this response.",
     adaptiveModeInstruction,
+    founderModelText,
     "The structured search state is the current internal truth. If it conflicts with older messages, trust that state and the founder's latest correction. Do not mention the state object. Do not describe a different role family, location, seniority, or market lane.",
     canonicalSearchStateText,
     liveJdRequest
