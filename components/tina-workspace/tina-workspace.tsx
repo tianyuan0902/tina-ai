@@ -52,8 +52,8 @@ const stableNewRoleThread: ChatThread = {
 const MARKET_INTEL_FORMING_TITLE = "Scope forming";
 
 const leadingQuestions = [
-  { label: "Source candidates", prompt: "Source candidates for this hire." },
-  { label: "Build search lanes", prompt: "Recommend the strongest search lanes for this hire and the first pass you would run." }
+  { label: "Start with the hiring problem", prompt: "Help me clarify the hiring problem before we talk about candidates." },
+  { label: "Pressure-test this hire", prompt: "Pressure-test whether this is the right hire before we start sourcing." }
 ];
 
 type ProfileLeadStatus = {
@@ -724,10 +724,10 @@ function HomeCommandCenter({
             <div className="mx-auto max-w-xl xl:max-w-2xl">
               <p className="mb-2 flex items-center justify-center gap-2 text-[11px] text-[#6B6259] xl:mb-3">
                 <Sparkles className="h-3.5 w-3.5 text-[#178A52]" />
-                Founder-grade sourcing, powered by hiring judgment.
+                Founder-grade hiring judgment, before the search begins.
               </p>
               <h1 className="font-serif text-[clamp(1.45rem,1.9vw,2.1rem)] font-semibold leading-[1.05] tracking-normal text-[#171717] xl:text-[clamp(1.75rem,2.15vw,2.35rem)]">
-                Your AI talent partner for hard startup hires.
+                Don’t start with the role. Start with the problem.
               </h1>
             </div>
           )}
@@ -1566,9 +1566,9 @@ function RightIntelligenceRail({
     <aside className="hidden h-full min-h-0 min-w-0 max-w-full overflow-y-auto md:block md:pt-2 xl:pt-3">
       <section className="min-h-[calc(100%-0.75rem)] min-w-0 overflow-hidden rounded-xl border border-[#E7E3DD] bg-white shadow-[0_22px_70px_rgba(23,23,23,0.055)]">
         <div className="border-b border-[#ECE7E1] bg-white px-3 py-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">{showMarketReality ? "Market Reality" : "Current Read"}</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">{showMarketReality ? "Market Reality" : "Tina’s read"}</p>
           <h2 className="mt-1 text-base font-semibold text-[#171717]">{showMarketReality ? "Market reality" : "Hiring thesis"}</h2>
-          <p className="mt-1 text-xs leading-5 text-[#625A52]">{showMarketReality ? "Shown when Tina is executing or sourcing." : "Tina’s committed read of the problem."}</p>
+          <p className="mt-1 text-xs leading-5 text-[#625A52]">{showMarketReality ? "Shown when Tina is executing or sourcing." : "What Tina thinks is happening."}</p>
         </div>
 
         <div className="min-w-0 overflow-hidden p-3">
@@ -1605,7 +1605,7 @@ function CurrentReadRail({ currentRead, onAction }: { currentRead?: CurrentRead;
     thesisTitle: "Unknown / Needs Clarification",
     observation: "No real founder signal yet.",
     hypothesis: "The hiring problem is still unnamed.",
-    risk: "If Tina commits too early, a vague role label becomes fake conviction.",
+    risk: "A vague role can turn into a very expensive guess.",
     confidence: "low",
     whatWouldChangeMyMind: "One concrete description of what is breaking today.",
     nextBestMove: "Ask what changed that makes this hire feel necessary now.",
@@ -1625,8 +1625,8 @@ function CurrentReadRail({ currentRead, onAction }: { currentRead?: CurrentRead;
     <section className="rounded-2xl border border-[#E5DCD1] bg-[#FFFCF7] p-4 shadow-[0_18px_55px_rgba(23,23,23,0.055)]">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8A8178]">Current Read</p>
-          <h3 className="mt-2 text-xl font-semibold leading-6 text-[#171717]">{read.thesisTitle || "Unknown / Needs Clarification"}</h3>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8A8178]">Tina’s read</p>
+          <h3 className="mt-2 text-xl font-semibold leading-6 text-[#171717]">{currentReadTitleForRail(read)}</h3>
         </div>
         <span className="shrink-0 rounded-full bg-[#EFF8F1] px-2.5 py-1 text-[10px] font-semibold capitalize text-[#137C48] ring-1 ring-[#DCEFE2]">
           {decisionStatusForRead(read)}
@@ -1749,6 +1749,11 @@ function decisionStatusForRead(read: CurrentRead) {
   if (read.mode === "calibration") return "calibrating";
   if (read.mode === "execution") return "ready";
   return "sourcing";
+}
+
+function currentReadTitleForRail(read: CurrentRead) {
+  if (!read.thesisTitle || read.thesisTitle === "Unknown / Needs Clarification") return "Hiring problem unclear";
+  return read.thesisTitle;
 }
 
 function bottleneckBarsForRead(read: CurrentRead) {

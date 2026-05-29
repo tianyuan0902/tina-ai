@@ -39,11 +39,11 @@ const UNKNOWN_READ: CurrentRead = {
   mode: "discovery",
   thesisTitle: "Unknown / Needs Clarification",
   observation: "No real founder signal yet.",
-  hypothesis: "The hiring problem is still unnamed.",
-  risk: "If Tina commits too early, the product will turn a vague role label into a fake search plan.",
+  hypothesis: "The hiring problem is still unclear.",
+  risk: "A vague role can turn into a very expensive guess.",
   confidence: "low",
   whatWouldChangeMyMind: "One concrete description of what is breaking today.",
-  nextBestMove: "Ask what changed that makes this hire feel necessary now.",
+  nextBestMove: "Name what changed that makes this hire feel necessary now.",
   calibratedScope: [],
   evidence: [],
   openTensions: ["the actual business problem behind the role"],
@@ -372,7 +372,7 @@ function buildReadForArchetype(archetype: CurrentReadArchetype, text: string, st
       return {
         observation: statedRole ? `${statedRole} is a role label, but the actual operating problem is still thin.` : "The role label is not enough signal yet.",
         hypothesis: "Tina should not commit beyond the fact that there is an unresolved hiring or ownership problem.",
-        risk: "Committing now would turn a vague request into fake conviction.",
+        risk: "A vague role can turn into a very expensive guess.",
         whatWouldChangeMyMind: "One concrete answer about what is breaking and who owns it today.",
         nextBestMove: "Ask for the pressure point behind the hire before shaping the role."
       };
