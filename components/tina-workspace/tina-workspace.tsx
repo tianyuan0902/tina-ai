@@ -594,7 +594,8 @@ function HomeCommandCenter({
   const latestBatchRead = buildTalentBatchRead(currentLatestProfileLeadItems.length ? currentLatestProfileLeadItems : visibleProfileLeadItems);
   const displayedMessages = hasCandidateResults && !showFullConversation ? latestConversationExchange(messages) : messages;
   const hiddenMessageCount = Math.max(0, messages.length - displayedMessages.length);
-  const missionHeader = buildMissionHeader(canonicalSearchState, messages, currentRead);
+  const showMarketReality = shouldShowMarketReality(messages, currentRead, hasCandidateResults || Boolean(latestSourcingBatch));
+  const missionHeader = buildMissionHeader(canonicalSearchState, messages, currentRead, showMarketReality);
   const handleRefineSearch = () => {
     const summary = buildTalentPoolFeedbackSummary(currentLatestProfileLeadItems, profileLeadStatus);
     if (summary) {
@@ -730,7 +731,7 @@ function HomeCommandCenter({
             <div className="rounded-xl border border-[#E7E3DD] bg-white/85 px-4 py-3 shadow-[0_14px_40px_rgba(23,23,23,0.045)]">
               <p className="flex items-center gap-2 text-[11px] font-medium text-[#6B6259]">
                 <Sparkles className="h-3.5 w-3.5 text-[#178A52]" />
-                Active sourcing mission
+                {showMarketReality ? "Active sourcing mission" : "Active hiring read"}
               </p>
               <h1 className="mt-1 text-lg font-semibold leading-6 text-[#171717]">{missionHeader}</h1>
             </div>
@@ -962,25 +963,49 @@ function ChatMessage({ message, signals, animate }: { message: TinaMvpMessage; s
 function SignalMapBoard({ signalMap }: { signalMap: SignalMap }) {
   const watchOut = [...signalMap.weakSignals, ...signalMap.falsePositives];
   const columns = [
-    { title: "Must prove", items: signalMap.mustProveSignals },
-    { title: "Watch out for", items: watchOut },
-    { title: "How to test", items: signalMap.interviewProbes }
+    {
+      title: "Must prove",
+      items: signalMap.mustProveSignals,
+      icon: <CheckCircle2 className="h-3.5 w-3.5" />,
+      shell: "border-[#D7E9DD] bg-[#F4FBF6]",
+      heading: "text-[#257647]",
+      row: "bg-white/85 text-[#244933]"
+    },
+    {
+      title: "Watch out for",
+      items: watchOut,
+      icon: <AlertTriangle className="h-3.5 w-3.5" />,
+      shell: "border-[#EBDDC8] bg-[#FFF8ED]",
+      heading: "text-[#9A6632]",
+      row: "bg-white/85 text-[#59422B]"
+    },
+    {
+      title: "How to test",
+      items: signalMap.interviewProbes,
+      icon: <Sparkles className="h-3.5 w-3.5" />,
+      shell: "border-[#DDD8F1] bg-[#F8F6FF]",
+      heading: "text-[#6453A6]",
+      row: "bg-white/85 text-[#403868]"
+    }
   ];
 
   return (
-    <section className="mt-3 max-w-full overflow-hidden rounded-xl border border-[#E1D8CE] bg-[#FFFCF7] shadow-[0_16px_44px_rgba(23,23,23,0.055)]">
-      <div className="border-b border-[#ECE4DA] px-3.5 py-3">
+    <section className="mt-3 max-w-full overflow-hidden rounded-2xl border border-[#E4DCD1] bg-[#FFFCF7] shadow-[0_18px_50px_rgba(23,23,23,0.055)]">
+      <div className="px-4 pb-2 pt-4">
         <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8A8178]">Signal Map</p>
-        <h3 className="mt-1 text-base font-semibold leading-5 text-[#171717]">What this hire must prove</h3>
+        <h3 className="mt-1 text-sm font-semibold leading-5 text-[#171717]">What this hire must prove</h3>
       </div>
 
-      <div className="grid gap-2 p-3 sm:grid-cols-3">
+      <div className="grid gap-3 p-4 pt-2 sm:grid-cols-3">
         {columns.map((column) => (
-          <div key={column.title} className="rounded-lg border border-[#E8DED3] bg-white p-2.5">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8A8178]">{column.title}</p>
-            <div className="mt-2 grid gap-1.5">
+          <div key={column.title} className={`rounded-xl border p-3.5 ${column.shell}`}>
+            <p className={`flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${column.heading}`}>
+              {column.icon}
+              {column.title}
+            </p>
+            <div className="mt-3 grid gap-2">
               {column.items.slice(0, 3).map((item) => (
-                <div key={item} className="rounded-md bg-[#F7F3ED] px-2.5 py-2 text-xs font-medium leading-4 text-[#3F3933]">
+                <div key={item} className={`rounded-lg px-3 py-2 text-[12px] font-medium leading-4 shadow-[0_1px_0_rgba(23,23,23,0.035)] ${column.row}`}>
                   {shortSignalText(item)}
                 </div>
               ))}
@@ -989,9 +1014,9 @@ function SignalMapBoard({ signalMap }: { signalMap: SignalMap }) {
         ))}
       </div>
 
-      <div className="border-t border-[#ECE4DA] bg-white/70 px-3.5 py-3">
+      <div className="mx-4 mb-4 rounded-xl border border-[#E8DED3] bg-white/75 px-3.5 py-3">
         <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Best fit profile</p>
-        <p className="mt-1 text-xs leading-5 text-[#4B453F]">{compactLeadText(signalMap.bestCandidateArchetype, 150)}</p>
+        <p className="mt-1 text-xs leading-5 text-[#4B453F]">{shortProfileSentence(signalMap.bestCandidateArchetype)}</p>
       </div>
     </section>
   );
@@ -1001,13 +1026,30 @@ function shortSignalText(value: string) {
   const clean = value
     .replace(/^has\s+/i, "")
     .replace(/^can\s+/i, "")
+    .replace(/^is able to\s+/i, "")
     .replace(/^tell me about a time you\s+/i, "")
+    .replace(/^tell me about a time\s+/i, "")
     .replace(/^how did you\s+/i, "")
+    .replace(/^how would you\s+/i, "")
     .replace(/^what\s+/i, "")
+    .replace(/\bwithout founder hand-?holding\b/gi, "independently")
+    .replace(/\bfounder or exec team\b/gi, "leadership")
+    .replace(/\btechnical\/product decision-making\b/gi, "technical decisions")
+    .replace(/\bengineering execution rhythm\b/gi, "engineering rhythm")
+    .replace(/\bmessy startup environment\b/gi, "messy startup")
+    .replace(/\bmanaged a large team inside a mature company\b/gi, "big-company team management")
+    .replace(/\bimpressive architecture experience\b/gi, "architecture-only strength")
+    .replace(/\bprocess-heavy\b/gi, "process-heavy")
+    .replace(/\bcreates meetings but not speed\b/gi, "meetings, not speed")
     .replace(/[?.]$/g, "")
     .trim();
   const words = clean.split(/\s+/).filter(Boolean);
-  return words.length > 10 ? `${words.slice(0, 10).join(" ")}...` : clean;
+  return words.length > 8 ? `${words.slice(0, 8).join(" ")}...` : clean;
+}
+
+function shortProfileSentence(value: string) {
+  const sentence = compactLeadText(value, 110).split(/[.!?]/)[0]?.trim() || value.trim();
+  return sentence.length > 110 ? `${sentence.slice(0, 107).trim()}...` : sentence;
 }
 
 function SourcingResultArtifact({ leads, sourcingBatch }: { leads: ProfileLead[]; sourcingBatch?: SourcingBatchMetadata }) {
@@ -5123,12 +5165,12 @@ function deriveSourcingStrategy(
   };
 }
 
-function buildMissionHeader(canonicalSearchState: CanonicalSearchState, messages: TinaMvpMessage[], currentRead?: CurrentRead) {
+function buildMissionHeader(canonicalSearchState: CanonicalSearchState, messages: TinaMvpMessage[], currentRead?: CurrentRead, showMarketReality = false) {
   const founderText = messages.filter((message) => message.role === "founder").map((message) => message.content).join(" ").toLowerCase();
   const allText = messages.map((message) => message.content).join(" ").toLowerCase();
   const controlledTitle = titleFromCurrentReadValue(currentRead);
   const role = compactMissionPart(controlledTitle || (currentRead ? "Unknown / Needs Clarification" : "this search"));
-  if (currentRead && !isMarketIntelMode(currentRead)) return `Finding: ${role}`;
+  if (!showMarketReality) return `Thesis: ${role}`;
 
   const constraints = [
     /\b(us|u\.s\.|usa|united states)\b/.test(founderText) && /\bcanada|canadian\b/.test(founderText) ? "US/Canada" : "",
