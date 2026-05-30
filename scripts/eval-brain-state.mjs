@@ -407,6 +407,56 @@ for (const scenario of artifactScenarios) {
 }
 console.log("PASS hiring artifacts derive from signal map");
 
+const artifactQualityScenarios = [
+  {
+    name: "Head of Eng 10-turn",
+    banned: /chief-of-staff|one hire to do three jobs|customer ops/i,
+    messages: [
+      { id: "head-10-1", role: "founder", content: "Engineering feels slow. Product keeps waiting on eng. I think we need a Head of Engineering." },
+      { id: "head-10-2", role: "founder", content: "The team is 8 engineers. The founder still makes most technical and product priority calls." },
+      { id: "head-10-3", role: "tina", content: "This is an engineering leadership bottleneck." },
+      { id: "head-10-4", role: "founder", content: "That sounds right." },
+      { id: "head-10-5", role: "tina", content: "Define the decisions this hire owns." },
+      { id: "head-10-6", role: "founder", content: "They need to own architecture tradeoffs and team pace." },
+      { id: "head-10-7", role: "tina", content: "That makes this about decision ownership." },
+      { id: "head-10-8", role: "founder", content: "Build signal map." },
+      { id: "head-10-9", role: "tina", content: "Signal Map is ready." },
+      { id: "head-10-10", role: "founder", content: "Build scorecard and define candidate archetype." }
+    ]
+  },
+  {
+    name: "Generalist 10-turn",
+    banned: /morale|engineering rhythm|technical calls|product\/eng conflict/i,
+    messages: [
+      { id: "gen-10-1", role: "founder", content: "I need a generalist." },
+      { id: "gen-10-2", role: "founder", content: "Honestly they need to do ops, customer stuff, founder office, kind of all of it." },
+      { id: "gen-10-3", role: "tina", content: "This is role compression." },
+      { id: "gen-10-4", role: "founder", content: "Yes, everything is falling on me." },
+      { id: "gen-10-5", role: "tina", content: "Pick the primary lane first." },
+      { id: "gen-10-6", role: "founder", content: "The primary lane is customer ops and founder special projects." },
+      { id: "gen-10-7", role: "tina", content: "This needs a narrow owner, not a magical generalist." },
+      { id: "gen-10-8", role: "founder", content: "Build signal map." },
+      { id: "gen-10-9", role: "tina", content: "Signal Map is ready." },
+      { id: "gen-10-10", role: "founder", content: "Build scorecard and define candidate archetype." }
+    ]
+  }
+];
+
+for (const scenario of artifactQualityScenarios) {
+  const read = buildCurrentRead({ messages: scenario.messages });
+  const signalMap = buildSignalMap(read);
+  const scorecard = buildHiringArtifact(signalMap, "scorecard");
+  const archetype = buildHiringArtifact(signalMap, "candidate_archetype");
+  const competencyNames = scorecard.rows.map((row) => row.competency);
+  expectEqual(new Set(competencyNames).size, competencyNames.length, `${scenario.name} scorecard competencies should be distinct`);
+  expectNotIncludes(scorecard.rows.map((row) => row.redFlag), /Improves|Owns|Rebuilds|Sharp|Real shipping|Startup operating|Reduces/i, `${scenario.name} red flags should not be positive signals`);
+  expectNotIncludes(scorecard.rows.flatMap((row) => [row.competency, row.signal, row.strongEvidence, row.redFlag]), scenario.banned, `${scenario.name} scorecard should not leak another scenario`);
+  expectNotIncludes(archetype.items.map((item) => item.value), scenario.banned, `${scenario.name} archetype should not leak another scenario`);
+  expectNotIncludes(archetype.items.map((item) => item.value), /\.\.\.|incomplete phrase/i, `${scenario.name} archetype should not be truncated`);
+  expectEqual(new Set(archetype.items.map((item) => item.value)).size, archetype.items.length, `${scenario.name} archetype fields should not repeat`);
+}
+console.log("PASS hiring artifact quality checks");
+
 const canonicalCases = [
   {
     name: "plant manager Peoria canonical state",
