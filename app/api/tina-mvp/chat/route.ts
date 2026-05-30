@@ -593,7 +593,7 @@ function hasGeographySignal(text: string) {
 
 function isPlanningArtifactRequest(message: string) {
   const text = message.toLowerCase();
-  return /\b(hiring thesis|must[-\s]?have signals?|signal map|scorecard|candidate archetype|interview plan|criteria|rubric|role shape|tradeoffs?|pressure[-\s]?test market|market reality|source lanes|search strategy|time[-\s]?to[-\s]?fill|ttf)\b/.test(text);
+  return /\b(hiring thesis|must[-\s]?have signals?|signal map|scorecard|candidate archetype|interview plan|criteria|rubric|role shape|tradeoffs?|pressure[-\s]?test market|market reality|source lanes|sourcing strategy|search strategy|sourcing plan|search plan|time[-\s]?to[-\s]?fill|ttf)\b/.test(text);
 }
 
 function isSignalMapRequest(message: string) {

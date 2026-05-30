@@ -1,7 +1,7 @@
 import type { CanonicalSearchState } from "@/lib/brain/canonicalSearchState";
 import type { SignalMap } from "@/lib/tina-mvp/signal-map";
 
-export type HiringArtifactKind = "scorecard" | "interview_plan" | "candidate_archetype" | "market_reality";
+export type HiringArtifactKind = "scorecard" | "interview_plan" | "candidate_archetype" | "market_reality" | "sourcing_strategy";
 
 export type ScorecardRow = {
   competency: string;
@@ -35,6 +35,17 @@ export type MarketRealityArtifact = {
   uncertaintyLabel: "directional" | "needs user input" | "based on role pattern";
 };
 
+export type SourcingStrategyArtifact = {
+  targetProfile: string;
+  searchLanes: string[];
+  targetTitles: string[];
+  mustHaveFilters: string[];
+  avoidFilters: string[];
+  searchLogic: string[];
+  outreachAngle: string;
+  missingConstraints: string[];
+};
+
 export type HiringArtifact =
   | {
       kind: "scorecard";
@@ -59,6 +70,12 @@ export type HiringArtifact =
       title: string;
       derivedFromThesisTitle: string;
       marketReality: MarketRealityArtifact;
+    }
+  | {
+      kind: "sourcing_strategy";
+      title: string;
+      derivedFromThesisTitle: string;
+      sourcingStrategy: SourcingStrategyArtifact;
     };
 
 type ArtifactProfile = {
@@ -68,6 +85,7 @@ type ArtifactProfile = {
 };
 
 export function inferHiringArtifactKind(message: string): HiringArtifactKind | undefined {
+  if (isSourcingStrategyArtifactRequest(message)) return "sourcing_strategy";
   if (isMarketRealityArtifactRequest(message)) return "market_reality";
   if (/\b(scorecard|rubric|criteria)\b/i.test(message)) return "scorecard";
   if (/\b(interview plan|interview loop|interview process)\b/i.test(message)) return "interview_plan";
@@ -76,10 +94,15 @@ export function inferHiringArtifactKind(message: string): HiringArtifactKind | u
 }
 
 export function isMarketRealityArtifactRequest(message: string) {
-  return /\b(pressure[-\s]?test market|market reality|talent pool|market read|market map|source lanes|search strategy|time[-\s]?to[-\s]?fill|ttf|comp|compensation|salary|equity|pool size)\b/i.test(message);
+  return /\b(pressure[-\s]?test market|market reality|talent pool|market read|market map|source lanes|time[-\s]?to[-\s]?fill|ttf|comp|compensation|salary|equity|pool size)\b/i.test(message);
+}
+
+export function isSourcingStrategyArtifactRequest(message: string) {
+  return /\b(build|create|make|draft|generate)?\s*(sourcing strategy|search strategy|sourcing plan|search plan)\b/i.test(message);
 }
 
 export function buildHiringArtifact(signalMap: SignalMap, kind: HiringArtifactKind, canonicalSearchState?: CanonicalSearchState): HiringArtifact {
+  if (kind === "sourcing_strategy") return buildSourcingStrategy(signalMap, canonicalSearchState);
   if (kind === "market_reality") return buildMarketReality(signalMap, canonicalSearchState);
   if (kind === "interview_plan") return buildInterviewPlan(signalMap);
   if (kind === "candidate_archetype") return buildCandidateArchetype(signalMap);
@@ -116,6 +139,21 @@ export function formatHiringArtifactForPrompt(artifact?: HiringArtifact) {
       `Next move: ${reality.nextMove}`
     ].join("\n");
   }
+  if (artifact.kind === "sourcing_strategy") {
+    const strategy = artifact.sourcingStrategy;
+    return [
+      "Hiring artifact: Sourcing Strategy",
+      `Derived from thesis: ${artifact.derivedFromThesisTitle}`,
+      `Target profile: ${strategy.targetProfile}`,
+      `Search lanes: ${strategy.searchLanes.join("; ")}`,
+      `Target titles: ${strategy.targetTitles.join("; ")}`,
+      `Must-have filters: ${strategy.mustHaveFilters.join("; ")}`,
+      `Avoid filters: ${strategy.avoidFilters.join("; ")}`,
+      `Search logic: ${strategy.searchLogic.join("; ")}`,
+      `Outreach angle: ${strategy.outreachAngle}`,
+      `Missing constraints: ${strategy.missingConstraints.join("; ")}`
+    ].join("\n");
+  }
   return [
     "Hiring artifact: Candidate archetype",
     `Derived from thesis: ${artifact.derivedFromThesisTitle}`,
@@ -130,6 +168,16 @@ function buildMarketReality(signalMap: SignalMap, canonicalSearchState?: Canonic
     title: "Market Reality",
     derivedFromThesisTitle: signalMap.derivedFromThesisTitle,
     marketReality: profile
+  };
+}
+
+function buildSourcingStrategy(signalMap: SignalMap, canonicalSearchState?: CanonicalSearchState): HiringArtifact {
+  const strategy = sourcingStrategyFor(signalMap, canonicalSearchState);
+  return {
+    kind: "sourcing_strategy",
+    title: "Sourcing Strategy",
+    derivedFromThesisTitle: signalMap.derivedFromThesisTitle,
+    sourcingStrategy: strategy
   };
 }
 
@@ -429,6 +477,204 @@ function marketProfileFor(signalMap: SignalMap, canonicalSearchState?: Canonical
     missingInputs,
     nextMove: "Confirm the primary problem this hire must remove.",
     uncertaintyLabel
+  };
+}
+
+function sourcingStrategyFor(signalMap: SignalMap, canonicalSearchState?: CanonicalSearchState): SourcingStrategyArtifact {
+  const thesis = signalMap.derivedFromThesisTitle;
+  const marketReality = marketProfileFor(signalMap, canonicalSearchState);
+  const missingConstraints = marketMissingInputs(thesis, canonicalSearchState);
+  const mustHaveFilters = signalMap.mustProveSignals.slice(0, 3).map(shortCompleteSignal);
+  const avoidFilters = signalMap.falsePositives.slice(0, 3).map(negativeIndicatorFor);
+
+  if (thesis === "Engineering Leadership Bottleneck") {
+    return {
+      targetProfile: "Engineering leader who has taken decision load from a technical founder.",
+      searchLanes: [
+        "EMs reporting directly to technical founders",
+        "Early Heads of Eng from 10-50 person startups",
+        "Staff+ leads who moved into people leadership",
+        "Leaders who rebuilt messy execution rhythm"
+      ],
+      targetTitles: [
+        "Head of Engineering",
+        "Engineering Manager",
+        "Director of Engineering",
+        "Staff Engineering Lead",
+        "Technical Lead Manager"
+      ],
+      mustHaveFilters,
+      avoidFilters,
+      searchLogic: [
+        `"engineering manager" "founder-led" "startup"`,
+        `"head of engineering" "10-50" "startup"`,
+        `"staff engineer" "team lead" "shipping cadence"`
+      ],
+      outreachAngle: "A chance to turn founder-led engineering into a team that makes sharper decisions without adding bureaucracy.",
+      missingConstraints
+    };
+  }
+
+  if (thesis === "Founder-Led Sales Transition") {
+    return {
+      targetProfile: "First-sales builder who can turn founder magic into repeatable customer conversations.",
+      searchLanes: [
+        "First GTM hires after founder-led sales",
+        "AEs who sold before enablement existed",
+        "Seed to Series A revenue builders",
+        "Customer-facing founders turned operators"
+      ],
+      targetTitles: ["Founding AE", "First Sales Hire", "GTM Lead", "Revenue Lead", "Head of Sales"],
+      mustHaveFilters,
+      avoidFilters,
+      searchLogic: [
+        `"founding AE" "founder-led sales"`,
+        `"first sales hire" "seed" "startup"`,
+        `"gtm lead" "built sales motion"`
+      ],
+      outreachAngle: "A chance to build the first real sales motion instead of inheriting someone else’s machine.",
+      missingConstraints
+    };
+  }
+
+  if (thesis === "Senior Ownership Gap") {
+    return {
+      targetProfile: "Senior owner who has turned messy founder context into clear decisions.",
+      searchLanes: [
+        "Senior operators with ambiguous mandates",
+        "Functional leads with real decision rights",
+        "Founder-adjacent owners",
+        "Scale-up leads who owned undefined work"
+      ],
+      targetTitles: ["Senior Operator", "Business Operations Lead", "Strategy & Operations Lead", "Chief of Staff", "Functional Lead"],
+      mustHaveFilters,
+      avoidFilters,
+      searchLogic: [
+        `"owned ambiguous" "startup" "operator"`,
+        `"business operations lead" "founder" "startup"`,
+        `"chief of staff" "decision" "startup"`
+      ],
+      outreachAngle: "A role with real decision ownership, not a prettier version of status reporting.",
+      missingConstraints
+    };
+  }
+
+  if (thesis === "Role Compression / Generalist Hire") {
+    return {
+      targetProfile: "Founder-adjacent operator who can narrow a compressed role into the right primary lane.",
+      searchLanes: [
+        "Early operators from very small teams",
+        "Founder’s office profiles with owned outcomes",
+        "Customer ops leaders with broad mandates",
+        "Ex-founders or first business hires"
+      ],
+      targetTitles: ["Founder's Office", "Business Operations", "Generalist Operator", "Chief of Staff", "Special Projects Lead"],
+      mustHaveFilters,
+      avoidFilters,
+      searchLogic: [
+        `"founder's office" "owned" "startup"`,
+        `"business operations" "early stage" "operator"`,
+        `"chief of staff" "0 to 1" "startup"`
+      ],
+      outreachAngle: "A chance to own the messy center of the company, with enough clarity to avoid becoming a catch-all.",
+      missingConstraints
+    };
+  }
+
+  if (thesis === "Urgent Hiring Triage") {
+    const operationalCoverage = isOperationalCoverageState(canonicalSearchState);
+    return {
+      targetProfile: operationalCoverage
+        ? "Operational coverage person who keeps onboarding, follow-ups, and coordination from dropping."
+        : "Urgent coverage hire who can stabilize the gap without warping the permanent role.",
+      searchLanes: operationalCoverage
+        ? [
+            "Customer ops coordinators",
+            "Implementation leads",
+            "Customer success operators",
+            "Founder’s office or ops generalists"
+          ]
+        : marketReality.sourceLanes,
+      targetTitles: operationalCoverage
+        ? ["Customer Ops Coordinator", "Implementation Lead", "Customer Success Operator", "Operations Generalist", "Founder’s Office"]
+        : ["Interim Operator", "Operations Lead", "Special Projects Lead", "Functional Lead", "Chief of Staff"],
+      mustHaveFilters,
+      avoidFilters,
+      searchLogic: operationalCoverage
+        ? [
+            `"customer ops" "onboarding" "startup"`,
+            `"implementation lead" "follow-ups" "customers"`,
+            `"operations generalist" "coordination" "startup"`
+          ]
+        : [
+            `"operations lead" "urgent" "startup"`,
+            `"interim operator" "startup" "coverage"`,
+            `"special projects" "stabilized" "startup"`
+          ],
+      outreachAngle: operationalCoverage
+        ? "A clear, high-trust coverage role where their work immediately lowers founder load."
+        : "A focused urgent mandate with clear boundaries between coverage and permanent design.",
+      missingConstraints
+    };
+  }
+
+  if (thesis === "Product/Execution Ownership Gap") {
+    return {
+      targetProfile: "Product owner who can make tradeoff calls and keep engineering moving.",
+      searchLanes: [
+        "PMs from founder-led product teams",
+        "Product-heavy builders from early startups",
+        "Operators who owned product decisions",
+        "PMs with messy customer signal experience"
+      ],
+      targetTitles: ["Product Manager", "Founding PM", "Product Lead", "Product Operator", "Growth/Product PM"],
+      mustHaveFilters,
+      avoidFilters,
+      searchLogic: [
+        `"founding PM" "customer signal" "startup"`,
+        `"product lead" "founder-led" "tradeoffs"`,
+        `"product manager" "shipped" "ambiguous"`
+      ],
+      outreachAngle: "A role for someone who wants real product judgment, not roadmap administration.",
+      missingConstraints
+    };
+  }
+
+  if (thesis === "Customer Ops / Implementation Gap") {
+    return {
+      targetProfile: "Customer-facing operator who can turn messy delivery into a repeatable implementation motion.",
+      searchLanes: [
+        "Implementation leads from complex products",
+        "Customer ops leaders at early B2B startups",
+        "Solutions leaders with delivery ownership",
+        "Post-sales operators who fixed broken workflows"
+      ],
+      targetTitles: ["Implementation Lead", "Customer Operations Lead", "Solutions Lead", "Post-Sales Operations", "Customer Success Operations"],
+      mustHaveFilters,
+      avoidFilters,
+      searchLogic: [
+        `"implementation lead" "complex product" "startup"`,
+        `"customer operations" "delivery" "workflow"`,
+        `"solutions lead" "implementation" "B2B"`
+      ],
+      outreachAngle: "A chance to fix the delivery machine, not just manage customer feelings.",
+      missingConstraints
+    };
+  }
+
+  return {
+    targetProfile: marketReality.roleShape,
+    searchLanes: marketReality.sourceLanes,
+    targetTitles: ["Operator", "Functional Lead", "Special Projects Lead", "Senior IC", "Team Lead"],
+    mustHaveFilters,
+    avoidFilters,
+    searchLogic: [
+      `"owned ambiguous work" "startup"`,
+      `"founder-led" "operator" "decision"`,
+      `"startup" "owned outcomes" "early stage"`
+    ],
+    outreachAngle: "A role with real ownership over the problem, not just the title.",
+    missingConstraints
   };
 }
 

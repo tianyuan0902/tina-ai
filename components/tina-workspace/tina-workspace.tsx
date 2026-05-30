@@ -851,7 +851,8 @@ function CommandInput({
         { label: "Build scorecard", prompt: "Build a lightweight scorecard from this signal map." },
         { label: "Create interview plan", prompt: "Create an interview plan from this signal map." },
         { label: "Define candidate archetype", prompt: "Define the candidate archetype from this signal map." },
-        { label: "Pressure-test market reality", prompt: "Pressure-test market reality from this signal map before sourcing." }
+        { label: "Pressure-test market reality", prompt: "Pressure-test market reality from this signal map before sourcing." },
+        { label: "Build sourcing strategy", prompt: "Build sourcing strategy from this signal map and market reality. Do not source candidates yet." }
       ]
     : actionButtonsForCurrentRead(currentRead, hasTasteSignal);
 
@@ -1192,6 +1193,33 @@ function HiringArtifactBoard({ artifact }: { artifact: HiringArtifact }) {
             <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#257647]">Next move</p>
             <p className="mt-1 text-xs font-semibold leading-5 text-[#244933]">{reality.nextMove}</p>
           </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (artifact.kind === "sourcing_strategy") {
+    const strategy = artifact.sourcingStrategy;
+    return (
+      <section className="mt-3 max-w-full overflow-hidden rounded-2xl border border-[#E4DCD1] bg-[#FFFCF7] shadow-[0_18px_50px_rgba(23,23,23,0.05)]">
+        <ArtifactHeader title="Sourcing Strategy" subline="Search logic before candidates." />
+        <div className="grid gap-2.5 p-4 pt-2">
+          <div className="rounded-xl border border-[#E8DED3] bg-white/80 p-3">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8A8178]">Target profile</p>
+            <p className="mt-1 text-xs font-semibold leading-5 text-[#2F2A25]">{strategy.targetProfile}</p>
+          </div>
+          <div className="grid gap-2.5 sm:grid-cols-2">
+            <ArtifactList title="Search lanes" items={strategy.searchLanes} />
+            <ArtifactList title="Target titles" items={strategy.targetTitles} />
+            <ArtifactList title="Must-have filters" items={strategy.mustHaveFilters} />
+            <ArtifactList title="Avoid filters" items={strategy.avoidFilters} />
+          </div>
+          <ArtifactList title="Search logic" items={strategy.searchLogic} />
+          <div className="rounded-xl border border-[#D7E9DD] bg-[#F4FBF6] p-3">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#257647]">Outreach angle</p>
+            <p className="mt-1 text-xs font-semibold leading-5 text-[#244933]">{strategy.outreachAngle}</p>
+          </div>
+          <ArtifactList title="Missing constraints" items={strategy.missingConstraints.length ? strategy.missingConstraints : ["No major sourcing constraints missing."]} />
         </div>
       </section>
     );
@@ -2681,7 +2709,7 @@ function actionProgressText(content: string) {
 }
 
 function isPlanningArtifactRequest(value: string) {
-  return /\b(hiring thesis|must[-\s]?have signals?|signal map|scorecard|candidate archetype|interview plan|criteria|rubric|role shape|tradeoffs?|pressure[-\s]?test market|market reality|source lanes|search strategy|time[-\s]?to[-\s]?fill|ttf)\b/i.test(value);
+  return /\b(hiring thesis|must[-\s]?have signals?|signal map|scorecard|candidate archetype|interview plan|criteria|rubric|role shape|tradeoffs?|pressure[-\s]?test market|market reality|source lanes|sourcing strategy|search strategy|sourcing plan|search plan|time[-\s]?to[-\s]?fill|ttf)\b/i.test(value);
 }
 
 function initialsForName(name: string) {

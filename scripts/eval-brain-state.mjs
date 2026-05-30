@@ -399,8 +399,10 @@ for (const scenario of artifactScenarios) {
   const interviewPlan = buildHiringArtifact(scenario.signalMap, "interview_plan");
   const archetype = buildHiringArtifact(scenario.signalMap, "candidate_archetype");
   const marketReality = buildHiringArtifact(scenario.signalMap, "market_reality");
+  const sourcingStrategy = buildHiringArtifact(scenario.signalMap, "sourcing_strategy");
   expectEqual(scorecard.derivedFromThesisTitle, scenario.signalMap.derivedFromThesisTitle, `${scenario.name} scorecard should derive from signal map`);
   expectEqual(marketReality.derivedFromThesisTitle, scenario.signalMap.derivedFromThesisTitle, `${scenario.name} market reality should derive from signal map`);
+  expectEqual(sourcingStrategy.derivedFromThesisTitle, scenario.signalMap.derivedFromThesisTitle, `${scenario.name} sourcing strategy should derive from signal map`);
   expectAtMost(scorecard.rows.length, 5, `${scenario.name} scorecard should stay compact`);
   expectAtMost(interviewPlan.stages.length, 4, `${scenario.name} interview plan should stay compact`);
   expectEqual(archetype.items.length, 5, `${scenario.name} candidate archetype should have five bullets`);
@@ -408,6 +410,13 @@ for (const scenario of artifactScenarios) {
   expectAtLeast(marketReality.marketReality.tradeoffs.length, 3, `${scenario.name} market reality should include tradeoffs`);
   expectAtLeast(marketReality.marketReality.risks.length, 3, `${scenario.name} market reality should include risks`);
   expectIncludes(marketReality.marketReality.missingInputs, /location|seniority|compensation|company\/stage lane/i, `${scenario.name} market reality should ask for missing inputs instead of inventing`);
+  expectAtLeast(sourcingStrategy.sourcingStrategy.searchLanes.length, 3, `${scenario.name} sourcing strategy should include search lanes`);
+  expectAtLeast(sourcingStrategy.sourcingStrategy.targetTitles.length, 3, `${scenario.name} sourcing strategy should include adjacent titles`);
+  expectAtLeast(sourcingStrategy.sourcingStrategy.mustHaveFilters.length, 3, `${scenario.name} sourcing strategy should include must-have filters`);
+  expectAtLeast(sourcingStrategy.sourcingStrategy.avoidFilters.length, 3, `${scenario.name} sourcing strategy should include avoid filters`);
+  expectAtMost(sourcingStrategy.sourcingStrategy.searchLogic.length, 3, `${scenario.name} sourcing strategy should keep search logic to max 3 examples`);
+  expectAtLeast(sourcingStrategy.sourcingStrategy.outreachAngle.length, 20, `${scenario.name} sourcing strategy should include an outreach angle`);
+  expectIncludes(sourcingStrategy.sourcingStrategy.missingConstraints, /location|seniority|compensation|company\/stage lane/i, `${scenario.name} sourcing strategy should ask for missing constraints instead of inventing`);
   expectIncludes(
     [
       ...scorecard.rows.flatMap((row) => [row.competency, row.signal, row.strongEvidence, row.redFlag, row.ratingScale]),
@@ -417,7 +426,14 @@ for (const scenario of artifactScenarios) {
       ...marketReality.marketReality.sourceLanes,
       ...marketReality.marketReality.tradeoffs,
       ...marketReality.marketReality.risks,
-      marketReality.marketReality.nextMove
+      marketReality.marketReality.nextMove,
+      sourcingStrategy.sourcingStrategy.targetProfile,
+      ...sourcingStrategy.sourcingStrategy.searchLanes,
+      ...sourcingStrategy.sourcingStrategy.targetTitles,
+      ...sourcingStrategy.sourcingStrategy.mustHaveFilters,
+      ...sourcingStrategy.sourcingStrategy.avoidFilters,
+      ...sourcingStrategy.sourcingStrategy.searchLogic,
+      sourcingStrategy.sourcingStrategy.outreachAngle
     ],
     scenario.expected,
     `${scenario.name} artifacts should stay thesis-specific`
@@ -430,9 +446,16 @@ for (const scenario of artifactScenarios) {
       ...marketReality.marketReality.sourceLanes,
       ...marketReality.marketReality.tradeoffs,
       ...marketReality.marketReality.risks,
-      marketReality.marketReality.nextMove
+      marketReality.marketReality.nextMove,
+      sourcingStrategy.sourcingStrategy.targetProfile,
+      ...sourcingStrategy.sourcingStrategy.searchLanes,
+      ...sourcingStrategy.sourcingStrategy.targetTitles,
+      ...sourcingStrategy.sourcingStrategy.mustHaveFilters,
+      ...sourcingStrategy.sourcingStrategy.avoidFilters,
+      ...sourcingStrategy.sourcingStrategy.searchLogic,
+      sourcingStrategy.sourcingStrategy.outreachAngle
     ],
-    /\.\.\.|Searching public profiles|public profiles|Talent Pool/i,
+    /\.\.\.|Searching public profiles|public profiles|named candidates|Talent Pool/i,
     `${scenario.name} artifacts should avoid truncation and candidate sourcing language`
   );
   expectNotIncludes(
@@ -447,6 +470,10 @@ for (const scenario of artifactScenarios) {
     `${scenario.name} market reality should not invent location, comp, or TTF`
   );
 }
+const headEngSourcingStrategy = buildHiringArtifact(engineeringSignalMap, "sourcing_strategy");
+expectIncludes(headEngSourcingStrategy.sourcingStrategy.searchLanes, /EMs reporting directly to technical founders|Early Heads of Eng|Staff\+ leads/i, "Head of Eng sourcing strategy should include thesis-specific adjacent lanes");
+expectIncludes(headEngSourcingStrategy.sourcingStrategy.targetTitles, /Engineering Manager|Staff Engineering Lead|Technical Lead Manager/i, "Head of Eng sourcing strategy should include adjacent leadership titles");
+expectNotIncludes(headEngSourcingStrategy.sourcingStrategy.searchLogic, /public profiles|candidate|LinkedIn profile/i, "Sourcing strategy should not perform candidate sourcing");
 console.log("PASS hiring artifacts derive from signal map");
 
 const artifactQualityScenarios = [
