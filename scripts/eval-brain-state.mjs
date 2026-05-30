@@ -499,6 +499,50 @@ for (const scenario of artifactQualityScenarios) {
 }
 console.log("PASS hiring artifact quality checks");
 
+const headEngMarketReality = buildHiringArtifact(engineeringSignalMap, "market_reality");
+expectIncludes(headEngMarketReality.marketReality.missingInputs, /comp range/i, "Head of Eng market reality should ask for comp");
+expectIncludes(headEngMarketReality.marketReality.missingInputs, /location \/ remote flexibility/i, "Head of Eng market reality should ask for location flexibility");
+expectIncludes(headEngMarketReality.marketReality.missingInputs, /seniority tolerance/i, "Head of Eng market reality should ask for seniority tolerance");
+expectIncludes(headEngMarketReality.marketReality.missingInputs, /reporting line/i, "Head of Eng market reality should ask for reporting line");
+expectIncludes(headEngMarketReality.marketReality.missingInputs, /founder decision rights|authority transfer/i, "Head of Eng market reality should ask for authority transfer");
+
+const urgentCoverageState = {
+  roleTitle: "Customer Ops Coordinator",
+  roleFamily: "operations",
+  seniority: "Seniority forming",
+  location: "Location forming",
+  mustHaveSignals: ["onboarding", "follow-ups", "internal coordination", "nothing drops"],
+  niceToHaveSignals: [],
+  exclusions: [],
+  sourceCompanyLanes: [],
+  compensation: "Comp forming",
+  talentPoolSize: "Forming",
+  timeToFill: "Not estimated yet",
+  candidateProfiles: [],
+  calibrationStatus: "forming",
+  evidenceLevel: "conversation",
+  lastUpdatedReason: "Founder needs onboarding, follow-ups, internal coordination, and making sure nothing drops."
+};
+const urgentCoverageMarketReality = buildHiringArtifact(buildSignalMap(buildCurrentRead({ messages: currentReadScenarios[4].messages })), "market_reality", urgentCoverageState);
+expectIncludes(urgentCoverageMarketReality.marketReality.sourceLanes, /customer ops coordinators/i, "urgent coverage should include customer ops coordinators");
+expectIncludes(urgentCoverageMarketReality.marketReality.sourceLanes, /implementation leads/i, "urgent coverage should include implementation leads");
+expectIncludes(urgentCoverageMarketReality.marketReality.sourceLanes, /customer success operators/i, "urgent coverage should include customer success operators");
+expectIncludes(urgentCoverageMarketReality.marketReality.sourceLanes, /founder.?s office|ops generalists/i, "urgent coverage should include founder's office / ops generalists");
+expectNotIncludes(urgentCoverageMarketReality.marketReality.sourceLanes, /senior operators|fractional leaders|interim leaders/i, "urgent operational coverage should not default to senior/fractional/interim leaders");
+expectNotIncludes(
+  [
+    ...headEngMarketReality.marketReality.sourceLanes,
+    ...urgentCoverageMarketReality.marketReality.sourceLanes,
+    ...headEngMarketReality.marketReality.tradeoffs,
+    ...urgentCoverageMarketReality.marketReality.tradeoffs,
+    ...headEngMarketReality.marketReality.risks,
+    ...urgentCoverageMarketReality.marketReality.risks
+  ],
+  /public profiles|named candidates|Searching public profiles/i,
+  "market reality should not source or show candidates"
+);
+console.log("PASS market reality polish checks");
+
 const canonicalCases = [
   {
     name: "plant manager Peoria canonical state",

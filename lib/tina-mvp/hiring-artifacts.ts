@@ -211,7 +211,7 @@ function buildCandidateArchetype(signalMap: SignalMap): HiringArtifact {
 
 function marketProfileFor(signalMap: SignalMap, canonicalSearchState?: CanonicalSearchState): MarketRealityArtifact {
   const thesis = signalMap.derivedFromThesisTitle;
-  const missingInputs = marketMissingInputs(canonicalSearchState);
+  const missingInputs = marketMissingInputs(thesis, canonicalSearchState);
   const uncertaintyLabel: MarketRealityArtifact["uncertaintyLabel"] = missingInputs.length ? "needs user input" : "based on role pattern";
 
   if (thesis === "Engineering Leadership Bottleneck") {
@@ -235,7 +235,7 @@ function marketProfileFor(signalMap: SignalMap, canonicalSearchState?: Canonical
         "Expecting morale repair without authority transfer."
       ],
       missingInputs,
-      nextMove: missingInputs.includes("location") ? "Decide location flexibility before sourcing." : "Define the decisions this hire owns before sourcing.",
+      nextMove: missingInputs.includes("location / remote flexibility") ? "Decide location flexibility before sourcing." : "Define the decisions this hire owns before sourcing.",
       uncertaintyLabel
     };
   }
@@ -319,27 +319,39 @@ function marketProfileFor(signalMap: SignalMap, canonicalSearchState?: Canonical
   }
 
   if (thesis === "Urgent Hiring Triage") {
+    const operationalCoverage = isOperationalCoverageState(canonicalSearchState);
     return {
-      roleShape: "Crisis-capable senior operator who can stabilize the gap without distorting the permanent role.",
-      marketDifficulty: "Hard",
-      sourceLanes: [
-        "Interim leaders with startup scar tissue",
-        "Senior operators between roles",
-        "Fractional leaders with urgent coverage proof",
-        "Former functional heads who like messy resets"
-      ],
+      roleShape: operationalCoverage
+        ? "Operational coverage hire who keeps customer and internal work from dropping."
+        : "Urgent coverage hire who can stabilize the gap without distorting the permanent role.",
+      marketDifficulty: operationalCoverage ? "Moderate" : "Hard",
+      sourceLanes: operationalCoverage
+        ? [
+            "Customer ops coordinators",
+            "Implementation leads",
+            "Customer success operators",
+            "Founder’s office or ops generalists"
+          ]
+        : [
+            "Operators with urgent coverage proof",
+            "Implementation or customer ops leads",
+            "Founder’s office generalists",
+            "Interim leaders only if leadership is required"
+          ],
       tradeoffs: [
         "Speed increases false-positive risk.",
         "Interim and permanent profiles may differ.",
-        "Coverage now can hide the durable role shape."
+        operationalCoverage ? "Coordinator profiles may need clear decision boundaries." : "Coverage now can hide the durable role shape."
       ],
       risks: [
         "Rushing into a permanent mis-hire.",
         "Solving panic while leaving the root problem.",
-        "Overweighting availability over fit."
+        operationalCoverage ? "Over-hiring seniority for coordination work." : "Overweighting availability over fit."
       ],
       missingInputs,
-      nextMove: "Define the 30-day coverage problem separately from the permanent hire.",
+      nextMove: operationalCoverage
+        ? "Separate coordination coverage from decision ownership."
+        : "Define the 30-day coverage problem separately from the permanent hire.",
       uncertaintyLabel
     };
   }
@@ -420,13 +432,48 @@ function marketProfileFor(signalMap: SignalMap, canonicalSearchState?: Canonical
   };
 }
 
-function marketMissingInputs(state?: CanonicalSearchState) {
-  const missing: string[] = [];
-  if (!state?.location || /forming/i.test(state.location)) missing.push("location");
-  if (!state?.seniority || /forming/i.test(state.seniority)) missing.push("seniority");
-  if (!state?.compensation || /forming/i.test(state.compensation)) missing.push("compensation");
-  if (!state?.sourceCompanyLanes?.length) missing.push("company/stage lane");
-  return missing;
+function marketMissingInputs(thesisTitle: string, state?: CanonicalSearchState) {
+  const base: string[] = [];
+  if (!state?.location || /forming/i.test(state.location)) base.push("location / remote flexibility");
+  if (!state?.compensation || /forming/i.test(state.compensation)) base.push("comp range");
+  if (!state?.seniority || /forming/i.test(state.seniority)) base.push("seniority tolerance");
+  if (!state?.sourceCompanyLanes?.length) base.push("company stage");
+
+  const thesis = thesisTitle.toLowerCase();
+  if (thesis.includes("engineering leadership")) {
+    base.push("reporting line", "founder decision rights / authority transfer");
+  } else if (thesis.includes("founder-led sales")) {
+    base.push("sales cycle type", "founder involvement in closing");
+  } else if (thesis.includes("senior ownership")) {
+    base.push("decision authority", "reporting line");
+  } else if (thesis.includes("role compression")) {
+    base.push("primary lane", "full-time vs fractional");
+  } else if (thesis.includes("urgent")) {
+    base.push("urgency", "full-time vs interim / fractional", "must-have vs nice-to-have signals");
+    if (isOperationalCoverageState(state)) base.push("decision authority needed");
+  } else if (thesis.includes("product")) {
+    base.push("founder involvement", "must-have vs nice-to-have signals");
+  } else if (thesis.includes("customer ops")) {
+    base.push("implementation complexity", "founder escalation threshold");
+  }
+
+  return uniqueStrings(base).slice(0, 7);
+}
+
+function isOperationalCoverageState(state?: CanonicalSearchState) {
+  const text = [
+    state?.roleTitle,
+    state?.roleFamily,
+    state?.mustHaveSignals?.join(" "),
+    state?.niceToHaveSignals?.join(" "),
+    state?.lastUpdatedReason
+  ].filter(Boolean).join(" ").toLowerCase();
+  if (/\b(head|vp|chief|executive|leadership|transformation|turnaround)\b/.test(text)) return false;
+  return /\b(onboarding|follow[-\s]?ups?|coordination|nothing drops|internal coordination|customer ops|implementation|support|success|ops)\b/.test(text);
+}
+
+function uniqueStrings(values: string[]) {
+  return [...new Set(values.filter(Boolean))];
 }
 
 function buildGenericScorecardRows(signalMap: SignalMap): ScorecardRow[] {
