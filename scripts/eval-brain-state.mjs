@@ -370,6 +370,22 @@ expectIncludes(productSignalMap.mustProveSignals, /founder direction|judgment ca
 expectNotIncludes(productSignalMap.mustProveSignals, /generic Head of Engineering|large team/i, "PM progression signal map should not use unrelated generic criteria");
 console.log("PASS signal map thesis-specific criteria");
 
+const customerOpsSignalMap = buildSignalMap({ thesisTitle: "Customer Ops / Implementation Gap" });
+expectNotIncludes(
+  [
+    ...customerOpsSignalMap.mustProveSignals,
+    ...customerOpsSignalMap.weakSignals,
+    ...customerOpsSignalMap.falsePositives,
+    ...customerOpsSignalMap.interviewProbes,
+    customerOpsSignalMap.bestCandidateArchetype
+  ],
+  /morale|engineering rhythm|product and engineering/i,
+  "customer ops signal map should not leak engineering leadership signals"
+);
+expectNotIncludes(customerOpsSignalMap.interviewProbes, /\.\.\.|^(How|What|Tell)\s*$/i, "customer ops probes should be complete questions");
+expectNotIncludes([customerOpsSignalMap.bestCandidateArchetype], /\.\.\./i, "signal map best profile should not be truncated");
+console.log("PASS signal map cleanup checks");
+
 const artifactScenarios = [
   { name: "VP Sales", signalMap: buildSignalMap(buildCurrentRead({ messages: currentReadScenarios[0].messages })), expected: /sales motion|founder|repeatable|customer/i },
   { name: "Head of Eng", signalMap: engineeringSignalMap, expected: /decision|rhythm|leadership|founder/i },
@@ -382,15 +398,26 @@ for (const scenario of artifactScenarios) {
   const scorecard = buildHiringArtifact(scenario.signalMap, "scorecard");
   const interviewPlan = buildHiringArtifact(scenario.signalMap, "interview_plan");
   const archetype = buildHiringArtifact(scenario.signalMap, "candidate_archetype");
+  const marketReality = buildHiringArtifact(scenario.signalMap, "market_reality");
   expectEqual(scorecard.derivedFromThesisTitle, scenario.signalMap.derivedFromThesisTitle, `${scenario.name} scorecard should derive from signal map`);
+  expectEqual(marketReality.derivedFromThesisTitle, scenario.signalMap.derivedFromThesisTitle, `${scenario.name} market reality should derive from signal map`);
   expectAtMost(scorecard.rows.length, 5, `${scenario.name} scorecard should stay compact`);
   expectAtMost(interviewPlan.stages.length, 4, `${scenario.name} interview plan should stay compact`);
   expectEqual(archetype.items.length, 5, `${scenario.name} candidate archetype should have five bullets`);
+  expectAtLeast(marketReality.marketReality.sourceLanes.length, 3, `${scenario.name} market reality should include source lanes`);
+  expectAtLeast(marketReality.marketReality.tradeoffs.length, 3, `${scenario.name} market reality should include tradeoffs`);
+  expectAtLeast(marketReality.marketReality.risks.length, 3, `${scenario.name} market reality should include risks`);
+  expectIncludes(marketReality.marketReality.missingInputs, /location|seniority|compensation|company\/stage lane/i, `${scenario.name} market reality should ask for missing inputs instead of inventing`);
   expectIncludes(
     [
       ...scorecard.rows.flatMap((row) => [row.competency, row.signal, row.strongEvidence, row.redFlag, row.ratingScale]),
       ...interviewPlan.stages.flatMap((stage) => [stage.stage, stage.tests, stage.prompt, stage.evidence, stage.interviewer]),
-      ...archetype.items.flatMap((item) => [item.label, item.value])
+      ...archetype.items.flatMap((item) => [item.label, item.value]),
+      marketReality.marketReality.roleShape,
+      ...marketReality.marketReality.sourceLanes,
+      ...marketReality.marketReality.tradeoffs,
+      ...marketReality.marketReality.risks,
+      marketReality.marketReality.nextMove
     ],
     scenario.expected,
     `${scenario.name} artifacts should stay thesis-specific`
@@ -399,10 +426,25 @@ for (const scenario of artifactScenarios) {
     [
       ...scorecard.rows.flatMap((row) => [row.signal, row.strongEvidence, row.redFlag]),
       ...interviewPlan.stages.flatMap((stage) => [stage.tests, stage.prompt, stage.evidence]),
-      ...archetype.items.map((item) => item.value)
+      ...archetype.items.map((item) => item.value),
+      ...marketReality.marketReality.sourceLanes,
+      ...marketReality.marketReality.tradeoffs,
+      ...marketReality.marketReality.risks,
+      marketReality.marketReality.nextMove
     ],
-    /\.\.\.|Searching public profiles|Talent Pool|Market Reality/i,
-    `${scenario.name} artifacts should avoid truncation and sourcing language`
+    /\.\.\.|Searching public profiles|public profiles|Talent Pool/i,
+    `${scenario.name} artifacts should avoid truncation and candidate sourcing language`
+  );
+  expectNotIncludes(
+    [
+      marketReality.marketReality.roleShape,
+      ...marketReality.marketReality.sourceLanes,
+      ...marketReality.marketReality.tradeoffs,
+      ...marketReality.marketReality.risks,
+      marketReality.marketReality.nextMove
+    ],
+    /\b(SF|NYC|Remote 100%|\$[0-9]|weeks?|wks)\b/i,
+    `${scenario.name} market reality should not invent location, comp, or TTF`
   );
 }
 console.log("PASS hiring artifacts derive from signal map");

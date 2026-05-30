@@ -1,6 +1,7 @@
+import type { CanonicalSearchState } from "@/lib/brain/canonicalSearchState";
 import type { SignalMap } from "@/lib/tina-mvp/signal-map";
 
-export type HiringArtifactKind = "scorecard" | "interview_plan" | "candidate_archetype";
+export type HiringArtifactKind = "scorecard" | "interview_plan" | "candidate_archetype" | "market_reality";
 
 export type ScorecardRow = {
   competency: string;
@@ -23,6 +24,17 @@ export type CandidateArchetypeItem = {
   value: string;
 };
 
+export type MarketRealityArtifact = {
+  roleShape: string;
+  marketDifficulty: "Easy" | "Moderate" | "Hard" | "Rare";
+  sourceLanes: string[];
+  tradeoffs: string[];
+  risks: string[];
+  missingInputs: string[];
+  nextMove: string;
+  uncertaintyLabel: "directional" | "needs user input" | "based on role pattern";
+};
+
 export type HiringArtifact =
   | {
       kind: "scorecard";
@@ -41,6 +53,12 @@ export type HiringArtifact =
       title: string;
       derivedFromThesisTitle: string;
       items: CandidateArchetypeItem[];
+    }
+  | {
+      kind: "market_reality";
+      title: string;
+      derivedFromThesisTitle: string;
+      marketReality: MarketRealityArtifact;
     };
 
 type ArtifactProfile = {
@@ -50,13 +68,19 @@ type ArtifactProfile = {
 };
 
 export function inferHiringArtifactKind(message: string): HiringArtifactKind | undefined {
+  if (isMarketRealityArtifactRequest(message)) return "market_reality";
   if (/\b(scorecard|rubric|criteria)\b/i.test(message)) return "scorecard";
   if (/\b(interview plan|interview loop|interview process)\b/i.test(message)) return "interview_plan";
   if (/\b(candidate archetype|candidate profile|define archetype|best[-\s]?fit profile)\b/i.test(message)) return "candidate_archetype";
   return undefined;
 }
 
-export function buildHiringArtifact(signalMap: SignalMap, kind: HiringArtifactKind): HiringArtifact {
+export function isMarketRealityArtifactRequest(message: string) {
+  return /\b(pressure[-\s]?test market|market reality|talent pool|market read|market map|source lanes|search strategy|time[-\s]?to[-\s]?fill|ttf|comp|compensation|salary|equity|pool size)\b/i.test(message);
+}
+
+export function buildHiringArtifact(signalMap: SignalMap, kind: HiringArtifactKind, canonicalSearchState?: CanonicalSearchState): HiringArtifact {
+  if (kind === "market_reality") return buildMarketReality(signalMap, canonicalSearchState);
   if (kind === "interview_plan") return buildInterviewPlan(signalMap);
   if (kind === "candidate_archetype") return buildCandidateArchetype(signalMap);
   return buildScorecard(signalMap);
@@ -78,11 +102,35 @@ export function formatHiringArtifactForPrompt(artifact?: HiringArtifact) {
       ...artifact.stages.map((stage) => `${stage.stage}: tests ${stage.tests}; prompt ${stage.prompt}; evidence ${stage.evidence}`)
     ].join("\n");
   }
+  if (artifact.kind === "market_reality") {
+    const reality = artifact.marketReality;
+    return [
+      "Hiring artifact: Market Reality",
+      `Derived from thesis: ${artifact.derivedFromThesisTitle}`,
+      `Role shape: ${reality.roleShape}`,
+      `Difficulty: ${reality.marketDifficulty} (${reality.uncertaintyLabel})`,
+      `Likely source lanes: ${reality.sourceLanes.join("; ")}`,
+      `Tradeoffs: ${reality.tradeoffs.join("; ")}`,
+      `Risks: ${reality.risks.join("; ")}`,
+      `Missing inputs: ${reality.missingInputs.join("; ")}`,
+      `Next move: ${reality.nextMove}`
+    ].join("\n");
+  }
   return [
     "Hiring artifact: Candidate archetype",
     `Derived from thesis: ${artifact.derivedFromThesisTitle}`,
     ...artifact.items.map((item) => `${item.label}: ${item.value}`)
   ].join("\n");
+}
+
+function buildMarketReality(signalMap: SignalMap, canonicalSearchState?: CanonicalSearchState): HiringArtifact {
+  const profile = marketProfileFor(signalMap, canonicalSearchState);
+  return {
+    kind: "market_reality",
+    title: "Market Reality",
+    derivedFromThesisTitle: signalMap.derivedFromThesisTitle,
+    marketReality: profile
+  };
 }
 
 function buildScorecard(signalMap: SignalMap): HiringArtifact {
@@ -159,6 +207,226 @@ function buildCandidateArchetype(signalMap: SignalMap): HiringArtifact {
     derivedFromThesisTitle: signalMap.derivedFromThesisTitle,
     items
   };
+}
+
+function marketProfileFor(signalMap: SignalMap, canonicalSearchState?: CanonicalSearchState): MarketRealityArtifact {
+  const thesis = signalMap.derivedFromThesisTitle;
+  const missingInputs = marketMissingInputs(canonicalSearchState);
+  const uncertaintyLabel: MarketRealityArtifact["uncertaintyLabel"] = missingInputs.length ? "needs user input" : "based on role pattern";
+
+  if (thesis === "Engineering Leadership Bottleneck") {
+    return {
+      roleShape: "Early-stage engineering leader who can take decision load from the founder.",
+      marketDifficulty: "Hard",
+      sourceLanes: [
+        "Heads of Eng from founder-led startups",
+        "EMs who owned product/eng tradeoffs",
+        "Staff+ leads who already manage people",
+        "Engineering leaders after messy rebuilds"
+      ],
+      tradeoffs: [
+        "Widen title before lowering decision-ownership bar.",
+        "Strong ICs are easier to find than true leaders.",
+        "Big-company leaders may need too much structure."
+      ],
+      risks: [
+        "Overvaluing architecture depth over decision ownership.",
+        "Hiring a meeting layer instead of leverage.",
+        "Expecting morale repair without authority transfer."
+      ],
+      missingInputs,
+      nextMove: missingInputs.includes("location") ? "Decide location flexibility before sourcing." : "Define the decisions this hire owns before sourcing.",
+      uncertaintyLabel
+    };
+  }
+
+  if (thesis === "Founder-Led Sales Transition") {
+    return {
+      roleShape: "First-sales builder who can turn founder-led wins into repeatable motion.",
+      marketDifficulty: "Hard",
+      sourceLanes: [
+        "Early GTM hires after founder-led sales",
+        "AEs who built before enablement existed",
+        "Seed to Series A revenue builders",
+        "Customer-facing founders turned operators"
+      ],
+      tradeoffs: [
+        "Strong sellers are easier than true motion builders.",
+        "Brand-led closers may struggle without leverage.",
+        "Earlier-stage scar tissue matters more than title."
+      ],
+      risks: [
+        "Hiring a polished AE who needs a machine.",
+        "Confusing charisma with repeatability.",
+        "Asking one hire to prove and manage the motion."
+      ],
+      missingInputs,
+      nextMove: "Separate founder-only wins from repeatable wins.",
+      uncertaintyLabel
+    };
+  }
+
+  if (thesis === "Senior Ownership Gap") {
+    return {
+      roleShape: "Senior owner who can turn messy founder context into decisions.",
+      marketDifficulty: "Moderate",
+      sourceLanes: [
+        "Senior operators from ambiguous startups",
+        "Functional leads with true decision rights",
+        "Ex-founder-adjacent owners",
+        "Scale-up leads who owned undefined work"
+      ],
+      tradeoffs: [
+        "Broader title search may improve quality.",
+        "Seniority without decision rights is noise.",
+        "Comp may rise if autonomy bar is high."
+      ],
+      risks: [
+        "Mistaking polish for ownership.",
+        "Hiring another escalation path.",
+        "Keeping founder authority while asking for autonomy."
+      ],
+      missingInputs,
+      nextMove: "Name the decisions this person must own independently.",
+      uncertaintyLabel
+    };
+  }
+
+  if (thesis === "Role Compression / Generalist Hire") {
+    return {
+      roleShape: "Founder-adjacent operator who can narrow a compressed role into one primary lane.",
+      marketDifficulty: "Rare",
+      sourceLanes: [
+        "Early operators from very small teams",
+        "Founder’s office profiles with owned outcomes",
+        "Customer ops leaders with broad mandates",
+        "Ex-founders or first business hires"
+      ],
+      tradeoffs: [
+        "Loosen title, not accountability.",
+        "Pick the primary lane before sourcing.",
+        "The broader the role, the rarer the fit."
+      ],
+      risks: [
+        "Hiring a smart helper instead of an owner.",
+        "Asking one person to solve three jobs.",
+        "Using generalist as a way to avoid org decisions."
+      ],
+      missingInputs,
+      nextMove: "Pick the primary lane before opening the search.",
+      uncertaintyLabel
+    };
+  }
+
+  if (thesis === "Urgent Hiring Triage") {
+    return {
+      roleShape: "Crisis-capable senior operator who can stabilize the gap without distorting the permanent role.",
+      marketDifficulty: "Hard",
+      sourceLanes: [
+        "Interim leaders with startup scar tissue",
+        "Senior operators between roles",
+        "Fractional leaders with urgent coverage proof",
+        "Former functional heads who like messy resets"
+      ],
+      tradeoffs: [
+        "Speed increases false-positive risk.",
+        "Interim and permanent profiles may differ.",
+        "Coverage now can hide the durable role shape."
+      ],
+      risks: [
+        "Rushing into a permanent mis-hire.",
+        "Solving panic while leaving the root problem.",
+        "Overweighting availability over fit."
+      ],
+      missingInputs,
+      nextMove: "Define the 30-day coverage problem separately from the permanent hire.",
+      uncertaintyLabel
+    };
+  }
+
+  if (thesis === "Product/Execution Ownership Gap") {
+    return {
+      roleShape: "Product owner who can make tradeoff calls and keep engineering moving.",
+      marketDifficulty: "Hard",
+      sourceLanes: [
+        "PMs from founder-led product teams",
+        "Product-heavy builders from early startups",
+        "Operators who owned product decisions",
+        "PMs with messy customer signal experience"
+      ],
+      tradeoffs: [
+        "Product judgment is rarer than roadmap ownership.",
+        "Domain depth may trade off against founder-context fluency.",
+        "Execution PMs may not solve decision ambiguity."
+      ],
+      risks: [
+        "Hiring a roadmap secretary.",
+        "Confusing stakeholder polish with judgment.",
+        "Adding process before decision authority is clear."
+      ],
+      missingInputs,
+      nextMove: "Decide which product decisions leave the founder’s plate.",
+      uncertaintyLabel
+    };
+  }
+
+  if (thesis === "Customer Ops / Implementation Gap") {
+    return {
+      roleShape: "Customer-facing operator who can turn messy delivery into repeatable implementation motion.",
+      marketDifficulty: "Moderate",
+      sourceLanes: [
+        "Implementation leads from complex products",
+        "Customer ops leaders at early B2B startups",
+        "Solutions leaders with delivery ownership",
+        "Post-sales operators who fixed broken workflows"
+      ],
+      tradeoffs: [
+        "Customer warmth is easier than systems judgment.",
+        "Product complexity may narrow the pool.",
+        "Too much ops purity can miss customer nuance."
+      ],
+      risks: [
+        "Hiring an account manager for a systems problem.",
+        "Escalations stay with the founder.",
+        "Misreading product gaps as process gaps."
+      ],
+      missingInputs,
+      nextMove: "Separate product gaps from delivery gaps before sourcing.",
+      uncertaintyLabel
+    };
+  }
+
+  return {
+    roleShape: "High-ownership candidate who has solved the real operating tension before.",
+    marketDifficulty: "Moderate",
+    sourceLanes: [
+      "People who owned similar ambiguity",
+      "Early-stage operators with real decision rights",
+      "Functional leads from messy startup environments"
+    ],
+    tradeoffs: [
+      "Title match is less useful than problem match.",
+      "Broader sourcing may improve signal quality.",
+      "Too many constraints will shrink the useful pool."
+    ],
+    risks: [
+      "Hiring for the visible title, not the real problem.",
+      "Overweighting polish over ownership.",
+      "Skipping the missing context that changes the search."
+    ],
+    missingInputs,
+    nextMove: "Confirm the primary problem this hire must remove.",
+    uncertaintyLabel
+  };
+}
+
+function marketMissingInputs(state?: CanonicalSearchState) {
+  const missing: string[] = [];
+  if (!state?.location || /forming/i.test(state.location)) missing.push("location");
+  if (!state?.seniority || /forming/i.test(state.seniority)) missing.push("seniority");
+  if (!state?.compensation || /forming/i.test(state.compensation)) missing.push("compensation");
+  if (!state?.sourceCompanyLanes?.length) missing.push("company/stage lane");
+  return missing;
 }
 
 function buildGenericScorecardRows(signalMap: SignalMap): ScorecardRow[] {

@@ -105,7 +105,7 @@ export async function POST(request: Request) {
 
   if (!shouldRunProfileSearch && requestedHiringArtifactKind) {
     const nextSignalMap = signalMap || buildSignalMap(currentRead, canonicalSearchState);
-    const hiringArtifact = buildHiringArtifact(nextSignalMap, requestedHiringArtifactKind);
+    const hiringArtifact = buildHiringArtifact(nextSignalMap, requestedHiringArtifactKind, canonicalSearchState);
     const responseContent = [
       signalMap ? "" : buildSignalMapResponse(nextSignalMap),
       formatHiringArtifactForPrompt(hiringArtifact)
@@ -593,7 +593,7 @@ function hasGeographySignal(text: string) {
 
 function isPlanningArtifactRequest(message: string) {
   const text = message.toLowerCase();
-  return /\b(hiring thesis|must[-\s]?have signals?|signal map|scorecard|candidate archetype|interview plan|criteria|rubric|role shape|tradeoffs?)\b/.test(text);
+  return /\b(hiring thesis|must[-\s]?have signals?|signal map|scorecard|candidate archetype|interview plan|criteria|rubric|role shape|tradeoffs?|pressure[-\s]?test market|market reality|source lanes|search strategy|time[-\s]?to[-\s]?fill|ttf)\b/.test(text);
 }
 
 function isSignalMapRequest(message: string) {

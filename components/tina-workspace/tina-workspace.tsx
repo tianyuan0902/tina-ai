@@ -850,7 +850,8 @@ function CommandInput({
     ? [
         { label: "Build scorecard", prompt: "Build a lightweight scorecard from this signal map." },
         { label: "Create interview plan", prompt: "Create an interview plan from this signal map." },
-        { label: "Define candidate archetype", prompt: "Define the candidate archetype from this signal map." }
+        { label: "Define candidate archetype", prompt: "Define the candidate archetype from this signal map." },
+        { label: "Pressure-test market reality", prompt: "Pressure-test market reality from this signal map before sourcing." }
       ]
     : actionButtonsForCurrentRead(currentRead, hasTasteSignal);
 
@@ -1008,7 +1009,7 @@ function SignalMapBoard({ signalMap }: { signalMap: SignalMap }) {
             <div className="mt-3 grid gap-2">
               {column.items.slice(0, 3).map((item) => (
                 <div key={item} className={`rounded-lg px-3 py-2 text-[12px] font-medium leading-4 shadow-[0_1px_0_rgba(23,23,23,0.035)] ${column.row}`}>
-                  {shortSignalText(item)}
+                  {shortSignalText(item, signalMap.derivedFromThesisTitle, column.title)}
                 </div>
               ))}
             </div>
@@ -1018,14 +1019,14 @@ function SignalMapBoard({ signalMap }: { signalMap: SignalMap }) {
 
       <div className="mx-4 mb-4 rounded-xl border border-[#E8DED3] bg-white/75 px-3.5 py-3">
         <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Best fit profile</p>
-        <p className="mt-1 text-xs leading-5 text-[#4B453F]">{shortProfileSentence(signalMap.bestCandidateArchetype)}</p>
+        <p className="mt-1 text-xs leading-5 text-[#4B453F]">{completeProfileSentence(signalMap.bestCandidateArchetype)}</p>
       </div>
     </section>
   );
 }
 
-function shortSignalText(value: string) {
-  const directLabel = signalMapLabel(value);
+function shortSignalText(value: string, thesisTitle = "", columnTitle = "") {
+  const directLabel = signalMapLabel(value, thesisTitle, columnTitle);
   if (directLabel) return directLabel;
 
   const clean = value
@@ -1050,18 +1051,38 @@ function shortSignalText(value: string) {
     .trim();
 
   const clause = clean.split(/\s+(?:who|with|without|while|when|where|because|so)\s+|[;,:—]/)[0]?.trim() || clean;
-  const label = signalMapLabel(clause) || clause;
+  const label = signalMapLabel(clause, thesisTitle, columnTitle) || clause;
   const words = label.split(/\s+/).filter(Boolean);
   if (words.length <= 10) return label;
-  return keywordSignalLabel(label);
+  return keywordSignalLabel(label, thesisTitle, columnTitle);
 }
 
-function signalMapLabel(value: string) {
+function signalMapLabel(value: string, thesisTitle = "", columnTitle = "") {
   const text = value.toLowerCase();
+  const thesis = thesisTitle.toLowerCase();
+  const column = columnTitle.toLowerCase();
+  if (column.includes("how to test")) {
+    if (/customer delivery|repeatable system/.test(text)) return "Customer delivery example";
+    if (/product, process, or customer fit|product.*process|process.*customer/.test(text)) return "Product/process diagnosis";
+    if (/founder escalation|customer-facing workflow/.test(text)) return "Founder escalation example";
+    if (/decision ownership|founder or exec|took decision/.test(text)) return "Founder decision example";
+    if (/product and engineering disagreed|product\/eng/.test(text)) return "Product/eng conflict example";
+    if (/operating rhythm|got faster/.test(text)) return "Operating rhythm change";
+    if (/too many lanes|what not to own/.test(text)) return "Role scope tradeoff";
+    if (/push back|asking one hire/.test(text)) return "Pushback example";
+    if (/clarity without adding process/.test(text)) return "Clarity without theater";
+  }
+  if (thesis.includes("customer ops")) {
+    if (/trust/.test(text)) return "Protects customer trust";
+    if (/delivery|implementation/.test(text)) return "Repeatable delivery motion";
+    if (/product gaps|implementation gaps|process gaps/.test(text)) return "Separates product vs process";
+    if (/founder escalation|escalates/.test(text)) return "Reduces founder escalation";
+    if (/relationship management/.test(text)) return "Relationship-only profile";
+  }
   if (/decision ownership|own(ed|s)? .*decision|technical decisions|product decisions/.test(text)) return "Owns hard decisions";
   if (/founder.*hand|founder.*central|founder.*depend|founder leverage|proxy/.test(text)) return "Reduces founder dependency";
   if (/engineering execution rhythm|shipping cadence|execution rhythm|operating cadence/.test(text)) return "Improves team rhythm";
-  if (/trust|morale/.test(text)) return "Rebuilds trust and morale";
+  if (/trust|morale/.test(text)) return thesis.includes("engineering") ? "Rebuilds trust and morale" : "Protects trust";
   if (/ambig/.test(text)) return "Works through ambiguity";
   if (/large team|mature company|big-company/.test(text)) return "Big-company manager";
   if (/architecture.*no people|architecture-only|people leadership/.test(text)) return "Architecture without leadership";
@@ -1079,8 +1100,10 @@ function signalMapLabel(value: string) {
   return "";
 }
 
-function keywordSignalLabel(value: string) {
+function keywordSignalLabel(value: string, thesisTitle = "", columnTitle = "") {
   const text = value.toLowerCase();
+  if (columnTitle.toLowerCase().includes("how to test")) return "Specific example";
+  if (thesisTitle.toLowerCase().includes("customer ops") && /trust/.test(text)) return "Protects customer trust";
   if (/ownership/.test(text)) return "Clear ownership proof";
   if (/judgment/.test(text)) return "Independent judgment";
   if (/lead/.test(text)) return "Leadership under pressure";
@@ -1091,10 +1114,10 @@ function keywordSignalLabel(value: string) {
   return words.join(" ");
 }
 
-function shortProfileSentence(value: string) {
-  const sentence = compactLeadText(value, 110).split(/[.!?]/)[0]?.trim() || value.trim();
-  if (sentence.length <= 110) return sentence;
-  return keywordSignalLabel(sentence);
+function completeProfileSentence(value: string) {
+  const clean = value.replace(/\s+/g, " ").trim();
+  if (!clean) return "";
+  return /[.!?]$/.test(clean) ? clean : `${clean}.`;
 }
 
 function HiringArtifactBoard({ artifact }: { artifact: HiringArtifact }) {
@@ -1144,6 +1167,36 @@ function HiringArtifactBoard({ artifact }: { artifact: HiringArtifact }) {
     );
   }
 
+  if (artifact.kind === "market_reality") {
+    const reality = artifact.marketReality;
+    return (
+      <section className="mt-3 max-w-full overflow-hidden rounded-2xl border border-[#E4DCD1] bg-[#FFFCF7] shadow-[0_18px_50px_rgba(23,23,23,0.05)]">
+        <ArtifactHeader title="Market Reality" subline="Pressure-test before sourcing." />
+        <div className="grid gap-2.5 p-4 pt-2">
+          <div className="rounded-xl border border-[#E8DED3] bg-white/80 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-semibold text-[#171717]">{reality.marketDifficulty} search</p>
+              <span className="rounded-full bg-[#F1ECE4] px-2.5 py-1 text-[10px] font-semibold text-[#6B6259]">{reality.uncertaintyLabel}</span>
+            </div>
+            <p className="mt-2 text-xs font-medium leading-5 text-[#2F2A25]">{reality.roleShape}</p>
+          </div>
+
+          <div className="grid gap-2.5 sm:grid-cols-2">
+            <ArtifactList title="Likely source lanes" items={reality.sourceLanes} />
+            <ArtifactList title="Tradeoffs" items={reality.tradeoffs} />
+            <ArtifactList title="Risks" items={reality.risks} />
+            <ArtifactList title="Missing inputs" items={reality.missingInputs.length ? reality.missingInputs : ["No major market inputs missing."]} />
+          </div>
+
+          <div className="rounded-xl border border-[#D7E9DD] bg-[#F4FBF6] p-3">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#257647]">Next move</p>
+            <p className="mt-1 text-xs font-semibold leading-5 text-[#244933]">{reality.nextMove}</p>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="mt-3 max-w-full overflow-hidden rounded-2xl border border-[#E4DCD1] bg-[#FFFCF7] shadow-[0_18px_50px_rgba(23,23,23,0.05)]">
       <ArtifactHeader title="Candidate Archetype" subline="The profile most likely to carry this problem." />
@@ -1156,6 +1209,19 @@ function HiringArtifactBoard({ artifact }: { artifact: HiringArtifact }) {
         ))}
       </div>
     </section>
+  );
+}
+
+function ArtifactList({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div className="rounded-xl border border-[#E8DED3] bg-white/80 p-3">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8A8178]">{title}</p>
+      <div className="mt-2 grid gap-1.5">
+        {items.slice(0, 5).map((item) => (
+          <p key={item} className="rounded-lg bg-[#F8F4EE] px-2.5 py-2 text-xs font-medium leading-5 text-[#2F2A25]">{item}</p>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1381,6 +1447,7 @@ function isClarificationQuestion(value: string) {
 }
 
 function isMarketRealityRequest(value: string) {
+  if (/\b(pressure[-\s]?test market|market reality)\b/i.test(value)) return false;
   if (isPlanningArtifactRequest(value)) return false;
   return /\b(market|market reality|comp|compensation|salary|equity|location|geo|geography|talent pool|time[-\s]?to[-\s]?fill|ttf|candidate|candidates|profile|profiles|people|lead|leads|sourcing|source|source against this thesis|build search lanes|search lanes|find people|pull)\b/i.test(value);
 }
@@ -2614,7 +2681,7 @@ function actionProgressText(content: string) {
 }
 
 function isPlanningArtifactRequest(value: string) {
-  return /\b(hiring thesis|must[-\s]?have signals?|signal map|scorecard|candidate archetype|interview plan|criteria|rubric|role shape|tradeoffs?)\b/i.test(value);
+  return /\b(hiring thesis|must[-\s]?have signals?|signal map|scorecard|candidate archetype|interview plan|criteria|rubric|role shape|tradeoffs?|pressure[-\s]?test market|market reality|source lanes|search strategy|time[-\s]?to[-\s]?fill|ttf)\b/i.test(value);
 }
 
 function initialsForName(name: string) {
