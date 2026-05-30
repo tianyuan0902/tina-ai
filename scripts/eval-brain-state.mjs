@@ -556,6 +556,52 @@ expectIncludes(urgentCoverageMarketReality.marketReality.sourceLanes, /implement
 expectIncludes(urgentCoverageMarketReality.marketReality.sourceLanes, /customer success operators/i, "urgent coverage should include customer success operators");
 expectIncludes(urgentCoverageMarketReality.marketReality.sourceLanes, /founder.?s office|ops generalists/i, "urgent coverage should include founder's office / ops generalists");
 expectNotIncludes(urgentCoverageMarketReality.marketReality.sourceLanes, /senior operators|fractional leaders|interim leaders/i, "urgent operational coverage should not default to senior/fractional/interim leaders");
+
+const moreSeniorSourcingStrategy = buildHiringArtifact(buildSignalMap(buildCurrentRead({ messages: currentReadScenarios[2].messages })), "sourcing_strategy");
+expectIncludes([moreSeniorSourcingStrategy.sourcingStrategy.targetProfile], /directional|confirm the function/i, "More Senior sourcing should stay directional until function is clear");
+expectIncludes(moreSeniorSourcingStrategy.sourcingStrategy.missingConstraints, /function to seniorize/i, "More Senior sourcing should ask for the function before narrow lanes");
+expectNotIncludes(
+  [
+    moreSeniorSourcingStrategy.sourcingStrategy.targetProfile,
+    ...moreSeniorSourcingStrategy.sourcingStrategy.searchLanes,
+    ...moreSeniorSourcingStrategy.sourcingStrategy.targetTitles,
+    ...moreSeniorSourcingStrategy.sourcingStrategy.searchLogic
+  ],
+  /Chief of Staff|Founder.?s Office/i,
+  "More Senior sourcing should not default to Chief of Staff or Founder's Office without function evidence"
+);
+
+const generalistSourcingStrategy = buildHiringArtifact(buildSignalMap(buildCurrentRead({ messages: currentReadScenarios[3].messages })), "sourcing_strategy");
+expectDistinct(generalistSourcingStrategy.sourcingStrategy.searchLanes, "Generalist search lanes should be distinct");
+expectDistinct(generalistSourcingStrategy.sourcingStrategy.targetTitles, "Generalist target titles should be distinct");
+expectDistinct(generalistSourcingStrategy.sourcingStrategy.mustHaveFilters, "Generalist must-have filters should be distinct");
+expectDistinct(generalistSourcingStrategy.sourcingStrategy.avoidFilters, "Generalist avoid filters should be distinct");
+expectNotIncludes(
+  [
+    generalistSourcingStrategy.sourcingStrategy.targetProfile,
+    ...generalistSourcingStrategy.sourcingStrategy.searchLanes,
+    ...generalistSourcingStrategy.sourcingStrategy.targetTitles,
+    ...generalistSourcingStrategy.sourcingStrategy.mustHaveFilters,
+    ...generalistSourcingStrategy.sourcingStrategy.avoidFilters,
+    ...generalistSourcingStrategy.sourcingStrategy.searchLogic
+  ],
+  /Rebuilds trust and morale|engineering rhythm|Head of Engineering/i,
+  "Generalist sourcing should not leak Head of Eng signals"
+);
+
+const hireFastSourcingStrategy = buildHiringArtifact(buildSignalMap(buildCurrentRead({ messages: currentReadScenarios[4].messages })), "sourcing_strategy");
+expectIncludes(hireFastSourcingStrategy.sourcingStrategy.searchLanes, /customer ops coordinators/i, "Hire Fast sourcing should bias toward customer ops coordinators");
+expectIncludes(hireFastSourcingStrategy.sourcingStrategy.searchLanes, /implementation coordinators|implementation leads/i, "Hire Fast sourcing should include implementation coverage");
+expectIncludes(hireFastSourcingStrategy.sourcingStrategy.searchLanes, /customer success operators|post-sales operators/i, "Hire Fast sourcing should include CS/post-sales operators");
+expectNotIncludes(
+  [
+    ...hireFastSourcingStrategy.sourcingStrategy.searchLanes,
+    ...hireFastSourcingStrategy.sourcingStrategy.targetTitles,
+    ...hireFastSourcingStrategy.sourcingStrategy.searchLogic
+  ],
+  /senior operators|fractional leaders|interim leaders|functional leads|Chief of Staff/i,
+  "Hire Fast sourcing should not over-level coverage work into leadership by default"
+);
 expectNotIncludes(
   [
     ...headEngMarketReality.marketReality.sourceLanes,
@@ -834,6 +880,12 @@ function expectIncludes(values, pattern, message) {
 function expectNotIncludes(values, pattern, message) {
   const matched = values.some((value) => pattern instanceof RegExp ? pattern.test(value) : value === pattern);
   if (matched) fail(message, values, `not ${pattern.toString()}`);
+}
+
+function expectDistinct(values, message) {
+  const normalized = values.map((value) => String(value).toLowerCase().replace(/[^\w\s]/g, "").replace(/\s+/g, " ").trim());
+  const unique = new Set(normalized);
+  if (unique.size !== normalized.length) fail(message, values, "all distinct");
 }
 
 function fail(message, actual, expected) {

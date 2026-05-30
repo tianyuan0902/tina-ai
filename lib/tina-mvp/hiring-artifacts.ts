@@ -172,7 +172,7 @@ function buildMarketReality(signalMap: SignalMap, canonicalSearchState?: Canonic
 }
 
 function buildSourcingStrategy(signalMap: SignalMap, canonicalSearchState?: CanonicalSearchState): HiringArtifact {
-  const strategy = sourcingStrategyFor(signalMap, canonicalSearchState);
+  const strategy = normalizeSourcingStrategy(sourcingStrategyFor(signalMap, canonicalSearchState));
   return {
     kind: "sourcing_strategy",
     title: "Sourcing Strategy",
@@ -367,39 +367,39 @@ function marketProfileFor(signalMap: SignalMap, canonicalSearchState?: Canonical
   }
 
   if (thesis === "Urgent Hiring Triage") {
-    const operationalCoverage = isOperationalCoverageState(canonicalSearchState);
+    const leadershipCoverage = isLeadershipCoverageState(canonicalSearchState);
     return {
-      roleShape: operationalCoverage
-        ? "Operational coverage hire who keeps customer and internal work from dropping."
-        : "Urgent coverage hire who can stabilize the gap without distorting the permanent role.",
-      marketDifficulty: operationalCoverage ? "Moderate" : "Hard",
-      sourceLanes: operationalCoverage
+      roleShape: leadershipCoverage
+        ? "Urgent leader who can stabilize a leadership gap without distorting the permanent role."
+        : "Operational coverage hire who keeps customer and internal work from dropping.",
+      marketDifficulty: leadershipCoverage ? "Hard" : "Moderate",
+      sourceLanes: leadershipCoverage
         ? [
+            "Operators with urgent leadership coverage proof",
+            "Functional leads who stabilized messy gaps",
+            "Founder’s office leaders with decision rights",
+            "Interim leaders only if leadership is required"
+          ]
+        : [
             "Customer ops coordinators",
             "Implementation leads",
             "Customer success operators",
-            "Founder’s office or ops generalists"
-          ]
-        : [
-            "Operators with urgent coverage proof",
-            "Implementation or customer ops leads",
-            "Founder’s office generalists",
-            "Interim leaders only if leadership is required"
+            "Ops generalists for dropped follow-ups"
           ],
       tradeoffs: [
         "Speed increases false-positive risk.",
         "Interim and permanent profiles may differ.",
-        operationalCoverage ? "Coordinator profiles may need clear decision boundaries." : "Coverage now can hide the durable role shape."
+        leadershipCoverage ? "Coverage now can hide the durable role shape." : "Coordinator profiles need clear decision boundaries."
       ],
       risks: [
         "Rushing into a permanent mis-hire.",
         "Solving panic while leaving the root problem.",
-        operationalCoverage ? "Over-hiring seniority for coordination work." : "Overweighting availability over fit."
+        leadershipCoverage ? "Overweighting availability over fit." : "Over-hiring seniority for coordination work."
       ],
       missingInputs,
-      nextMove: operationalCoverage
-        ? "Separate coordination coverage from decision ownership."
-        : "Define the 30-day coverage problem separately from the permanent hire.",
+      nextMove: leadershipCoverage
+        ? "Define the 30-day leadership gap separately from the permanent hire."
+        : "Separate coordination coverage from decision ownership.",
       uncertaintyLabel
     };
   }
@@ -538,6 +538,28 @@ function sourcingStrategyFor(signalMap: SignalMap, canonicalSearchState?: Canoni
   }
 
   if (thesis === "Senior Ownership Gap") {
+    if (!hasSpecifiedFunction(canonicalSearchState)) {
+      return {
+        targetProfile: "Directional senior owner; confirm the function before narrowing lanes.",
+        searchLanes: [
+          "Function-specific senior ICs or leads",
+          "Operators who owned ambiguous decisions",
+          "Team leads trusted with founder-level judgment",
+          "Adjacent functional leads after function is clear"
+        ],
+        targetTitles: ["Senior IC", "Team Lead", "Functional Lead", "Senior Operator", "Owner"],
+        mustHaveFilters,
+        avoidFilters,
+        searchLogic: [
+          `"senior" "owned decisions" "startup"`,
+          `"team lead" "ambiguous" "founder"`,
+          `"functional lead" "ownership" "startup"`
+        ],
+        outreachAngle: "A role for someone who wants real authority, not another escalation path back to the founder.",
+        missingConstraints: uniqueStrings(["function to seniorize", ...missingConstraints])
+      };
+    }
+
     return {
       targetProfile: "Senior owner who has turned messy founder context into clear decisions.",
       searchLanes: [
@@ -546,7 +568,7 @@ function sourcingStrategyFor(signalMap: SignalMap, canonicalSearchState?: Canoni
         "Founder-adjacent owners",
         "Scale-up leads who owned undefined work"
       ],
-      targetTitles: ["Senior Operator", "Business Operations Lead", "Strategy & Operations Lead", "Chief of Staff", "Functional Lead"],
+      targetTitles: ["Senior Operator", "Business Operations Lead", "Strategy & Operations Lead", "Functional Lead", "Team Lead"],
       mustHaveFilters,
       avoidFilters,
       searchLogic: [
@@ -564,17 +586,17 @@ function sourcingStrategyFor(signalMap: SignalMap, canonicalSearchState?: Canoni
       targetProfile: "Founder-adjacent operator who can narrow a compressed role into the right primary lane.",
       searchLanes: [
         "Early operators from very small teams",
-        "Founder’s office profiles with owned outcomes",
-        "Customer ops leaders with broad mandates",
+        "Ops generalists with owned outcomes",
+        "Customer ops leads with broad mandates",
         "Ex-founders or first business hires"
       ],
-      targetTitles: ["Founder's Office", "Business Operations", "Generalist Operator", "Chief of Staff", "Special Projects Lead"],
+      targetTitles: ["Generalist Operator", "Business Operations", "Special Projects Lead", "Customer Ops Lead", "First Business Hire"],
       mustHaveFilters,
       avoidFilters,
       searchLogic: [
-        `"founder's office" "owned" "startup"`,
+        `"generalist operator" "owned" "startup"`,
         `"business operations" "early stage" "operator"`,
-        `"chief of staff" "0 to 1" "startup"`
+        `"special projects" "0 to 1" "startup"`
       ],
       outreachAngle: "A chance to own the messy center of the company, with enough clarity to avoid becoming a catch-all.",
       missingConstraints
@@ -582,38 +604,44 @@ function sourcingStrategyFor(signalMap: SignalMap, canonicalSearchState?: Canoni
   }
 
   if (thesis === "Urgent Hiring Triage") {
-    const operationalCoverage = isOperationalCoverageState(canonicalSearchState);
+    const leadershipCoverage = isLeadershipCoverageState(canonicalSearchState);
     return {
-      targetProfile: operationalCoverage
-        ? "Operational coverage person who keeps onboarding, follow-ups, and coordination from dropping."
-        : "Urgent coverage hire who can stabilize the gap without warping the permanent role.",
-      searchLanes: operationalCoverage
+      targetProfile: leadershipCoverage
+        ? "Urgent leadership coverage hire with clear temporary decision rights."
+        : "Operational coverage person who keeps onboarding, follow-ups, and coordination from dropping.",
+      searchLanes: leadershipCoverage
         ? [
-            "Customer ops coordinators",
-            "Implementation leads",
-            "Customer success operators",
-            "Founder’s office or ops generalists"
-          ]
-        : marketReality.sourceLanes,
-      targetTitles: operationalCoverage
-        ? ["Customer Ops Coordinator", "Implementation Lead", "Customer Success Operator", "Operations Generalist", "Founder’s Office"]
-        : ["Interim Operator", "Operations Lead", "Special Projects Lead", "Functional Lead", "Chief of Staff"],
-      mustHaveFilters,
-      avoidFilters,
-      searchLogic: operationalCoverage
-        ? [
-            `"customer ops" "onboarding" "startup"`,
-            `"implementation lead" "follow-ups" "customers"`,
-            `"operations generalist" "coordination" "startup"`
+            "Functional leads with crisis coverage proof",
+            "Interim leaders only if authority is required",
+            "Founder’s office leaders with decision rights",
+            "Operators who stabilized urgent team gaps"
           ]
         : [
-            `"operations lead" "urgent" "startup"`,
-            `"interim operator" "startup" "coverage"`,
-            `"special projects" "stabilized" "startup"`
+            "Customer ops coordinators",
+            "Implementation coordinators",
+            "Implementation leads",
+            "CS ops / post-sales operators",
+            "Ops generalists for dropped follow-ups"
           ],
-      outreachAngle: operationalCoverage
-        ? "A clear, high-trust coverage role where their work immediately lowers founder load."
-        : "A focused urgent mandate with clear boundaries between coverage and permanent design.",
+      targetTitles: leadershipCoverage
+        ? ["Interim Lead", "Operations Lead", "Functional Lead", "Special Projects Lead", "Crisis Operator"]
+        : ["Customer Ops Coordinator", "Implementation Coordinator", "Implementation Lead", "Customer Success Operator", "Ops Generalist"],
+      mustHaveFilters,
+      avoidFilters,
+      searchLogic: leadershipCoverage
+        ? [
+            `"interim lead" "urgent" "startup"`,
+            `"functional lead" "stabilized" "startup"`,
+            `"operations lead" "coverage" "startup"`
+          ]
+        : [
+            `"customer ops coordinator" "onboarding"`,
+            `"implementation coordinator" "follow-ups"`,
+            `"customer success operator" "handoffs"`
+          ],
+      outreachAngle: leadershipCoverage
+        ? "A focused urgent mandate with clear decision rights and clean boundaries."
+        : "A practical coverage role where organized execution immediately lowers founder load.",
       missingConstraints
     };
   }
@@ -642,11 +670,11 @@ function sourcingStrategyFor(signalMap: SignalMap, canonicalSearchState?: Canoni
 
   if (thesis === "Customer Ops / Implementation Gap") {
     return {
-      targetProfile: "Customer-facing operator who can turn messy delivery into a repeatable implementation motion.",
+      targetProfile: "Customer-facing operator who turns messy delivery into repeatable implementation.",
       searchLanes: [
         "Implementation leads from complex products",
-        "Customer ops leaders at early B2B startups",
-        "Solutions leaders with delivery ownership",
+        "Customer ops owners at early B2B startups",
+        "Solutions operators with delivery ownership",
         "Post-sales operators who fixed broken workflows"
       ],
       targetTitles: ["Implementation Lead", "Customer Operations Lead", "Solutions Lead", "Post-Sales Operations", "Customer Success Operations"],
@@ -676,6 +704,63 @@ function sourcingStrategyFor(signalMap: SignalMap, canonicalSearchState?: Canoni
     outreachAngle: "A role with real ownership over the problem, not just the title.",
     missingConstraints
   };
+}
+
+function normalizeSourcingStrategy(strategy: SourcingStrategyArtifact): SourcingStrategyArtifact {
+  const seen = new Set<string>();
+  const addUnique = (values: string[], fallback: string[]) => {
+    const output: string[] = [];
+    for (const value of uniqueStrings([...values, ...fallback].map(cleanArtifactPhrase))) {
+      const key = normalizeComparable(value);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      output.push(value);
+    }
+    return output;
+  };
+
+  const targetProfile = cleanArtifactPhrase(strategy.targetProfile);
+  seen.add(normalizeComparable(targetProfile));
+
+  return {
+    targetProfile,
+    searchLanes: addUnique(strategy.searchLanes, ["Adjacent proven owners"]),
+    targetTitles: addUnique(strategy.targetTitles, ["Functional Lead"]),
+    mustHaveFilters: addUnique(strategy.mustHaveFilters, ["Proof of owning the real problem"]),
+    avoidFilters: addUnique(strategy.avoidFilters.map(negativeIndicatorFor), ["Title match without real ownership"]),
+    searchLogic: uniqueStrings(strategy.searchLogic.map(cleanSearchQuery)).slice(0, 3),
+    outreachAngle: cleanArtifactPhrase(strategy.outreachAngle),
+    missingConstraints: uniqueStrings(strategy.missingConstraints.map(cleanArtifactPhrase))
+  };
+}
+
+function cleanArtifactPhrase(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function normalizeComparable(value: string) {
+  return cleanArtifactPhrase(value).toLowerCase().replace(/[^\w\s]/g, "").replace(/\s+/g, " ");
+}
+
+function cleanSearchQuery(value: string) {
+  return cleanArtifactPhrase(value).replace(/public profiles?|named candidates?|searching public profiles/gi, "").trim();
+}
+
+function hasSpecifiedFunction(state?: CanonicalSearchState) {
+  const text = [state?.roleTitle, state?.roleFamily].filter(Boolean).join(" ").toLowerCase();
+  if (!text || /forming|unknown|unclear|other/.test(text)) return false;
+  return /\b(engineering|product|design|gtm|sales|operations|manufacturing|recruiting|people|finance|legal|customer|implementation|success|marketing)\b/.test(text);
+}
+
+function isLeadershipCoverageState(state?: CanonicalSearchState) {
+  const text = [
+    state?.roleTitle,
+    state?.roleFamily,
+    state?.mustHaveSignals?.join(" "),
+    state?.niceToHaveSignals?.join(" "),
+    state?.lastUpdatedReason
+  ].filter(Boolean).join(" ").toLowerCase();
+  return /\b(head|vp|chief|executive|leadership|transformation|turnaround|decision rights|authority)\b/.test(text);
 }
 
 function marketMissingInputs(thesisTitle: string, state?: CanonicalSearchState) {
