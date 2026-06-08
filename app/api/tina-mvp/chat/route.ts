@@ -103,6 +103,22 @@ export async function POST(request: Request) {
     });
   }
 
+  if (!shouldRunProfileSearch && isCapitalAllocationQuestion(latestUserMessage.content)) {
+    const responseContent = buildCapitalAllocationDiagnosticResponse();
+    return NextResponse.json({
+      message: {
+        id: `tina-capital-diagnosis-${Date.now()}`,
+        role: "tina",
+        content: responseContent
+      },
+      canonicalSearchState,
+      workingThesis: buildWorkingThesisWithAssistant(cleanMessages, responseContent, canonicalSearchState),
+      currentRead,
+      signalMap,
+      source: "local_conversation_move"
+    });
+  }
+
   if (!shouldRunProfileSearch && requestedHiringArtifactKind) {
     const nextSignalMap = signalMap || buildSignalMap(currentRead, canonicalSearchState);
     const hiringArtifact = buildHiringArtifact(nextSignalMap, requestedHiringArtifactKind, canonicalSearchState);
@@ -355,7 +371,7 @@ export async function POST(request: Request) {
   const instructions = [
     TINA_SYSTEM_PROMPT,
     "If the founder gives company or product context, treat it as hiring calibration input. Infer what kinds of candidates may fit the company, product surface, customer environment, and operating stage. Do not ask why the company context matters.",
-    "For normal chat, keep the answer compact, complete, and human. Sound like you are thinking with the founder in real time. Use contractions. Avoid stiff phrases like 'there are three key dimensions' or 'the optimal approach'. Tina is a Hiring Decision Engine: first diagnose the business problem, organizational context, and whether hiring is actually the right intervention. Your goal is to help the founder think; the task is secondary. Every response needs at least one observation the founder is unlikely to have articulated themselves. Do not merely summarize. On every follow-up, interpret the founder's latest answer before moving the workflow forward: what did it reveal, what ambiguity remains, what tradeoff was exposed, and what assumption surfaced? Once a meaningful signal has been extracted, do not keep rephrasing it; update the working hypothesis and produce a new observation. If the founder names a role but has not asked for candidates yet, do not jump to sourcing or intake fields. Ask one earned diagnostic question such as what changed, what is breaking, who owns the work now, or what fails if nobody is hired. If the founder gives enough signal for useful guidance, make the recommendation instead of asking more questions. Once the current read is high-confidence or in execution mode, stop asking broad questions and produce the requested planning artifact directly: hiring thesis, must-have signals, signal map, scorecard, candidate archetype, interview plan, criteria, rubric, role shape, or tradeoffs. Those artifact requests are not sourcing requests. If the founder explicitly asks for candidates, profiles, people, top schools, top companies, SF, fintech, AI infra, PM, or Product Eng, treat it as sourcing work, but do not blindly fill the req when the founder has just exposed a major unresolved tradeoff. Agreement is not permission to switch into process before the thesis is stable; once stable, agreement should advance into role thesis, scorecard, interview plan, search lane, or candidate strategy. Use 'I have enough for a first pass,' 'I’ll make a working assumption,' and 'I’ll filter hard' only when the tradeoff is clear enough. Do not say 'How is this relevant?', 'I’m missing role outcome', 'must-have signals are required', 'please provide', 'source lanes', 'calibration status', or 'canonical state'. Avoid 'Sounds like you need', 'The practical implication is', and 'This implies'. Do not ask location, level, compensation, company lanes, or must-have skills unless the answer materially changes the recommendation. Do not say you are pulling, sharing, or preparing a candidate list later unless actual profile leads are included in this response.",
+    "For normal chat, keep the answer compact, complete, and human. Sound like you are thinking with the founder in real time. Use contractions. Avoid stiff phrases like 'there are three key dimensions' or 'the optimal approach'. Tina is a Hiring Decision Engine: first diagnose the business problem, organizational context, and whether hiring is actually the right intervention. Your goal is to help the founder think; the task is secondary. Every response needs at least one observation the founder is unlikely to have articulated themselves. Do not merely summarize. On every follow-up, interpret the founder's latest answer before moving the workflow forward: what did it reveal, what ambiguity remains, what tradeoff was exposed, and what assumption surfaced? Once a meaningful signal has been extracted, do not keep rephrasing it; update the working hypothesis and produce a new observation. If the founder names a role but has not asked for candidates yet, do not jump to sourcing or intake fields. Ask one earned diagnostic question such as what changed, what is breaking, who owns the work now, or what fails if nobody is hired. If the founder says they need a recruiter, diagnose hiring volume, hiring plan, and interview calibration before suggesting full-time recruiting. If the founder asks for VP Marketing while ICP, positioning, or channels are unproven, challenge the leadership hire and diagnose positioning/PMF first. If the founder asks for an AI team without roadmap or customer pull, challenge the team build and diagnose prioritization before role design. If the founder gives enough signal for useful guidance, make the recommendation instead of asking more questions. Once the current read is high-confidence or in execution mode, stop asking broad questions and produce the requested planning artifact directly: hiring thesis, must-have signals, signal map, scorecard, candidate archetype, interview plan, criteria, rubric, role shape, or tradeoffs. Those artifact requests are not sourcing requests. If the founder explicitly asks for candidates, profiles, people, top schools, top companies, SF, fintech, AI infra, PM, or Product Eng, treat it as sourcing work, but do not blindly fill the req when the founder has just exposed a major unresolved tradeoff. Agreement is not permission to switch into process before the thesis is stable; once stable, agreement should advance into role thesis, scorecard, interview plan, search lane, or candidate strategy. Use 'I have enough for a first pass,' 'I’ll make a working assumption,' and 'I’ll filter hard' only when the tradeoff is clear enough. Do not say 'How is this relevant?', 'I’m missing role outcome', 'must-have signals are required', 'please provide', 'source lanes', 'calibration status', or 'canonical state'. Avoid 'Sounds like you need', 'The practical implication is', and 'This implies'. Do not ask location, level, compensation, company lanes, or must-have skills unless the answer materially changes the recommendation. Do not say you are pulling, sharing, or preparing a candidate list later unless actual profile leads are included in this response.",
     adaptiveModeInstruction,
     founderModelText,
     workingThesisText,
@@ -566,13 +582,14 @@ function buildAdaptiveModeInstruction(latestUserMessage: string, messages: TinaM
 
 function inferAdaptiveMode(latestUserMessage: string, messages: TinaMvpMessage[]) {
   const text = latestUserMessage.toLowerCase();
+  if (isCapitalAllocationQuestion(latestUserMessage)) return "discovery";
   if (isOverbroadFounderAnswer(latestUserMessage)) return "calibration";
   if (isPlanningArtifactRequest(latestUserMessage)) return "execution";
   if (isPublicProfileSearchRequest(latestUserMessage) || /\b(show|pull|source|find|get|build)\b.*\b(profiles?|candidates?|people|leads?|list)\b/i.test(latestUserMessage)) return "sourcing";
   if (/\b(best|world[-\s]?class|elite|top[-\s]?tier|10x|rockstar)\b/i.test(latestUserMessage)) return "subjective_quality";
   if (/\b(market|feasible|realistic|comp|compensation|salary|equity|timeline|time to fill|pool|supply|hard to find|rare|one of the best)\b/i.test(latestUserMessage)) return "market_reality";
   if (hasRoleSignal(text) && (hasDomainOrCompanySignal(text) || hasGeographySignal(text))) return "calibration";
-  if (/\b(i think|maybe|not sure|unsure|overwhelmed|don['’]?t know|who to hire|need a pm\b|need a head of product\b)\b/i.test(latestUserMessage)) return "discovery";
+  if (/\b(i think|maybe|not sure|unsure|overwhelmed|don['’]?t know|who to hire|need a pm\b|need a head of product\b|first recruiter|vp marketing|ai team)\b/i.test(latestUserMessage)) return "discovery";
   if (/\b(own|owns|nobody owns|conversion dropped|activation|reliability|bottleneck|build infrastructure|reduce founder|clear success|because)\b/i.test(latestUserMessage)) return "execution";
 
   const founderMessages = messages.filter((message) => message.role === "founder").length;
@@ -580,7 +597,7 @@ function inferAdaptiveMode(latestUserMessage: string, messages: TinaMvpMessage[]
 }
 
 function hasRoleSignal(text: string) {
-  return /\b(engineer|developer|pm|product manager|designer|operator|gtm|sales|recruiter|plant manager|manager|head of|lead|chief of staff)\b/.test(text);
+  return /\b(engineer|developer|pm|product manager|designer|operator|gtm|sales|marketing|marketer|recruiter|plant manager|manager|head of|lead|chief of staff)\b/.test(text);
 }
 
 function hasDomainOrCompanySignal(text: string) {
@@ -594,6 +611,18 @@ function hasGeographySignal(text: string) {
 function isPlanningArtifactRequest(message: string) {
   const text = message.toLowerCase();
   return /\b(hiring thesis|must[-\s]?have signals?|signal map|scorecard|candidate archetype|interview plan|criteria|rubric|role shape|tradeoffs?|pressure[-\s]?test market|market reality|source lanes|sourcing strategy|search strategy|sourcing plan|search plan|time[-\s]?to[-\s]?fill|ttf)\b/.test(text);
+}
+
+function isCapitalAllocationQuestion(message: string) {
+  return /\b(\$500k|500k|500,000|capital allocation|budget allocation|what should i do next|what should we do next)\b/i.test(message);
+}
+
+function buildCapitalAllocationDiagnosticResponse() {
+  return [
+    "I would not allocate the $500K yet. The number is real, but the bottleneck is still unnamed — hiring, runway, GTM, product, and tooling are different bets.",
+    "Before I recommend a split, I need the operating picture: stage, revenue, runway, team size, PMF signal, founder strengths, biggest bottleneck, and the next growth objective.",
+    "The sharp question: if you spent none of it for 60 days, what would most likely break first — product progress, sales learning, customer delivery, founder bandwidth, or runway?"
+  ].join("\n\n");
 }
 
 function isSignalMapRequest(message: string) {
@@ -1283,6 +1312,10 @@ function buildLocalFallbackMessage(messages: TinaMvpMessage[], debugCode: string
 function localHiringRead(context: string, debugCode: string) {
   const text = context.toLowerCase();
   const isAI = /\b(ai|llm|model|agent|machine learning|ml)\b/.test(text);
+  const isCapitalAllocation = /\b(\$500k|500k|500,000|what should i do next|what should we do next)\b/.test(text);
+  const isRecruitingProcess = /\b(recruiter|recruiting|sourcer|talent acquisition|hiring plan|interview process)\b/.test(text);
+  const isMarketingPositioning = /\b(vp marketing|head of marketing|marketing leader|growth is slow|icp|positioning|acquisition channel)\b/.test(text);
+  const isAiPrioritization = /\b(ai team|build an ai|ai roadmap|customers.*ai|existing roadmap|unfinished roadmap)\b/.test(text);
   const isProduct = /\b(product|customer|workflow|pm|design|ux)\b/.test(text);
   const isOperator = /\b(operator|ops|operations|founder|bottleneck|chief of staff)\b/.test(text);
   const isPlant = /\b(plant|manufacturing|factory|operations manager|peoria|illinois)\b/.test(text);
@@ -1290,6 +1323,34 @@ function localHiringRead(context: string, debugCode: string) {
   const adapterNote = debugCode === "missing_api_key" || debugCode === "invalid_api_key"
     ? "The reasoning engine is not connected, so here’s the lightweight read for now."
     : "Tina’s deeper reasoning engine blinked, so here’s the lightweight read for now.";
+
+  if (isCapitalAllocation) {
+    return buildCapitalAllocationDiagnosticResponse();
+  }
+
+  if (isRecruitingProcess) {
+    return [
+      `${adapterNote} This does not look like a full-time recruiter bottleneck yet.`,
+      "Four hires, no hiring plan, and an uncalibrated interview loop point to a hiring operating-system problem first. A recruiter can create activity, but they cannot make unclear roles or inconsistent decisions clean.",
+      "I’d build the hiring plan and interview loop first, then decide whether fractional recruiting help is enough."
+    ].join("\n\n");
+  }
+
+  if (isMarketingPositioning) {
+    return [
+      `${adapterNote} This is probably not a VP Marketing scale-up problem yet.`,
+      "No clear ICP, fuzzy positioning, and no proven acquisition channel mean the hard work is finding the wedge, not managing a marketing org.",
+      "The next move is to decide whether you need positioning/ICP discovery or channel scaling. Those are different hires."
+    ].join("\n\n");
+  }
+
+  if (isAiPrioritization) {
+    return [
+      `${adapterNote} I would not start with an AI team design yet.`,
+      "No AI roadmap, no customer pull, and an unfinished roadmap make this a prioritization problem before it is a hiring problem.",
+      "Name the customer workflow AI would improve and what current roadmap work you would stop to fund it."
+    ].join("\n\n");
+  }
 
   if (isAI && isProduct) {
     return [

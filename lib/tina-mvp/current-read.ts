@@ -12,6 +12,10 @@ export type CurrentReadArchetype =
   | "Urgent Hiring Triage"
   | "Product/Execution Ownership Gap"
   | "Customer Ops / Implementation Gap"
+  | "Recruiting Process Gap"
+  | "Marketing Positioning Gap"
+  | "AI Prioritization Gap"
+  | "Capital Allocation Diagnosis"
   | "Unknown / Needs Clarification";
 
 export type CurrentRead = {
@@ -312,6 +316,10 @@ function isPlanningArtifactRequest(text: string) {
 }
 
 function inferArchetype(text: string, roleFamily: string): CurrentReadArchetype {
+  if (/\b(\$500k|500k|500,000|capital allocation|budget allocation|what should i do next|what should we do next)\b/i.test(text)) return "Capital Allocation Diagnosis";
+  if (/\b(recruiter|recruiting|sourcer|talent acquisition)\b/i.test(text)) return "Recruiting Process Gap";
+  if (/\b(vp marketing|head of marketing|marketing leader|growth is slow|positioning|icp|acquisition channel|demand gen)\b/i.test(text)) return "Marketing Positioning Gap";
+  if (/\b(ai team|build an ai|ai roadmap|customers.*ai|existing roadmap|shiny object)\b/i.test(text)) return "AI Prioritization Gap";
   if (/\b(vp sales|head of sales|sales leader|ae\b|account executive|gtm|revenue)\b/i.test(text) || roleFamily === "gtm") return "Founder-Led Sales Transition";
   if (/\b(head of eng|head of engineering|engineering manager|eng leader|engineering leadership|cto|vp engineering)\b/i.test(text)) return "Engineering Leadership Bottleneck";
   if (/\b(more senior|senior person|adult in the room|experienced|too junior|not senior enough|run themselves|autonomy|independent)\b/i.test(text)) return "Senior Ownership Gap";
@@ -381,6 +389,38 @@ function buildReadForArchetype(archetype: CurrentReadArchetype, text: string, st
         whatWouldChangeMyMind: "Evidence that customers are healthy and the issue is internal process only.",
         nextBestMove: "Name whether the pain is onboarding, deployment, support load, or product feedback loops."
       };
+    case "Recruiting Process Gap":
+      return {
+        observation: "A first recruiter only helps if the company already knows what it is hiring for and how decisions get made.",
+        hypothesis: "This is likely a hiring strategy and process gap, not a full-time recruiter bottleneck yet.",
+        risk: "Hiring a recruiter before the plan and interview loop are calibrated can outsource chaos instead of reducing founder load.",
+        whatWouldChangeMyMind: "Evidence of sustained hiring volume, calibrated roles, and a founder who is mostly blocked by sourcing throughput.",
+        nextBestMove: "Build the hiring plan and calibrated interview process first, then decide between fractional recruiting help and a full-time hire."
+      };
+    case "Marketing Positioning Gap":
+      return {
+        observation: "Slow growth before ICP, positioning, and channel proof is usually a strategy problem wearing a marketing-title costume.",
+        hypothesis: "This is likely a positioning or PMF clarity gap, not a VP Marketing scale-up search yet.",
+        risk: "A senior marketer may scale guesses before the company knows who it is for or which channel works.",
+        whatWouldChangeMyMind: "Evidence that ICP, message, and one acquisition motion already work and the gap is leadership capacity.",
+        nextBestMove: "Decide whether the next hire must discover ICP/positioning or scale a channel that already works."
+      };
+    case "AI Prioritization Gap":
+      return {
+        observation: "AI can be strategic, but a team is the wrong starting point if the customer pull and roadmap tradeoff are unclear.",
+        hypothesis: "This is likely a product prioritization problem, not an AI team design problem yet.",
+        risk: "Building an AI team without demand or a roadmap can steal capacity from the existing product promises.",
+        whatWouldChangeMyMind: "Evidence that customers are asking for a specific AI workflow and it beats the current roadmap priorities.",
+        nextBestMove: "Define the customer problem AI would solve and what existing roadmap work you would stop to fund it."
+      };
+    case "Capital Allocation Diagnosis":
+      return {
+        observation: "A budget number is not a strategy; it only becomes useful once the business bottleneck is named.",
+        hypothesis: "Tina should diagnose the company stage, runway, PMF, team shape, and bottleneck before recommending any allocation.",
+        risk: "Allocating money before diagnosis creates fake precision and can turn runway into scattered bets.",
+        whatWouldChangeMyMind: "Clear context on stage, revenue, runway, team size, PMF, founder strengths, biggest bottleneck, and growth objective.",
+        nextBestMove: "Ask for stage, revenue, runway, team size, PMF signal, founder strengths, biggest bottleneck, and the next growth objective before allocating the money."
+      };
     default:
       return {
         observation: statedRole ? `${statedRole} is a role label, but the actual operating problem is still thin.` : "The role label is not enough signal yet.",
@@ -447,5 +487,9 @@ function wrongAssumptionFor(read: CurrentRead) {
   if (read.likelyArchetype === "Founder-Led Sales Transition") return "that a classic sales executive is the answer before the motion is repeatable";
   if (read.likelyArchetype === "Engineering Leadership Bottleneck") return "that adding another senior engineer will fix leadership latency";
   if (read.likelyArchetype === "Product/Execution Ownership Gap") return "that a PM title alone solves founder decision load";
+  if (read.likelyArchetype === "Recruiting Process Gap") return "that recruiter capacity is the bottleneck before the hiring plan is calibrated";
+  if (read.likelyArchetype === "Marketing Positioning Gap") return "that a VP Marketing can scale ICP and channels that are not proven yet";
+  if (read.likelyArchetype === "AI Prioritization Gap") return "that an AI team is the right first move before customer pull and roadmap tradeoffs are clear";
+  if (read.likelyArchetype === "Capital Allocation Diagnosis") return "that the $500K should be allocated before the company bottleneck is diagnosed";
   return "that the stated role title is the whole problem";
 }

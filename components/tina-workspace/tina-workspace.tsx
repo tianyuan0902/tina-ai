@@ -867,6 +867,7 @@ function CommandInput({
   function sendOnEnter(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.nativeEvent.isComposing) return;
     if (event.key !== "Enter" && event.code !== "Enter" && event.code !== "NumpadEnter") return;
+    if (event.shiftKey) return;
     if (event.metaKey) return;
 
     event.preventDefault();
@@ -1452,6 +1453,10 @@ function titleFromCurrentReadValue(read?: CurrentRead) {
 
 function controlledThesisTitleFromText(value: string): CurrentReadArchetype {
   const text = value.toLowerCase();
+  if (/\b(\$500k|500k|500,000|capital allocation|budget allocation|what should i do next|what should we do next)\b/i.test(text)) return "Capital Allocation Diagnosis";
+  if (/\b(recruiter|recruiting|sourcer|talent acquisition)\b/i.test(text)) return "Recruiting Process Gap";
+  if (/\b(vp marketing|head of marketing|marketing leader|growth is slow|positioning|icp|acquisition channel|demand gen)\b/i.test(text)) return "Marketing Positioning Gap";
+  if (/\b(ai team|build an ai|ai roadmap|customers.*ai|existing roadmap|shiny object)\b/i.test(text)) return "AI Prioritization Gap";
   if (/\b(vp sales|head of sales|sales leader|ae\b|account executive|gtm|revenue)\b/i.test(text)) return "Founder-Led Sales Transition";
   if (/\b(head of eng|head of engineering|engineering manager|eng leader|engineering leadership|cto|vp engineering)\b/i.test(text)) return "Engineering Leadership Bottleneck";
   if (/\b(more senior|senior person|adult in the room|experienced|too junior|not senior enough|run themselves|autonomy|independent)\b/i.test(text)) return "Senior Ownership Gap";
@@ -1484,7 +1489,18 @@ function shouldShowMarketReality(messages: TinaMvpMessage[], currentRead?: Curre
   const latestFounder = latestFounderContent(messages);
   if (isClarificationQuestion(latestFounder)) return false;
   if (isMarketRealityRequest(latestFounder)) return true;
-  return Boolean(hasMarketArtifacts && currentRead?.mode === "sourcing");
+  if (latestMessageHasMarketArtifact(messages)) return true;
+  return Boolean(hasMarketArtifacts && latestMessageHasProfileEvidence(messages) && currentRead?.mode === "sourcing");
+}
+
+function latestMessageHasMarketArtifact(messages: TinaMvpMessage[]) {
+  const latestTina = [...messages].reverse().find((message) => message.role === "tina");
+  return latestTina?.hiringArtifact?.kind === "market_reality" || latestTina?.hiringArtifact?.kind === "sourcing_strategy";
+}
+
+function latestMessageHasProfileEvidence(messages: TinaMvpMessage[]) {
+  const latestWithProfiles = [...messages].reverse().find((message) => message.profileLeads?.length || message.sourcingBatch);
+  return Boolean(latestWithProfiles?.profileLeads?.length || latestWithProfiles?.sourcingBatch);
 }
 
 function shouldAutoRenameThread(thread: ChatThread) {

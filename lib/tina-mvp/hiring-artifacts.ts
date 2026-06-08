@@ -87,10 +87,15 @@ type ArtifactProfile = {
 export function inferHiringArtifactKind(message: string): HiringArtifactKind | undefined {
   if (isSourcingStrategyArtifactRequest(message)) return "sourcing_strategy";
   if (isMarketRealityArtifactRequest(message)) return "market_reality";
+  if (!isArtifactActionRequest(message)) return undefined;
   if (/\b(scorecard|rubric|criteria)\b/i.test(message)) return "scorecard";
-  if (/\b(interview plan|interview loop|interview process)\b/i.test(message)) return "interview_plan";
+  if (/\b(interview plan|interview loop)\b/i.test(message)) return "interview_plan";
   if (/\b(candidate archetype|candidate profile|define archetype|best[-\s]?fit profile)\b/i.test(message)) return "candidate_archetype";
   return undefined;
+}
+
+function isArtifactActionRequest(message: string) {
+  return /\b(build|create|make|draft|generate|turn this into|define|write|give me|produce)\b/i.test(message);
 }
 
 export function isMarketRealityArtifactRequest(message: string) {
