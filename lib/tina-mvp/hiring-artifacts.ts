@@ -435,28 +435,54 @@ function marketProfileFor(signalMap: SignalMap, canonicalSearchState?: Canonical
     };
   }
 
-  if (thesis === "Customer Ops / Implementation Gap") {
+  if (thesis === "Internal Technical Leadership Gap") {
     return {
-      roleShape: "Customer-facing operator who can turn messy delivery into repeatable implementation motion.",
+      roleShape: "Technical owner who can turn existing team context into delegated decision-making.",
       marketDifficulty: "Moderate",
       sourceLanes: [
-        "Implementation leads from complex products",
-        "Customer ops leaders at early B2B startups",
-        "Solutions leaders with delivery ownership",
-        "Post-sales operators who fixed broken workflows"
+        "Internal technical leads with peer trust",
+        "Staff engineers who led decisions without title",
+        "Technical leads from founder-led startups",
+        "Engineering managers with IC credibility"
       ],
       tradeoffs: [
-        "Customer warmth is easier than systems judgment.",
-        "Product complexity may narrow the pool.",
-        "Too much ops purity can miss customer nuance."
+        "Promotion may preserve context better than external hiring.",
+        "External hires need authority clarity from day one.",
+        "Technical depth trades off against people leverage."
       ],
       risks: [
-        "Hiring an account manager for a systems problem.",
-        "Escalations stay with the founder.",
-        "Misreading product gaps as process gaps."
+        "Adding a senior title without decision rights.",
+        "Overlooking the internal person already carrying context.",
+        "Creating authority confusion on the team."
       ],
       missingInputs,
-      nextMove: "Separate product gaps from delivery gaps before sourcing.",
+      nextMove: "Test whether the internal technical owner can lead with explicit authority.",
+      uncertaintyLabel
+    };
+  }
+
+  if (thesis === "Support Load Root Cause") {
+    return {
+      roleShape: "Customer-facing operator who can reduce support load by fixing the underlying loop.",
+      marketDifficulty: "Moderate",
+      sourceLanes: [
+        "Support operators who reduced repeat demand",
+        "Implementation leads with product feedback loops",
+        "Customer ops owners at early B2B startups",
+        "Post-sales operators who fixed onboarding"
+      ],
+      tradeoffs: [
+        "Coverage helps today but may hide product friction.",
+        "Root-cause ownership is rarer than ticket handling.",
+        "Product fixes may matter more than more headcount."
+      ],
+      risks: [
+        "Staffing around a broken product or onboarding loop.",
+        "Hiring reps who clear queues but do not reduce demand.",
+        "Treating urgency as proof that headcount is the answer."
+      ],
+      missingInputs,
+      nextMove: "Separate immediate support coverage from the root cause creating repeat demand.",
       uncertaintyLabel
     };
   }
@@ -673,14 +699,36 @@ function sourcingStrategyFor(signalMap: SignalMap, canonicalSearchState?: Canoni
     };
   }
 
-  if (thesis === "Customer Ops / Implementation Gap") {
+  if (thesis === "Internal Technical Leadership Gap") {
     return {
-      targetProfile: "Customer-facing operator who turns messy delivery into repeatable implementation.",
+      targetProfile: "Technical owner who can lead with existing context and explicit authority.",
       searchLanes: [
-        "Implementation leads from complex products",
+        "Internal technical leads with peer trust",
+        "Staff engineers who owned technical decisions",
+        "Technical leads from founder-led startups",
+        "EMs with hands-on technical credibility"
+      ],
+      targetTitles: ["Staff Engineer", "Tech Lead", "Technical Lead Manager", "Engineering Manager", "Principal Engineer"],
+      mustHaveFilters,
+      avoidFilters,
+      searchLogic: [
+        `"staff engineer" "technical decisions" "startup"`,
+        `"tech lead" "founder-led" "engineering"`,
+        `"engineering manager" "hands-on" "startup"`
+      ],
+      outreachAngle: "A chance to own technical judgment with real authority, not just be the strongest engineer in the room.",
+      missingConstraints
+    };
+  }
+
+  if (thesis === "Support Load Root Cause") {
+    return {
+      targetProfile: "Customer-facing operator who reduces support load by fixing the loop behind it.",
+      searchLanes: [
+        "Support operators who reduced repeat demand",
+        "Implementation leads with product feedback loops",
         "Customer ops owners at early B2B startups",
-        "Solutions operators with delivery ownership",
-        "Post-sales operators who fixed broken workflows"
+        "Post-sales operators who fixed onboarding"
       ],
       targetTitles: ["Implementation Lead", "Customer Operations Lead", "Solutions Lead", "Post-Sales Operations", "Customer Success Operations"],
       mustHaveFilters,
@@ -690,7 +738,7 @@ function sourcingStrategyFor(signalMap: SignalMap, canonicalSearchState?: Canoni
         `"customer operations" "delivery" "workflow"`,
         `"solutions lead" "implementation" "B2B"`
       ],
-      outreachAngle: "A chance to fix the delivery machine, not just manage customer feelings.",
+      outreachAngle: "A chance to fix why customers need help, not just answer more tickets.",
       missingConstraints
     };
   }
@@ -984,34 +1032,34 @@ function artifactProfileFor(signalMap: SignalMap): ArtifactProfile | undefined {
     };
   }
 
-  if (thesis === "Customer Ops / Implementation Gap") {
+  if (thesis === "Support Load Root Cause") {
     return {
       scorecard: withRating([
         {
-          competency: "Delivery system",
-          signal: "Turns messy delivery into repeatable motion.",
-          strongEvidence: "Reduced escalations with a clearer system.",
-          redFlag: "Good with customers but weak on mechanics."
+          competency: "Root-cause judgment",
+          signal: "Separates queue volume from product friction.",
+          strongEvidence: "Reduced repeat demand with a real fix.",
+          redFlag: "Only adds coverage to the queue."
         },
         {
-          competency: "Problem diagnosis",
-          signal: "Separates product gaps from process gaps.",
-          strongEvidence: "Named the root cause before fixing it.",
-          redFlag: "Blames process for every product issue."
+          competency: "Feedback loop",
+          signal: "Turns support patterns into product learning.",
+          strongEvidence: "Changed onboarding or product behavior.",
+          redFlag: "Escalates patterns without closing the loop."
         },
         {
           competency: "Customer judgment",
-          signal: "Protects trust during messy implementation.",
+          signal: "Protects trust while reducing founder escalation.",
           strongEvidence: "Kept customers while changing the workflow.",
-          redFlag: "Escalates every edge case to the founder."
+          redFlag: "Manages tone but not the underlying issue."
         }
       ]),
       archetype: [
-        { label: "Likely background", value: "Customer-facing operator who fixed delivery chaos." },
-        { label: "Scar tissue", value: "Has lived through messy implementations and founder escalations." },
-        { label: "False positive", value: "Relationship manager who cannot fix the machine." },
-        { label: "Best source lane", value: "Implementation or customer ops leads from complex products." },
-        { label: "Risk to verify", value: "Can they diagnose product versus process?" }
+        { label: "Likely background", value: "Customer-facing operator who reduced repeat support demand." },
+        { label: "Scar tissue", value: "Has fixed product or onboarding loops behind support volume." },
+        { label: "False positive", value: "Friendly support rep who only clears tickets." },
+        { label: "Best source lane", value: "Support ops, implementation, or customer ops owners." },
+        { label: "Risk to verify", value: "Can they fix the loop, not just staff it?" }
       ]
     };
   }
@@ -1107,10 +1155,12 @@ function sourceLaneFor(signalMap: SignalMap) {
   if (thesis === "Engineering Leadership Bottleneck") return "Early-stage eng leaders after founder-led teams.";
   if (thesis === "Founder-Led Sales Transition") return "First-sales builders from founder-led motions.";
   if (thesis === "Senior Ownership Gap") return "Senior operators with ambiguous ownership wins.";
+  if (thesis === "Internal Technical Leadership Gap") return "Technical leads with delegated decision proof.";
   if (thesis === "Role Compression / Generalist Hire") return "Founder-adjacent operators who narrowed chaos.";
   if (thesis === "Urgent Hiring Triage") return "Crisis-capable leaders with fast stabilization proof.";
   if (thesis === "Product/Execution Ownership Gap") return "Product owners who shipped through founder ambiguity.";
-  if (thesis === "Customer Ops / Implementation Gap") return "Customer operators who fixed delivery systems.";
+  if (thesis === "Support Load Root Cause") return "Customer operators who reduced repeat support demand.";
+  if (thesis === "Recruiting System Before Recruiter") return "Recruiting partners who fixed hiring loops before adding volume.";
   return "People who solved the real tension before.";
 }
 

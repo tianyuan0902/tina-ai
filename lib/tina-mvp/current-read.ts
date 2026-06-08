@@ -8,11 +8,12 @@ export type CurrentReadArchetype =
   | "Founder-Led Sales Transition"
   | "Engineering Leadership Bottleneck"
   | "Senior Ownership Gap"
+  | "Internal Technical Leadership Gap"
   | "Role Compression / Generalist Hire"
   | "Urgent Hiring Triage"
   | "Product/Execution Ownership Gap"
-  | "Customer Ops / Implementation Gap"
-  | "Recruiting Process Gap"
+  | "Support Load Root Cause"
+  | "Recruiting System Before Recruiter"
   | "Marketing Positioning Gap"
   | "AI Prioritization Gap"
   | "Capital Allocation Diagnosis"
@@ -25,6 +26,7 @@ export type CurrentRead = {
   hypothesis: string;
   risk: string;
   confidence: "low" | "medium" | "high";
+  stability: "emerging" | "committed" | "revising";
   whatWouldChangeMyMind: string;
   nextBestMove: string;
   calibratedScope: string[];
@@ -46,6 +48,7 @@ const UNKNOWN_READ: CurrentRead = {
   hypothesis: "The hiring problem is still unclear.",
   risk: "A vague role can turn into a very expensive guess.",
   confidence: "low",
+  stability: "emerging",
   whatWouldChangeMyMind: "One concrete description of what is breaking today.",
   nextBestMove: "Name what changed that makes this hire feel necessary now.",
   calibratedScope: [],
@@ -70,9 +73,11 @@ export function buildCurrentRead(input: {
   const meaningfulSignals = countMeaningfulSignals(text, founderMessages.length);
   const roleFamily = input.canonicalSearchState?.roleFamily || "other";
   const statedRole = cleanStatedRole(input.canonicalSearchState?.roleTitle || "");
-  const likelyArchetype = inferArchetype(text, roleFamily);
+  const inferredArchetype = inferArchetype(text, latestText, roleFamily);
+  const likelyArchetype = stabilizeArchetype(inferredArchetype, latestText, input.previousRead);
   const openTensions = collectCurrentReadTensions(text, input.canonicalSearchState);
   const confidence = inferConfidence(meaningfulSignals, input.workingThesis?.confidence);
+  const stability = inferStability(likelyArchetype, input.previousRead, confidence, meaningfulSignals, latestText);
   const mode = inferCurrentReadMode(text, latestText, meaningfulSignals, input.canonicalSearchState);
   const baseRead = buildReadForArchetype(likelyArchetype, text, statedRole);
   const read = applyCalibrationProgression(baseRead, likelyArchetype, text, mode, confidence);
@@ -84,6 +89,7 @@ export function buildCurrentRead(input: {
     hypothesis: read.hypothesis,
     risk: read.risk,
     confidence,
+    stability,
     whatWouldChangeMyMind: read.whatWouldChangeMyMind,
     nextBestMove: read.nextBestMove,
     calibratedScope: collectCalibratedScope(text, input.canonicalSearchState, likelyArchetype),
@@ -103,6 +109,7 @@ export function formatCurrentReadForPrompt(read: CurrentRead) {
     `Hypothesis: ${read.hypothesis}`,
     `Risk: ${read.risk}`,
     `Confidence: ${read.confidence}`,
+    `Stability: ${read.stability}`,
     `What would change my mind: ${read.whatWouldChangeMyMind}`,
     `Next best move: ${read.nextBestMove}`,
     read.statedRole ? `Stated role: ${read.statedRole}` : "",
@@ -110,7 +117,8 @@ export function formatCurrentReadForPrompt(read: CurrentRead) {
     read.calibratedScope.length ? `Calibrated scope: ${read.calibratedScope.join(" | ")}` : "",
     read.evidence.length ? `Evidence: ${read.evidence.join(" | ")}` : "",
     read.openTensions.length ? `Open tensions: ${read.openTensions.join(" | ")}` : "",
-    "Thesis commitment rule: after 1-2 meaningful founder answers, state what you think is really going on. Use this shape when the conversation needs crystallizing: “Here’s what I think is really going on: … This is probably not: … It is more likely: … The next best move: …”. If you cannot form a thesis yet, say exactly which missing signal prevents it. Do not keep circling discovery once this read has medium or high confidence.",
+    "Thesis commitment rule: commit when evidence is sufficient, not when a fixed number of turns has passed. A committed read needs a likely root problem, at least two supporting signals, one named risk, what would change your mind, and a next move more specific than “clarify more”. Use this shape when the conversation needs crystallizing: “Here’s what I think is really going on: … This is probably not: … It is more likely: … The next best move: …”. If you cannot form a thesis yet, say exactly which missing signal prevents it.",
+    "Thesis persistence rule: urgency can change the plan, but it should not erase the diagnosis. Tina can update her read, but she should not collapse her read just because the founder repeats urgency.",
     "Progression rule: when mode is calibration with medium or high confidence, state the committed thesis, name the practical risk, and recommend one concrete next move. Ask at most one narrow question only if it directly changes that next move.",
     "Progression rule: when mode is execution or confidence is high, stop asking broad clarifying questions. Produce a compact role thesis, a lightweight scorecard, and an interview plan. Ask only for one missing constraint if it would materially change the plan."
   ].filter(Boolean).join("\n");
@@ -181,6 +189,33 @@ export function actionButtonsForCurrentRead(read?: Pick<CurrentRead, "mode" | "l
         { label: "Build signal map", prompt: "Build signal map for this product ownership gap." },
         { label: "Compare PM archetypes", prompt: "Compare product archetypes for this ownership gap." },
         { label: "Build scorecard", prompt: "Build a lightweight scorecard for this product ownership gap." }
+      ];
+    }
+
+    if (read.likelyArchetype === "Recruiting System Before Recruiter") {
+      return [
+        { label: "Map hiring loop", prompt: "Map the hiring loop that needs to exist before a full-time recruiter." },
+        { label: "Build signal map", prompt: "Build signal map for this recruiting system gap." },
+        { label: "Compare fractional vs full-time", prompt: "Compare fractional recruiting help versus a full-time recruiter." },
+        { label: "Build scorecard", prompt: "Build a lightweight scorecard for this recruiting system gap." }
+      ];
+    }
+
+    if (read.likelyArchetype === "Support Load Root Cause") {
+      return [
+        { label: "Separate coverage vs root cause", prompt: "Separate immediate support coverage from the root cause creating support load." },
+        { label: "Build signal map", prompt: "Build signal map for this support load root cause." },
+        { label: "Map feedback loop", prompt: "Map the product/support feedback loop behind this support load." },
+        { label: "Build scorecard", prompt: "Build a lightweight scorecard for this support load root cause." }
+      ];
+    }
+
+    if (read.likelyArchetype === "Internal Technical Leadership Gap") {
+      return [
+        { label: "Clarify internal owner", prompt: "Clarify whether the existing technical person can become the owner." },
+        { label: "Build signal map", prompt: "Build signal map for this internal technical leadership gap." },
+        { label: "Compare promote vs hire", prompt: "Compare promoting an internal technical lead versus hiring externally." },
+        { label: "Build scorecard", prompt: "Build a lightweight scorecard for this internal technical leadership gap." }
       ];
     }
 
@@ -273,6 +308,30 @@ function applyCalibrationProgression(
     };
   }
 
+  if (archetype === "Recruiting System Before Recruiter") {
+    return {
+      ...read,
+      risk: "A recruiter will not fix unclear roles, slow founder feedback, or an uncalibrated interview loop.",
+      nextBestMove: "Define the repeatable hiring loop before deciding fractional help versus a full-time recruiter."
+    };
+  }
+
+  if (archetype === "Support Load Root Cause") {
+    return {
+      ...read,
+      risk: "Adding reps may clear the queue while leaving the product, onboarding, or implementation problem untouched.",
+      nextBestMove: "Separate temporary support coverage from the root cause creating the support load."
+    };
+  }
+
+  if (archetype === "Internal Technical Leadership Gap") {
+    return {
+      ...read,
+      risk: "Hiring externally before testing the internal technical owner can create a heavier layer instead of clearer leadership.",
+      nextBestMove: "Clarify whether the existing technical lead can own decisions with explicit authority."
+    };
+  }
+
   return read;
 }
 
@@ -315,20 +374,48 @@ function isPlanningArtifactRequest(text: string) {
   return /\b(hiring thesis|must[-\s]?have signals?|signal map|scorecard|candidate archetype|interview plan|criteria|rubric|role shape|tradeoffs?)\b/i.test(text);
 }
 
-function inferArchetype(text: string, roleFamily: string): CurrentReadArchetype {
+function inferArchetype(text: string, latestText: string, roleFamily: string): CurrentReadArchetype {
   if (/\b(\$500k|500k|500,000|capital allocation|budget allocation|what should i do next|what should we do next)\b/i.test(text)) return "Capital Allocation Diagnosis";
-  if (/\b(recruiter|recruiting|sourcer|talent acquisition)\b/i.test(text)) return "Recruiting Process Gap";
+  if (/\b(recruiter|recruiting|sourcer|talent acquisition)\b/i.test(text)) return "Recruiting System Before Recruiter";
   if (/\b(vp marketing|head of marketing|marketing leader|growth is slow|positioning|icp|acquisition channel|demand gen)\b/i.test(text)) return "Marketing Positioning Gap";
   if (/\b(ai team|build an ai|ai roadmap|customers.*ai|existing roadmap|shiny object)\b/i.test(text)) return "AI Prioritization Gap";
   if (/\b(vp sales|head of sales|sales leader|ae\b|account executive|gtm|revenue)\b/i.test(text) || roleFamily === "gtm") return "Founder-Led Sales Transition";
   if (/\b(head of eng|head of engineering|engineering manager|eng leader|engineering leadership|cto|vp engineering)\b/i.test(text)) return "Engineering Leadership Bottleneck";
+  if (/\b(staff engineer|tech lead|technical lead|existing technical|promote|promotion|level up|clarify.*technical|internal.*technical)\b/i.test(text) && /\b(existing|already|internal|promote|team|lead)\b/i.test(text)) return "Internal Technical Leadership Gap";
   if (/\b(more senior|senior person|adult in the room|experienced|too junior|not senior enough|run themselves|autonomy|independent)\b/i.test(text)) return "Senior Ownership Gap";
   if (/\b(generalist|chief of staff|founder.?s office|operator|wear many hats|do everything|all of it)\b/i.test(text)) return "Role Compression / Generalist Hire";
-  if (/\b(urgent|asap|fast|yesterday|panic|lost|left|need now|quickly)\b/i.test(text)) return "Urgent Hiring Triage";
-  if (/\b(pm|product manager|head of product|product lead|priorities|prioritization|alignment|product execution|ship)\b/i.test(text) || roleFamily === "product") return "Product/Execution Ownership Gap";
-  if (/\b(customer ops|implementation|support|success|onboarding|customer success|deployment)\b/i.test(text)) return "Customer Ops / Implementation Gap";
+  if (/\b(customer ops|implementation|support|support reps?|success|onboarding|customer success|deployment|tickets?|queue|handoffs?)\b/i.test(text)) return "Support Load Root Cause";
+  if (/\b(vp product|chief product|cpo|pm|product manager|head of product|product lead|priorities|prioritization|alignment|product execution|ship)\b/i.test(text) || roleFamily === "product") return "Product/Execution Ownership Gap";
+  if (/\b(urgent|asap|fast|yesterday|panic|lost|left|need now|quickly)\b/i.test(text) || /\b(urgent|asap|fast|panic|need now|quickly)\b/i.test(latestText)) return "Urgent Hiring Triage";
   if (roleFamily === "engineering") return "Engineering Leadership Bottleneck";
   return "Unknown / Needs Clarification";
+}
+
+function stabilizeArchetype(inferred: CurrentReadArchetype, latestText: string, previousRead?: CurrentRead): CurrentReadArchetype {
+  if (!previousRead || previousRead.thesisTitle === "Unknown / Needs Clarification") return inferred;
+  if (previousRead.stability !== "committed") return inferred;
+  if (isExplicitCorrection(latestText)) return inferred;
+  if (inferred === "Urgent Hiring Triage" && previousRead.thesisTitle !== "Urgent Hiring Triage") return previousRead.thesisTitle;
+  if (/^(yes|sure|ok|okay|sounds good|sounds great|great|makes sense|asap|urgent|need now)$/i.test(latestText.trim())) return previousRead.thesisTitle;
+  return inferred;
+}
+
+function isExplicitCorrection(text: string) {
+  return /\b(actually|no,|not that|i mean|switch|changed|different role|new role)\b/i.test(text);
+}
+
+function inferStability(
+  archetype: CurrentReadArchetype,
+  previousRead: CurrentRead | undefined,
+  confidence: CurrentRead["confidence"],
+  meaningfulSignals: number,
+  latestText: string
+): CurrentRead["stability"] {
+  if (previousRead?.thesisTitle && previousRead.thesisTitle !== archetype && previousRead.thesisTitle !== "Unknown / Needs Clarification") return "revising";
+  if (archetype === "Unknown / Needs Clarification") return "emerging";
+  if (confidence === "high" && meaningfulSignals >= 3) return "committed";
+  if (confidence === "medium" && meaningfulSignals >= 2 && !/\b(maybe|not sure|don't know|unsure)\b/i.test(latestText)) return "committed";
+  return "emerging";
 }
 
 function buildReadForArchetype(archetype: CurrentReadArchetype, text: string, statedRole: string) {
@@ -381,19 +468,27 @@ function buildReadForArchetype(archetype: CurrentReadArchetype, text: string, st
         whatWouldChangeMyMind: "Evidence that product judgment is strong and the issue is mostly project throughput.",
         nextBestMove: "Clarify whether this person must own product taste, execution discipline, customer signal, or founder leverage."
       };
-    case "Customer Ops / Implementation Gap":
+    case "Internal Technical Leadership Gap":
       return {
-        observation: "Customer implementation gaps are usually where product promises meet operational reality.",
-        hypothesis: "This is likely a customer ops or implementation ownership gap, not a generic operations hire.",
-        risk: "Hiring too generic an operator can hide the real need: someone who can translate messy customer work into repeatable delivery.",
-        whatWouldChangeMyMind: "Evidence that customers are healthy and the issue is internal process only.",
-        nextBestMove: "Name whether the pain is onboarding, deployment, support load, or product feedback loops."
+        observation: "A Staff Engineer request can be a signal that the company already has technical talent but not a clear technical owner.",
+        hypothesis: "This is likely an internal technical leadership gap: clarify or level up the existing technical owner before assuming an external hire is the answer.",
+        risk: "An external senior hire may add authority confusion if the internal technical lead is already carrying the real context.",
+        whatWouldChangeMyMind: "Evidence that nobody internal can own technical judgment even with explicit decision rights.",
+        nextBestMove: "Compare promote/clarify versus external hire before shaping the search."
       };
-    case "Recruiting Process Gap":
+    case "Support Load Root Cause":
       return {
-        observation: "A first recruiter only helps if the company already knows what it is hiring for and how decisions get made.",
-        hypothesis: "This is likely a hiring strategy and process gap, not a full-time recruiter bottleneck yet.",
-        risk: "Hiring a recruiter before the plan and interview loop are calibrated can outsource chaos instead of reducing founder load.",
+        observation: "Support load often looks like a staffing problem when it is really a product, onboarding, or feedback-loop problem.",
+        hypothesis: "This is likely a support load root cause: add coverage if needed, but diagnose why customers keep needing help.",
+        risk: "More support reps can hide the broken loop and teach the company to staff around product friction.",
+        whatWouldChangeMyMind: "Evidence that the product and onboarding are healthy and the only issue is raw ticket volume.",
+        nextBestMove: "Separate immediate queue coverage from the product/support loop creating repeat demand."
+      };
+    case "Recruiting System Before Recruiter":
+      return {
+        observation: "A first recruiter only helps if the company already has a hiring system for them to run.",
+        hypothesis: "This is likely recruiting system before recruiter: probably not a full-time recruiter yet unless volume and calibration are already real.",
+        risk: "A recruiter hired too early becomes a scheduling layer around unclear roles and slow founder decisions.",
         whatWouldChangeMyMind: "Evidence of sustained hiring volume, calibrated roles, and a founder who is mostly blocked by sourcing throughput.",
         nextBestMove: "Build the hiring plan and calibrated interview process first, then decide between fractional recruiting help and a full-time hire."
       };
@@ -487,7 +582,9 @@ function wrongAssumptionFor(read: CurrentRead) {
   if (read.likelyArchetype === "Founder-Led Sales Transition") return "that a classic sales executive is the answer before the motion is repeatable";
   if (read.likelyArchetype === "Engineering Leadership Bottleneck") return "that adding another senior engineer will fix leadership latency";
   if (read.likelyArchetype === "Product/Execution Ownership Gap") return "that a PM title alone solves founder decision load";
-  if (read.likelyArchetype === "Recruiting Process Gap") return "that recruiter capacity is the bottleneck before the hiring plan is calibrated";
+  if (read.likelyArchetype === "Recruiting System Before Recruiter") return "that recruiter capacity is the bottleneck before the hiring plan is calibrated";
+  if (read.likelyArchetype === "Support Load Root Cause") return "that adding support reps automatically fixes the customer problem";
+  if (read.likelyArchetype === "Internal Technical Leadership Gap") return "that an external senior engineer is the only way to create technical leadership";
   if (read.likelyArchetype === "Marketing Positioning Gap") return "that a VP Marketing can scale ICP and channels that are not proven yet";
   if (read.likelyArchetype === "AI Prioritization Gap") return "that an AI team is the right first move before customer pull and roadmap tradeoffs are clear";
   if (read.likelyArchetype === "Capital Allocation Diagnosis") return "that the $500K should be allocated before the company bottleneck is diagnosed";

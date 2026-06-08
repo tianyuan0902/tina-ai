@@ -1454,7 +1454,7 @@ function titleFromCurrentReadValue(read?: CurrentRead) {
 function controlledThesisTitleFromText(value: string): CurrentReadArchetype {
   const text = value.toLowerCase();
   if (/\b(\$500k|500k|500,000|capital allocation|budget allocation|what should i do next|what should we do next)\b/i.test(text)) return "Capital Allocation Diagnosis";
-  if (/\b(recruiter|recruiting|sourcer|talent acquisition)\b/i.test(text)) return "Recruiting Process Gap";
+  if (/\b(recruiter|recruiting|sourcer|talent acquisition)\b/i.test(text)) return "Recruiting System Before Recruiter";
   if (/\b(vp marketing|head of marketing|marketing leader|growth is slow|positioning|icp|acquisition channel|demand gen)\b/i.test(text)) return "Marketing Positioning Gap";
   if (/\b(ai team|build an ai|ai roadmap|customers.*ai|existing roadmap|shiny object)\b/i.test(text)) return "AI Prioritization Gap";
   if (/\b(vp sales|head of sales|sales leader|ae\b|account executive|gtm|revenue)\b/i.test(text)) return "Founder-Led Sales Transition";
@@ -1463,7 +1463,7 @@ function controlledThesisTitleFromText(value: string): CurrentReadArchetype {
   if (/\b(generalist|chief of staff|founder.?s office|operator|wear many hats|do everything|all of it)\b/i.test(text)) return "Role Compression / Generalist Hire";
   if (/\b(urgent|asap|fast|yesterday|panic|lost|left|need now|quickly)\b/i.test(text)) return "Urgent Hiring Triage";
   if (/\b(pm|product manager|head of product|product lead|priorities|prioritization|alignment|product execution|ship)\b/i.test(text)) return "Product/Execution Ownership Gap";
-  if (/\b(customer ops|implementation|support|success|onboarding|customer success|deployment)\b/i.test(text)) return "Customer Ops / Implementation Gap";
+  if (/\b(customer ops|implementation|support|success|onboarding|customer success|deployment)\b/i.test(text)) return "Support Load Root Cause";
   return "Unknown / Needs Clarification";
 }
 
@@ -1994,6 +1994,7 @@ function CurrentReadRail({ currentRead, onAction }: { currentRead?: CurrentRead;
     hypothesis: "The hiring problem is still unnamed.",
     risk: "A vague role can turn into a very expensive guess.",
     confidence: "low",
+    stability: "emerging",
     whatWouldChangeMyMind: "One concrete description of what is breaking today.",
     nextBestMove: "Ask what changed that makes this hire feel necessary now.",
     calibratedScope: [],
@@ -2131,6 +2132,8 @@ function oneSentence(value: string, maxLength = 118) {
 }
 
 function decisionStatusForRead(read: CurrentRead) {
+  if (read.stability === "committed") return "committed";
+  if (read.stability === "revising") return "revising";
   if (read.mode === "discovery") return "forming";
   if (read.mode === "thesis") return "thesis";
   if (read.mode === "calibration") return "calibrating";

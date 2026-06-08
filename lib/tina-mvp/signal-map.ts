@@ -92,6 +92,31 @@ export function buildSignalMap(currentRead?: CurrentRead, canonicalSearchState?:
         ],
         bestCandidateArchetype: "Senior operator or functional lead who has repeatedly turned messy founder context into owned decisions and forward motion."
       };
+    case "Internal Technical Leadership Gap":
+      return {
+        derivedFromThesisTitle: thesisTitle,
+        mustProveSignals: [
+          "Can own technical direction with explicit authority.",
+          "Has enough peer trust to lead without title theater.",
+          "Can turn founder context into technical decisions."
+        ],
+        weakSignals: [
+          "Strong IC output without leadership pull.",
+          "Seniority that depends on founder approval.",
+          "Architecture depth without team leverage."
+        ],
+        falsePositives: [
+          "External senior hire who creates authority confusion.",
+          "Internal lead who needs the founder to make every hard call.",
+          "Technical expert who cannot create operating clarity."
+        ],
+        interviewProbes: [
+          "Which decisions could this person own without founder approval?",
+          "Where have they already created technical clarity for others?",
+          "What authority would make or break their success?"
+        ],
+        bestCandidateArchetype: "Internal or external technical leader who can convert existing context into delegated technical ownership."
+      };
     case "Role Compression / Generalist Hire":
       return {
         derivedFromThesisTitle: thesisTitle,
@@ -167,30 +192,55 @@ export function buildSignalMap(currentRead?: CurrentRead, canonicalSearchState?:
         ],
         bestCandidateArchetype: "Product leader who can take messy founder context, make product calls, and keep engineering moving without adding process theater."
       };
-    case "Customer Ops / Implementation Gap":
+    case "Support Load Root Cause":
       return {
         derivedFromThesisTitle: thesisTitle,
         mustProveSignals: [
-          "Has converted messy customer delivery into repeatable operating patterns.",
-          "Can distinguish product gaps from implementation gaps.",
-          "Has protected customer trust while reducing founder escalation."
+          "Can separate queue volume from product friction.",
+          "Has reduced repeat support demand, not just answered tickets.",
+          "Can turn customer pain into product or onboarding fixes."
         ],
         weakSignals: [
-          "Customer success title with little ownership of delivery mechanics.",
-          "Strong relationship management but no systems-building proof.",
-          "Ops experience disconnected from customer-facing urgency."
+          "High ticket volume experience without root-cause work.",
+          "Friendly support style with no systems-building proof.",
+          "Coverage mindset disconnected from product feedback."
         ],
         falsePositives: [
-          "Account manager who is good with customers but cannot fix the machine.",
-          "Pure ops profile who lacks customer judgment.",
-          "Implementation lead who escalates every edge case back to the founder."
+          "Support rep who clears queues but never fixes the loop.",
+          "Customer success profile who escalates every product gap.",
+          "Ops person who treats symptoms as staffing issues."
         ],
         interviewProbes: [
-          "Tell me about a customer delivery mess you turned into a repeatable system.",
-          "How did you decide whether the problem was product, process, or customer fit?",
-          "Where did you reduce founder escalation in a customer-facing workflow?"
+          "Tell me about a support pattern you made disappear.",
+          "How did you decide whether the issue was product, process, or customer fit?",
+          "Where did customer support insight change the product or onboarding?"
         ],
-        bestCandidateArchetype: "Customer-facing operator who can turn messy implementation work into a calmer, repeatable delivery motion."
+        bestCandidateArchetype: "Customer-facing operator who can reduce support demand by fixing the product, onboarding, or implementation loop."
+      };
+    case "Recruiting System Before Recruiter":
+      return {
+        derivedFromThesisTitle: thesisTitle,
+        mustProveSignals: [
+          "Can make founder-led hiring repeatable.",
+          "Has tightened roles before scaling sourcing.",
+          "Can improve decision speed and interview calibration."
+        ],
+        weakSignals: [
+          "Sourced candidates without fixing decision quality.",
+          "Managed recruiting logistics in a mature process.",
+          "Strong network but no calibration ownership."
+        ],
+        falsePositives: [
+          "Recruiter who becomes a scheduling layer.",
+          "Sourcer who sends volume into an unclear loop.",
+          "Talent generalist who cannot push founder decisions."
+        ],
+        interviewProbes: [
+          "How did you fix a messy hiring loop before adding volume?",
+          "Where did you push back on a poorly shaped role?",
+          "How did you speed up founder decision-making?"
+        ],
+        bestCandidateArchetype: "Fractional or early recruiting partner who can build the hiring system before scaling candidate volume."
       };
     default:
       return {

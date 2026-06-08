@@ -357,6 +357,65 @@ expectAtLeast(committedThesisCount, 4, "current read should state a thesis by tu
 expectAtLeast(concreteMoveCount, 4, "current read should give a concrete next best move in at least 4/5 scenarios");
 console.log("PASS current read thesis commitment scenarios");
 
+const longFounderReadCases = [
+  {
+    name: "VP Product does not stay unknown",
+    messages: [
+      { id: "vp-product-1", role: "founder", content: "I think we need a VP Product." },
+      { id: "vp-product-2", role: "founder", content: "Priorities are messy and engineering keeps waiting on product decisions." },
+      { id: "vp-product-3", role: "founder", content: "Mostly I am still the final call on what matters." }
+    ],
+    expected: "Product/Execution Ownership Gap",
+    nextMove: /product decisions|founder approval/i
+  },
+  {
+    name: "First recruiter commits to system before recruiter",
+    messages: [
+      { id: "recruiter-1", role: "founder", content: "I think we need our first recruiter." },
+      { id: "recruiter-2", role: "founder", content: "We only have a few roles open, but interviews are slow and I keep changing what good looks like." },
+      { id: "recruiter-3", role: "founder", content: "Candidate flow is not the only issue. The team is not calibrated." }
+    ],
+    expected: "Recruiting System Before Recruiter",
+    nextMove: /hiring plan|interview process|fractional recruiting/i
+  },
+  {
+    name: "Support reps hold root cause under urgency",
+    messages: [
+      { id: "support-1", role: "founder", content: "We need more support reps." },
+      { id: "support-2", role: "founder", content: "Customers keep asking the same questions after onboarding and the queue is growing." },
+      { id: "support-3", role: "founder", content: "It is urgent. I need this fixed fast." }
+    ],
+    expected: "Support Load Root Cause",
+    nextMove: /support coverage|root cause|repeat demand|product\/support loop/i
+  },
+  {
+    name: "Staff engineer can become internal technical leadership",
+    messages: [
+      { id: "staff-1", role: "founder", content: "I think we need a Staff Engineer." },
+      { id: "staff-2", role: "founder", content: "We have one existing technical lead everyone trusts, but decisions still come back to me." },
+      { id: "staff-3", role: "founder", content: "Maybe we need to clarify whether they can own the technical direction." }
+    ],
+    expected: "Internal Technical Leadership Gap",
+    nextMove: /internal technical|explicit authority|promote|external hire/i
+  }
+];
+
+for (const testCase of longFounderReadCases) {
+  const read = buildCurrentRead({ messages: testCase.messages });
+  expectEqual(read.thesisTitle, testCase.expected, `${testCase.name} should use the committed controlled thesis`);
+  expectEqual(read.likelyArchetype, testCase.expected, `${testCase.name} likely archetype should match thesis`);
+  expectIncludes([read.nextBestMove], testCase.nextMove, `${testCase.name} next move should match the diagnosis`);
+  expectIncludes([read.stability], /committed|revising/i, `${testCase.name} should be committed or revising after enough evidence`);
+}
+
+const committedSupportRead = buildCurrentRead({ messages: longFounderReadCases[2].messages.slice(0, 2) });
+const urgentSupportRead = buildCurrentRead({
+  messages: longFounderReadCases[2].messages,
+  previousRead: { ...committedSupportRead, stability: "committed" }
+});
+expectEqual(urgentSupportRead.thesisTitle, "Support Load Root Cause", "urgency should not collapse support root cause into urgent hiring triage");
+console.log("PASS long founder diagnosis commitment");
+
 const engineeringSignalMap = buildSignalMap(buildCurrentRead({ messages: currentReadScenarios[1].messages }));
 expectEqual(engineeringSignalMap.derivedFromThesisTitle, "Engineering Leadership Bottleneck", "signal map should derive from thesis title");
 expectIncludes(engineeringSignalMap.mustProveSignals, /decision ownership|execution rhythm|morale/i, "engineering leadership signal map should focus on bottleneck evidence");
@@ -370,7 +429,7 @@ expectIncludes(productSignalMap.mustProveSignals, /founder direction|judgment ca
 expectNotIncludes(productSignalMap.mustProveSignals, /generic Head of Engineering|large team/i, "PM progression signal map should not use unrelated generic criteria");
 console.log("PASS signal map thesis-specific criteria");
 
-const customerOpsSignalMap = buildSignalMap({ thesisTitle: "Customer Ops / Implementation Gap" });
+const customerOpsSignalMap = buildSignalMap({ thesisTitle: "Support Load Root Cause" });
 expectNotIncludes(
   [
     ...customerOpsSignalMap.mustProveSignals,
@@ -380,9 +439,9 @@ expectNotIncludes(
     customerOpsSignalMap.bestCandidateArchetype
   ],
   /morale|engineering rhythm|product and engineering/i,
-  "customer ops signal map should not leak engineering leadership signals"
+  "support load signal map should not leak engineering leadership signals"
 );
-expectNotIncludes(customerOpsSignalMap.interviewProbes, /\.\.\.|^(How|What|Tell)\s*$/i, "customer ops probes should be complete questions");
+expectNotIncludes(customerOpsSignalMap.interviewProbes, /\.\.\.|^(How|What|Tell)\s*$/i, "support load probes should be complete questions");
 expectNotIncludes([customerOpsSignalMap.bestCandidateArchetype], /\.\.\./i, "signal map best profile should not be truncated");
 console.log("PASS signal map cleanup checks");
 
