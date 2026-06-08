@@ -1463,7 +1463,7 @@ function controlledThesisTitleFromText(value: string): CurrentReadArchetype {
   if (/\b(more senior|senior person|adult in the room|experienced|too junior|not senior enough|run themselves|autonomy|independent)\b/i.test(text)) return "Senior Ownership Gap";
   if (/\b(generalist|chief of staff|founder.?s office|operator|wear many hats|do everything|all of it)\b/i.test(text)) return "Role Compression / Generalist Hire";
   if (/\b(urgent|asap|fast|yesterday|panic|lost|left|need now|quickly)\b/i.test(text)) return "Urgent Hiring Triage";
-  if (/\b(pm|product manager|head of product|product lead|priorities|prioritization|alignment|product execution|ship)\b/i.test(text)) return "Product/Execution Ownership Gap";
+  if (/\b(vp product|vp of product|chief product|cpo\b|pm|product manager|head of product|product lead|priorities|prioritization|alignment|product execution|ship)\b/i.test(text)) return "Product/Execution Ownership Gap";
   if (/\b(customer ops|implementation|support|success|onboarding|customer success|deployment)\b/i.test(text)) return "Support Load Root Cause";
   return "Unknown / Needs Clarification";
 }

@@ -361,13 +361,18 @@ function inferCurrentReadMode(
   state?: CanonicalSearchState
 ): CurrentReadMode {
   if (isPlanningArtifactRequest(latestText)) return "execution";
-  if (/\b(source|pull|find|show|get|build).*\b(profiles?|candidates?|people|leads?|list)\b/i.test(latestText)) return "sourcing";
+  if (!isOperatingPullPhrase(latestText) && /\b(source|pull|find|show|get|build).*\b(profiles?|candidates?|people|leads?|list)\b/i.test(latestText)) return "sourcing";
   if (state?.candidateProfiles?.length) return "sourcing";
   if (/\b(scorecard|search lane|search plan|pull|source|candidates?|profiles?|ready|execute|go ahead)\b/i.test(text)) return "execution";
   if (meaningfulSignals >= 5) return "execution";
   if (meaningfulSignals >= 3) return "calibration";
   if (meaningfulSignals >= 2) return "thesis";
   return "discovery";
+}
+
+function isOperatingPullPhrase(text: string) {
+  return /\bpull(?:ing)?\s+(people|engineers?|team|folks|resources?)\s+off\b/i.test(text) ||
+    /\btake\s+(people|engineers?|team|folks|resources?)\s+off\b/i.test(text);
 }
 
 function isPlanningArtifactRequest(text: string) {

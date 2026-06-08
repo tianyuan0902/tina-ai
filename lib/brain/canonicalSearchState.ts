@@ -125,7 +125,7 @@ function classifyRoleFamily(value: string): CanonicalRoleFamily {
   if (/\b(plant manager|plant|factory|manufacturing|production manager|quality operations|fda|iso|medical device|pharma|regulated manufacturing)\b/.test(text)) return "manufacturing operations";
   if (isEngineeringLeadershipText(text)) return "engineering";
   if (/\b(engineer|eng\b|software|developer|backend|frontend|full[-\s]?stack|infrastructure|platform|devops|sre|ml engineer|ai engineer|product eng|founding engineer)\b/.test(text)) return "engineering";
-  if (/\b(product manager|founding pm|pm\b|head of product|product lead|product operator)\b/.test(text)) return "product";
+  if (/\b(vp product|vp of product|chief product|cpo\b|product manager|founding pm|pm\b|head of product|product lead|product operator)\b/.test(text)) return "product";
   if (/\b(designer|design|ux|ui)\b/.test(text)) return "design";
   if (/\b(account executive|ae\b|sales|gtm|growth|revenue|business development|bd\b)\b/.test(text)) return "gtm";
   if (/\b(chief of staff|founder office|operator|operations|bizops|business operations)\b/.test(text)) return "operations";
@@ -201,6 +201,9 @@ function inferExplicitRoleTitle(value: string) {
   if (/\bmanufacturing manager\b/.test(lower)) return "Manufacturing Manager";
   if (/\bai product engineer\b/.test(lower)) return "AI Product Engineer";
   if (/\bproduct\s+eng(?:ineer)?s?\b/.test(lower)) return "Product Engineer";
+  if (/\b(vp product|vp of product)\b/.test(lower)) return "VP Product";
+  if (/\b(chief product officer|cpo)\b/.test(lower)) return "Chief Product Officer";
+  if (/\bhead of product\b/.test(lower)) return "Head of Product";
   if (/\bfounding pm\b/.test(lower)) return "Founding PM";
   if (/\bproduct manager\b/.test(lower)) return "Product Manager";
   return "";
