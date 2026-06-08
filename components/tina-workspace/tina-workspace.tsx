@@ -673,7 +673,8 @@ function HomeCommandCenter({
             canonicalSearchState,
             workingThesis,
             currentRead,
-            signalMap
+            signalMap,
+            referenceProfileInsight: [...messages].reverse().find((message) => message.referenceProfileInsight)?.referenceProfileInsight
           })
         });
       const data = (await response.json()) as TinaChatApiResponse | { error?: string };

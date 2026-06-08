@@ -5,6 +5,7 @@ import { buildExpandedPublicTalentSearchQueries, buildPublicTalentSearchQueries 
 import { actionButtonsForCurrentRead, buildCurrentRead, buildCurrentReadResponseSketch, currentReadTitle } from "../.tmp/eval-brain-state/lib/tina-mvp/current-read.js";
 import { buildFounderModel, buildFounderModelResponseSketch } from "../.tmp/eval-brain-state/lib/tina-mvp/founder-model.js";
 import { buildHiringArtifact } from "../.tmp/eval-brain-state/lib/tina-mvp/hiring-artifacts.js";
+import { buildReferenceProfileInsightFromText, buildReferenceProfileResponse, formatReferenceProfileInsightForPrompt, isReferenceProfileRequest } from "../.tmp/eval-brain-state/lib/tina-mvp/reference-profiles.js";
 import { buildSignalMap } from "../.tmp/eval-brain-state/lib/tina-mvp/signal-map.js";
 import { buildWorkingThesis, buildWorkingThesisResponseSketch, formatWorkingThesisForPrompt } from "../.tmp/eval-brain-state/lib/tina-mvp/working-thesis.js";
 import { TINA_SYSTEM_PROMPT } from "../.tmp/eval-brain-state/lib/tina-mvp/system-prompt.js";
@@ -119,6 +120,31 @@ if (!/Every response should contain at least one observation the founder is unli
 if (!/Once you have extracted a meaningful signal, do not keep rephrasing that same signal/i.test(TINA_SYSTEM_PROMPT)) {
   throw new Error("system prompt should require thesis progression after meaningful signals.");
 }
+if (!/Treat the current team as signal/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should treat current team and trusted people as signal.");
+}
+if (!/people DNA/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should teach Tina to decode people DNA.");
+}
+if (!/LinkedIn\/profile links/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should handle shared LinkedIn/profile references.");
+}
+
+const referenceProfileMessage = [
+  "Look for people like this LinkedIn profile: https://www.linkedin.com/in/example-product-operator",
+  "Headline: Founding Product Lead at early fintech.",
+  "Experience: built onboarding from zero to launch, worked directly with customers, owned product tradeoffs with engineering, shipped fast in a messy startup."
+].join("\n");
+if (!isReferenceProfileRequest(referenceProfileMessage)) {
+  throw new Error("reference profile request should be detected.");
+}
+const referenceInsight = buildReferenceProfileInsightFromText(referenceProfileMessage);
+expectIncludes(referenceInsight.peopleDnaSignals, /early-stage ownership|shipping proof|customer proximity|product judgment/i, "reference profiles should infer people DNA signals");
+expectIncludes(referenceInsight.mustTranslateIntoCriteria, /owned ambiguous work|shipped work|customer/i, "reference profiles should translate admiration into criteria");
+expectIncludes(referenceInsight.falsePositiveRisks, /product language|pedigree|proof/i, "reference profiles should name false-positive risks");
+expectIncludes([formatReferenceProfileInsightForPrompt(referenceInsight)], /Reference profile \/ people DNA input/i, "reference profile prompt context should be formatted");
+expectIncludes([buildReferenceProfileResponse(referenceInsight)], /people DNA|search criteria|false/i, "reference profile response should be diagnostic, not generic sourcing");
+console.log("PASS reference profile people DNA");
 if (!/role thesis, a lightweight scorecard, and an interview plan/i.test(TINA_SYSTEM_PROMPT)) {
   throw new Error("system prompt should move high-signal conversations into role thesis, scorecard, and interview plan.");
 }

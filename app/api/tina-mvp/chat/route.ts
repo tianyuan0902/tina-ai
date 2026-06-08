@@ -8,6 +8,13 @@ import { evaluateSourcingReadiness } from "@/lib/tina/sourcing-readiness";
 import { buildCurrentRead, formatCurrentReadForPrompt, type CurrentRead } from "@/lib/tina-mvp/current-read";
 import { buildFounderModel, formatFounderModelForPrompt } from "@/lib/tina-mvp/founder-model";
 import { buildHiringArtifact, formatHiringArtifactForPrompt, inferHiringArtifactKind } from "@/lib/tina-mvp/hiring-artifacts";
+import {
+  buildReferenceProfileInsight,
+  buildReferenceProfileResponse,
+  formatReferenceProfileInsightForPrompt,
+  isReferenceProfileRequest,
+  type ReferenceProfileInsight
+} from "@/lib/tina-mvp/reference-profiles";
 import { buildSignalMap, buildSignalMapResponse, formatSignalMapForPrompt, type SignalMap } from "@/lib/tina-mvp/signal-map";
 import { TINA_SYSTEM_PROMPT } from "@/lib/tina-mvp/system-prompt";
 import { buildWorkingThesis, buildWorkingThesisWithAssistant, formatWorkingThesisForPrompt, type WorkingThesis } from "@/lib/tina-mvp/working-thesis";
@@ -25,13 +32,14 @@ type OpenAIInputMessage = {
 };
 
 export async function POST(request: Request) {
-  const { messages, sourcingRefinementSummary, canonicalSearchState: requestCanonicalSearchState, workingThesis: requestWorkingThesis, currentRead: requestCurrentRead, signalMap: requestSignalMap } = (await request.json()) as {
+  const { messages, sourcingRefinementSummary, canonicalSearchState: requestCanonicalSearchState, workingThesis: requestWorkingThesis, currentRead: requestCurrentRead, signalMap: requestSignalMap, referenceProfileInsight: requestReferenceProfileInsight } = (await request.json()) as {
     messages?: TinaMvpMessage[];
     sourcingRefinementSummary?: string;
     canonicalSearchState?: CanonicalSearchState;
     workingThesis?: WorkingThesis;
     currentRead?: CurrentRead;
     signalMap?: SignalMap;
+    referenceProfileInsight?: ReferenceProfileInsight;
   };
   const cleanMessages = normalizeMessages(messages);
   const latestUserMessage = [...cleanMessages].reverse().find((message) => message.role === "founder");
@@ -60,6 +68,8 @@ export async function POST(request: Request) {
     ? requestSignalMap
     : undefined;
   const signalMapText = formatSignalMapForPrompt(signalMap);
+  const referenceProfileInsight = buildReferenceProfileInsight(cleanMessages) || requestReferenceProfileInsight;
+  const referenceProfileText = formatReferenceProfileInsightForPrompt(referenceProfileInsight);
   const requestedHiringArtifactKind = latestUserMessage ? inferHiringArtifactKind(latestUserMessage.content) : undefined;
 
   if (!cleanMessages.length || !latestUserMessage) {
@@ -84,7 +94,26 @@ export async function POST(request: Request) {
       workingThesis,
       currentRead,
       signalMap,
+      referenceProfileInsight,
       source: "local_scope_guard"
+    });
+  }
+
+  if (!shouldRunProfileSearch && isReferenceProfileRequest(latestUserMessage.content) && referenceProfileInsight) {
+    const responseContent = buildReferenceProfileResponse(referenceProfileInsight);
+    return NextResponse.json({
+      message: {
+        id: `tina-reference-profile-${Date.now()}`,
+        role: "tina",
+        content: responseContent,
+        referenceProfileInsight
+      },
+      canonicalSearchState,
+      workingThesis: buildWorkingThesisWithAssistant(cleanMessages, responseContent, canonicalSearchState),
+      currentRead,
+      signalMap,
+      referenceProfileInsight,
+      source: "local_conversation_move"
     });
   }
 
@@ -99,6 +128,7 @@ export async function POST(request: Request) {
       workingThesis,
       currentRead,
       signalMap,
+      referenceProfileInsight,
       source: "local_profile_feedback"
     });
   }
@@ -115,6 +145,7 @@ export async function POST(request: Request) {
       workingThesis: buildWorkingThesisWithAssistant(cleanMessages, responseContent, canonicalSearchState),
       currentRead,
       signalMap,
+      referenceProfileInsight,
       source: "local_conversation_move"
     });
   }
@@ -142,6 +173,7 @@ export async function POST(request: Request) {
       currentRead,
       signalMap: nextSignalMap,
       hiringArtifact,
+      referenceProfileInsight,
       source: "local_conversation_move"
     });
   }
@@ -325,6 +357,7 @@ export async function POST(request: Request) {
       workingThesisText,
       currentReadText,
       signalMapText,
+      referenceProfileText,
       cleanMessages.map((message) => message.content).join("\n"),
       readiness.searchThesis ? `Search thesis:\n${readiness.searchThesis}` : "",
       refinementSummary ? `Talent Pool feedback summary for sourcing refinement:\n${refinementSummary}` : "",
@@ -358,6 +391,7 @@ export async function POST(request: Request) {
       workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildProfileSearchResponse(shouldRunPromisedSourcing ? "this hiring lane" : latestUserMessage.content, metadata, isRefinementSearch), responseCanonicalSearchState),
       currentRead: buildCurrentRead({ messages: cleanMessages, canonicalSearchState: responseCanonicalSearchState, workingThesis, previousRead: currentRead }),
       signalMap,
+      referenceProfileInsight,
       profileLeads,
       source: "public_search"
     });
@@ -371,12 +405,14 @@ export async function POST(request: Request) {
   const instructions = [
     TINA_SYSTEM_PROMPT,
     "If the founder gives company or product context, treat it as hiring calibration input. Infer what kinds of candidates may fit the company, product surface, customer environment, and operating stage. Do not ask why the company context matters.",
+    "If the founder shares LinkedIn URLs, GitHub URLs, profile text, or people they admire, treat it as reference-profile signal. Do not promise you can read private LinkedIn pages. Use public links as breadcrumbs and pasted profile text as evidence. Diagnose the people DNA: what this person proves, what culture/operating signal the founder may be drawn to, what false positives would look similar, and how to translate subjective admiration into searchable criteria.",
     "For normal chat, keep the answer compact, complete, and human. Sound like you are thinking with the founder in real time. Use contractions. Avoid stiff phrases like 'there are three key dimensions' or 'the optimal approach'. Tina is a Hiring Decision Engine: first diagnose the business problem, organizational context, and whether hiring is actually the right intervention. Your goal is to help the founder think; the task is secondary. Every response needs at least one observation the founder is unlikely to have articulated themselves. Do not merely summarize. On every follow-up, interpret the founder's latest answer before moving the workflow forward: what did it reveal, what ambiguity remains, what tradeoff was exposed, and what assumption surfaced? Once a meaningful signal has been extracted, do not keep rephrasing it; update the working hypothesis and produce a new observation. If the founder names a role but has not asked for candidates yet, do not jump to sourcing or intake fields. Ask one earned diagnostic question such as what changed, what is breaking, who owns the work now, or what fails if nobody is hired. If the founder says they need a recruiter, diagnose hiring volume, hiring plan, and interview calibration before suggesting full-time recruiting. If the founder asks for VP Marketing while ICP, positioning, or channels are unproven, challenge the leadership hire and diagnose positioning/PMF first. If the founder asks for an AI team without roadmap or customer pull, challenge the team build and diagnose prioritization before role design. If the founder gives enough signal for useful guidance, make the recommendation instead of asking more questions. Once the current read is high-confidence or in execution mode, stop asking broad questions and produce the requested planning artifact directly: hiring thesis, must-have signals, signal map, scorecard, candidate archetype, interview plan, criteria, rubric, role shape, or tradeoffs. Those artifact requests are not sourcing requests. If the founder explicitly asks for candidates, profiles, people, top schools, top companies, SF, fintech, AI infra, PM, or Product Eng, treat it as sourcing work, but do not blindly fill the req when the founder has just exposed a major unresolved tradeoff. Agreement is not permission to switch into process before the thesis is stable; once stable, agreement should advance into role thesis, scorecard, interview plan, search lane, or candidate strategy. Use 'I have enough for a first pass,' 'I’ll make a working assumption,' and 'I’ll filter hard' only when the tradeoff is clear enough. Do not say 'How is this relevant?', 'I’m missing role outcome', 'must-have signals are required', 'please provide', 'source lanes', 'calibration status', or 'canonical state'. Avoid 'Sounds like you need', 'The practical implication is', and 'This implies'. Do not ask location, level, compensation, company lanes, or must-have skills unless the answer materially changes the recommendation. Do not say you are pulling, sharing, or preparing a candidate list later unless actual profile leads are included in this response.",
     adaptiveModeInstruction,
     founderModelText,
     workingThesisText,
     currentReadText,
     signalMapText,
+    referenceProfileText,
     "The structured search state is the current internal truth. If it conflicts with older messages, trust that state and the founder's latest correction. Do not mention the state object. Do not describe a different role family, location, seniority, or market lane.",
     canonicalSearchStateText,
     liveJdRequest
@@ -429,6 +465,7 @@ export async function POST(request: Request) {
       workingThesis,
       currentRead,
       signalMap,
+      referenceProfileInsight,
       source: "local_fallback",
       debugCode: "missing_api_key"
     });
@@ -444,6 +481,7 @@ export async function POST(request: Request) {
       workingThesis,
       currentRead,
       signalMap,
+      referenceProfileInsight,
       source: "local_fallback",
       debugCode: "network_error"
     });
@@ -462,6 +500,7 @@ export async function POST(request: Request) {
       workingThesis,
       currentRead,
       signalMap,
+      referenceProfileInsight,
       source: "local_fallback",
       debugCode
     });
@@ -476,6 +515,7 @@ export async function POST(request: Request) {
       canonicalSearchState,
       workingThesis,
       currentRead,
+      referenceProfileInsight,
       source: "local_fallback",
       debugCode: "empty_response"
     });
@@ -493,6 +533,7 @@ export async function POST(request: Request) {
         workingThesisText,
         currentReadText,
         signalMapText,
+        referenceProfileText,
         cleanMessages.map((message) => message.content).join("\n"),
         `Tina said she was pulling a shortlist; convert that promise into actual public profile sourcing.`,
         readiness.searchThesis ? `Search thesis:\n${readiness.searchThesis}` : "",
@@ -518,6 +559,7 @@ export async function POST(request: Request) {
         workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildProfileSearchResponse("this hiring lane", metadata, false), responseCanonicalSearchState),
         currentRead: buildCurrentRead({ messages: cleanMessages, canonicalSearchState: responseCanonicalSearchState, workingThesis, previousRead: currentRead }),
         signalMap,
+        referenceProfileInsight,
         profileLeads,
         source: "public_search"
       });
@@ -534,6 +576,7 @@ export async function POST(request: Request) {
       workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildSourcingReadinessResponse(readiness, latestUserMessage.content, canonicalSearchState), canonicalSearchState),
       currentRead,
       signalMap,
+      referenceProfileInsight,
       source: "sourcing_readiness"
     });
   }
@@ -550,6 +593,7 @@ export async function POST(request: Request) {
     workingThesis: buildWorkingThesisWithAssistant(cleanMessages, advisorText, canonicalSearchState),
     currentRead,
     signalMap,
+    referenceProfileInsight,
     source: "openai",
     responseId: data.id
   });

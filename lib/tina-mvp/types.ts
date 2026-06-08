@@ -5,6 +5,7 @@ import type { CurrentRead } from "@/lib/tina-mvp/current-read";
 import type { HiringArtifact } from "@/lib/tina-mvp/hiring-artifacts";
 import type { WorkingThesis } from "@/lib/tina-mvp/working-thesis";
 import type { SignalMap } from "@/lib/tina-mvp/signal-map";
+import type { ReferenceProfileInsight } from "@/lib/tina-mvp/reference-profiles";
 
 export type TinaMvpRole = "founder" | "tina";
 
@@ -17,6 +18,7 @@ export type TinaMvpMessage = {
   sourcingReadiness?: SourcingReadiness;
   signalMap?: SignalMap;
   hiringArtifact?: HiringArtifact;
+  referenceProfileInsight?: ReferenceProfileInsight;
 };
 
 export type TinaCandidateArchetype = {
@@ -39,6 +41,7 @@ export type TinaChatApiResponse = {
   currentRead?: CurrentRead;
   signalMap?: SignalMap;
   hiringArtifact?: HiringArtifact;
+  referenceProfileInsight?: ReferenceProfileInsight;
   profileLeads?: ProfileLead[];
   marketIntel?: unknown;
   source: "openai" | "local_scope_guard" | "local_profile_feedback" | "local_conversation_move" | "local_fallback" | "public_search" | "sourcing_readiness";
