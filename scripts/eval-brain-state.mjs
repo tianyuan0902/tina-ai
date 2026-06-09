@@ -395,6 +395,56 @@ const longFounderReadCases = [
     nextMove: /product decisions|founder approval/i
   },
   {
+    name: "VP Product with existing PMs becomes founder control",
+    messages: [
+      { id: "vp-product-control-1", role: "founder", content: "I think we need a VP Product." },
+      { id: "vp-product-control-2", role: "founder", content: "We already have PMs, but I still own the roadmap." },
+      { id: "vp-product-control-3", role: "founder", content: "Priorities churn every week and trust is low because I keep overriding decisions." }
+    ],
+    expected: "Founder Control / Product Delegation Gap",
+    nextMove: /roadmap|priority decisions|founder/i
+  },
+  {
+    name: "Head of Ops first-time founder becomes cadence delegation",
+    messages: [
+      { id: "ops-cadence-1", role: "founder", content: "I think I need a Head of Ops. This is my first startup." },
+      { id: "ops-cadence-2", role: "founder", content: "We do not really have an operating cadence yet. I keep everything in my head." },
+      { id: "ops-cadence-3", role: "founder", content: "People wait for me to translate what matters each week." }
+    ],
+    expected: "Operating Cadence / Founder Delegation Gap",
+    nextMove: /weekly operating cadence|decisions.*founder|founder translation/i
+  },
+  {
+    name: "People leader first-time managers becomes feedback cadence",
+    messages: [
+      { id: "people-cadence-1", role: "founder", content: "I think we need a people leader." },
+      { id: "people-cadence-2", role: "founder", content: "Most of our managers are first-time managers and feedback gets delayed." },
+      { id: "people-cadence-3", role: "founder", content: "I keep cushioning the hard conversations because I do not want people to quit." }
+    ],
+    expected: "Manager Enablement / Feedback Cadence Gap",
+    nextMove: /feedback cadence|founder.*cushion|manager/i
+  },
+  {
+    name: "High-agency product operator becomes product ops archetype",
+    messages: [
+      { id: "product-ops-1", role: "founder", content: "I want someone like this high-agency product operator profile." },
+      { id: "product-ops-2", role: "founder", content: "They were great because they could move between customer problems, ops, and product without needing a perfect job description." },
+      { id: "product-ops-3", role: "founder", content: "I care more about the people DNA and culture code than their exact title." }
+    ],
+    expected: "Product/Ops Generalist Archetype",
+    nextMove: /proof signals|culture code|operating pattern/i
+  },
+  {
+    name: "ML PhD onboarding becomes workflow before AI",
+    messages: [
+      { id: "workflow-ai-1", role: "founder", content: "I think we need an ML PhD for onboarding." },
+      { id: "workflow-ai-2", role: "founder", content: "Activation is weak because the workflow is complex and we do not have much data yet." },
+      { id: "workflow-ai-3", role: "founder", content: "Our existing engineers can use APIs, but nobody owns the customer journey." }
+    ],
+    expected: "Workflow Ownership Before AI Hire",
+    nextMove: /workflow owner|activation|AI depth/i
+  },
+  {
     name: "First recruiter commits to system before recruiter",
     messages: [
       { id: "recruiter-1", role: "founder", content: "I think we need our first recruiter." },
@@ -434,12 +484,77 @@ for (const testCase of longFounderReadCases) {
   expectIncludes([read.stability], /committed|revising/i, `${testCase.name} should be committed or revising after enough evidence`);
 }
 
-const committedSupportRead = buildCurrentRead({ messages: longFounderReadCases[2].messages.slice(0, 2) });
+const supportRootCauseCase = longFounderReadCases.find((testCase) => testCase.name === "Support reps hold root cause under urgency");
+if (!supportRootCauseCase) throw new Error("support root cause long founder case is missing");
+const committedSupportRead = buildCurrentRead({ messages: supportRootCauseCase.messages.slice(0, 2) });
 const urgentSupportRead = buildCurrentRead({
-  messages: longFounderReadCases[2].messages,
+  messages: supportRootCauseCase.messages,
   previousRead: { ...committedSupportRead, stability: "committed" }
 });
 expectEqual(urgentSupportRead.thesisTitle, "Support Load Root Cause", "urgency should not collapse support root cause into urgent hiring triage");
+
+const committedOpsCadenceRead = buildCurrentRead({
+  messages: [
+    { id: "ops-persist-1", role: "founder", content: "I think I need a Head of Ops. This is my first startup." },
+    { id: "ops-persist-2", role: "founder", content: "There is no operating cadence and I keep everything in my head." }
+  ]
+});
+const urgentOpsCadenceRead = buildCurrentRead({
+  messages: [
+    { id: "ops-persist-1", role: "founder", content: "I think I need a Head of Ops. This is my first startup." },
+    { id: "ops-persist-2", role: "founder", content: "There is no operating cadence and I keep everything in my head." },
+    { id: "ops-persist-3", role: "founder", content: "I still need a Head of Ops ASAP." }
+  ],
+  previousRead: { ...committedOpsCadenceRead, stability: "committed" }
+});
+expectEqual(urgentOpsCadenceRead.thesisTitle, "Operating Cadence / Founder Delegation Gap", "repeated Head of Ops urgency should not collapse cadence thesis");
+expectNotEqual(urgentOpsCadenceRead.thesisTitle, "Engineering Leadership Bottleneck", "ops cadence should not be classified as technical leadership without engineering evidence");
+
+const committedProductOpsRead = buildCurrentRead({
+  messages: [
+    { id: "product-ops-persist-1", role: "founder", content: "I want someone like this high-agency product operator profile." },
+    { id: "product-ops-persist-2", role: "founder", content: "They move between customer problems, ops, and product. I care about the people DNA." }
+  ]
+});
+const seniorProductOpsRead = buildCurrentRead({
+  messages: [
+    { id: "product-ops-persist-1", role: "founder", content: "I want someone like this high-agency product operator profile." },
+    { id: "product-ops-persist-2", role: "founder", content: "They move between customer problems, ops, and product. I care about the people DNA." },
+    { id: "product-ops-persist-3", role: "founder", content: "Maybe they need to be more senior." }
+  ],
+  previousRead: { ...committedProductOpsRead, stability: "committed" }
+});
+expectEqual(seniorProductOpsRead.thesisTitle, "Product/Ops Generalist Archetype", "seniority should stay a constraint inside the product/ops archetype thesis");
+expectNotEqual(seniorProductOpsRead.thesisTitle, "Founder-Led Sales Transition", "product/operator generalist should not become sales without sales ownership evidence");
+expectNotEqual(seniorProductOpsRead.thesisTitle, "Senior Ownership Gap", "more senior should not steal a sharper product/ops diagnosis");
+
+const committedFounderControlRead = buildCurrentRead({
+  messages: [
+    { id: "founder-control-persist-1", role: "founder", content: "I think we need a VP Product." },
+    { id: "founder-control-persist-2", role: "founder", content: "We have PMs, but I own the roadmap and priority churn is killing trust." }
+  ]
+});
+const urgentFounderControlRead = buildCurrentRead({
+  messages: [
+    { id: "founder-control-persist-1", role: "founder", content: "I think we need a VP Product." },
+    { id: "founder-control-persist-2", role: "founder", content: "We have PMs, but I own the roadmap and priority churn is killing trust." },
+    { id: "founder-control-persist-3", role: "founder", content: "It is urgent, I just need the VP Product now." }
+  ],
+  previousRead: { ...committedFounderControlRead, stability: "committed" }
+});
+expectEqual(urgentFounderControlRead.thesisTitle, "Founder Control / Product Delegation Gap", "urgency should not erase founder control diagnosis");
+
+const newArchetypeActionCases = [
+  { read: committedOpsCadenceRead, expected: "Map operating cadence | Build signal map | Define delegated decisions | Compare ops archetypes" },
+  { read: buildCurrentRead({ messages: longFounderReadCases[3].messages }), expected: "Design feedback cadence | Build signal map | Clarify founder role | Compare people support" },
+  { read: committedProductOpsRead, expected: "Decode reference profile | Build signal map | Define culture code | Compare generalist lanes" },
+  { read: buildCurrentRead({ messages: longFounderReadCases[5].messages }), expected: "Map workflow owner | Build signal map | Separate AI vs workflow | Build scorecard" },
+  { read: committedFounderControlRead, expected: "Define product authority | Build signal map | Compare VP Product vs PM lead | Build scorecard" }
+];
+for (const actionCase of newArchetypeActionCases) {
+  const actions = actionButtonsForCurrentRead({ ...actionCase.read, mode: "calibration" }).map((action) => action.label).join(" | ");
+  expectEqual(actions, actionCase.expected, `${actionCase.read.thesisTitle} should have thesis-specific right-rail actions`);
+}
 console.log("PASS long founder diagnosis commitment");
 
 const engineeringSignalMap = buildSignalMap(buildCurrentRead({ messages: currentReadScenarios[1].messages }));

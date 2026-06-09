@@ -1455,6 +1455,11 @@ function titleFromCurrentReadValue(read?: CurrentRead) {
 function controlledThesisTitleFromText(value: string): CurrentReadArchetype {
   const text = value.toLowerCase();
   if (/\b(\$500k|500k|500,000|capital allocation|budget allocation|what should i do next|what should we do next)\b/i.test(text)) return "Capital Allocation Diagnosis";
+  if (/\b(ml phd|phd|machine learning|ai hire|ai team|ai engineer|model|llm)\b/i.test(text) && /\b(onboarding|activation|workflow|low data|apis?|existing engineers?)\b/i.test(text)) return "Workflow Ownership Before AI Hire";
+  if (/\b(people leader|head of people|people ops|manager enablement|first[-\s]?time managers?|feedback cadence|delayed feedback|hard conversations?)\b/i.test(text)) return "Manager Enablement / Feedback Cadence Gap";
+  if (/\b(vp product|chief product|cpo|head of product|product leader)\b/i.test(text) && /\b(founder owns|roadmap|priority churn|low trust|pms? exist|delegat)\b/i.test(text)) return "Founder Control / Product Delegation Gap";
+  if (/\b(head of ops|operations leader|ops lead|operating cadence|cadence|operating rhythm|everything in (my|the founder'?s) head)\b/i.test(text) && /\b(first[-\s]?time founder|first startup|founder keeps|in my head|delegat|no cadence)\b/i.test(text)) return "Operating Cadence / Founder Delegation Gap";
+  if (/\b(product.?ops|product\/ops|product operator|operator profile|high[-\s]?agency|people like this|profile like this|reference profile|culture code|people dna|look for people like)\b/i.test(text)) return "Product/Ops Generalist Archetype";
   if (/\b(recruiter|recruiting|sourcer|talent acquisition)\b/i.test(text)) return "Recruiting System Before Recruiter";
   if (/\b(vp marketing|head of marketing|marketing leader|growth is slow|positioning|icp|acquisition channel|demand gen)\b/i.test(text)) return "Marketing Positioning Gap";
   if (/\b(ai team|build an ai|ai roadmap|customers.*ai|existing roadmap|shiny object)\b/i.test(text)) return "AI Prioritization Gap";

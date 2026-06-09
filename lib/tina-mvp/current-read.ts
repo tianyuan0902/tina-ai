@@ -12,6 +12,11 @@ export type CurrentReadArchetype =
   | "Role Compression / Generalist Hire"
   | "Urgent Hiring Triage"
   | "Product/Execution Ownership Gap"
+  | "Operating Cadence / Founder Delegation Gap"
+  | "Manager Enablement / Feedback Cadence Gap"
+  | "Product/Ops Generalist Archetype"
+  | "Workflow Ownership Before AI Hire"
+  | "Founder Control / Product Delegation Gap"
   | "Support Load Root Cause"
   | "Recruiting System Before Recruiter"
   | "Marketing Positioning Gap"
@@ -192,6 +197,51 @@ export function actionButtonsForCurrentRead(read?: Pick<CurrentRead, "mode" | "l
       ];
     }
 
+    if (read.likelyArchetype === "Operating Cadence / Founder Delegation Gap") {
+      return [
+        { label: "Map operating cadence", prompt: "Map the operating cadence this founder needs before shaping a Head of Ops role." },
+        { label: "Build signal map", prompt: "Build signal map for this operating cadence and founder delegation gap." },
+        { label: "Define delegated decisions", prompt: "Define which operating decisions must leave the founder's head." },
+        { label: "Compare ops archetypes", prompt: "Compare Head of Ops, ops lead, and founder-office operator for this gap." }
+      ];
+    }
+
+    if (read.likelyArchetype === "Manager Enablement / Feedback Cadence Gap") {
+      return [
+        { label: "Design feedback cadence", prompt: "Design the manager feedback cadence needed before hiring a people leader." },
+        { label: "Build signal map", prompt: "Build signal map for this manager enablement and feedback cadence gap." },
+        { label: "Clarify founder role", prompt: "Clarify what feedback the founder must stop cushioning." },
+        { label: "Compare people support", prompt: "Compare people leader, manager coach, and fractional people ops support." }
+      ];
+    }
+
+    if (read.likelyArchetype === "Product/Ops Generalist Archetype") {
+      return [
+        { label: "Decode reference profile", prompt: "Decode the product/operator profile into hiring criteria." },
+        { label: "Build signal map", prompt: "Build signal map for this product/ops generalist archetype." },
+        { label: "Define culture code", prompt: "Define the culture-code signals this person must carry." },
+        { label: "Compare generalist lanes", prompt: "Compare product operator, founder's office, and ops generalist lanes." }
+      ];
+    }
+
+    if (read.likelyArchetype === "Workflow Ownership Before AI Hire") {
+      return [
+        { label: "Map workflow owner", prompt: "Map the workflow owner needed before hiring an AI specialist." },
+        { label: "Build signal map", prompt: "Build signal map for this workflow ownership before AI hire thesis." },
+        { label: "Separate AI vs workflow", prompt: "Separate what needs AI depth from what needs workflow ownership." },
+        { label: "Build scorecard", prompt: "Build a lightweight scorecard for the workflow owner." }
+      ];
+    }
+
+    if (read.likelyArchetype === "Founder Control / Product Delegation Gap") {
+      return [
+        { label: "Define product authority", prompt: "Define the product decisions the founder must delegate." },
+        { label: "Build signal map", prompt: "Build signal map for this founder control and product delegation gap." },
+        { label: "Compare VP Product vs PM lead", prompt: "Compare VP Product, Head of Product, and senior PM lead for this thesis." },
+        { label: "Build scorecard", prompt: "Build a lightweight scorecard for product delegation." }
+      ];
+    }
+
     if (read.likelyArchetype === "Recruiting System Before Recruiter") {
       return [
         { label: "Map hiring loop", prompt: "Map the hiring loop that needs to exist before a full-time recruiter." },
@@ -308,6 +358,46 @@ function applyCalibrationProgression(
     };
   }
 
+  if (archetype === "Operating Cadence / Founder Delegation Gap") {
+    return {
+      ...read,
+      risk: "If the founder keeps operating rhythm in their head, a Head of Ops becomes a reminder system instead of leverage.",
+      nextBestMove: "Write down the weekly cadence and decisions this person must own without founder translation."
+    };
+  }
+
+  if (archetype === "Manager Enablement / Feedback Cadence Gap") {
+    return {
+      ...read,
+      risk: "A people leader cannot create manager accountability if the founder keeps softening the hard feedback.",
+      nextBestMove: "Define the feedback cadence managers must run before deciding whether this needs a people leader or manager coach."
+    };
+  }
+
+  if (archetype === "Product/Ops Generalist Archetype") {
+    return {
+      ...read,
+      risk: "Admiring a high-agency operator can turn into a vague generalist search unless the operating pattern is named.",
+      nextBestMove: "Translate the admired profile into proof signals: judgment, pace, customer proximity, and cross-functional ownership."
+    };
+  }
+
+  if (archetype === "Workflow Ownership Before AI Hire") {
+    return {
+      ...read,
+      risk: "Hiring ML depth before the workflow is owned can produce technical sophistication on top of a confused user journey.",
+      nextBestMove: "Assign ownership of the onboarding workflow, then decide which parts actually need AI depth."
+    };
+  }
+
+  if (archetype === "Founder Control / Product Delegation Gap") {
+    return {
+      ...read,
+      risk: "A VP Product will not create leverage if roadmap authority still lives with the founder.",
+      nextBestMove: "Define the product decisions the founder will no longer own before shaping the VP Product search."
+    };
+  }
+
   if (archetype === "Recruiting System Before Recruiter") {
     return {
       ...read,
@@ -381,6 +471,11 @@ function isPlanningArtifactRequest(text: string) {
 
 function inferArchetype(text: string, latestText: string, roleFamily: string): CurrentReadArchetype {
   if (/\b(\$500k|500k|500,000|capital allocation|budget allocation|what should i do next|what should we do next)\b/i.test(text)) return "Capital Allocation Diagnosis";
+  if (isWorkflowBeforeAiHire(text)) return "Workflow Ownership Before AI Hire";
+  if (isManagerEnablementGap(text)) return "Manager Enablement / Feedback Cadence Gap";
+  if (isFounderControlProductGap(text)) return "Founder Control / Product Delegation Gap";
+  if (isOperatingCadenceFounderDelegationGap(text)) return "Operating Cadence / Founder Delegation Gap";
+  if (isProductOpsGeneralistArchetype(text)) return "Product/Ops Generalist Archetype";
   if (/\b(recruiter|recruiting|sourcer|talent acquisition)\b/i.test(text)) return "Recruiting System Before Recruiter";
   if (/\b(vp marketing|head of marketing|marketing leader|growth is slow|positioning|icp|acquisition channel|demand gen)\b/i.test(text)) return "Marketing Positioning Gap";
   if (/\b(ai team|build an ai|ai roadmap|customers.*ai|existing roadmap|shiny object)\b/i.test(text)) return "AI Prioritization Gap";
@@ -396,17 +491,66 @@ function inferArchetype(text: string, latestText: string, roleFamily: string): C
   return "Unknown / Needs Clarification";
 }
 
+function isOperatingCadenceFounderDelegationGap(text: string) {
+  return /\b(head of ops|operations leader|ops lead|operator|operating cadence|cadence|operating rhythm|everything in (my|the founder'?s) head|keeps? everything in (my|the founder'?s) head)\b/i.test(text) &&
+    /\b(first[-\s]?time founder|first startup|founder keeps|in my head|founder'?s head|no cadence|no operating cadence|delegat|handoff|operating rhythm)\b/i.test(text) &&
+    !/\b(engineering|technical|head of eng|vp engineering|staff engineer)\b/i.test(text);
+}
+
+function isManagerEnablementGap(text: string) {
+  return /\b(people leader|head of people|people ops|manager enablement|manager training|first[-\s]?time managers?|new managers?|feedback cadence|delayed feedback|hard conversations?|performance feedback)\b/i.test(text) &&
+    /\b(first[-\s]?time managers?|delayed feedback|feedback.*late|cushion|cushions|soften|hard conversations?|manager cadence|founder.*feedback)\b/i.test(text);
+}
+
+function isProductOpsGeneralistArchetype(text: string) {
+  return /\b(product.?ops|product\/ops|product operator|operator profile|high[-\s]?agency|people like this|profile like this|reference profile|culture code|people dna|look for people like)\b/i.test(text) &&
+    /\b(product|operator|ops|generalist|high[-\s]?agency|customer|workflow)\b/i.test(text) &&
+    !/\b(sales|revenue|ae\b|account executive|quota|pipeline)\b/i.test(text);
+}
+
+function isWorkflowBeforeAiHire(text: string) {
+  return /\b(ml phd|phd|machine learning|ai hire|ai team|ai engineer|model|llm)\b/i.test(text) &&
+    /\b(onboarding|activation|workflow|workflow complexity|low data|not enough data|apis?|existing engineers?|engineers can use|customer journey)\b/i.test(text);
+}
+
+function isFounderControlProductGap(text: string) {
+  return /\b(vp product|chief product|cpo|head of product|product leader)\b/i.test(text) &&
+    /\b(founder owns|i own|roadmap|priority churn|priorities keep changing|low trust|pms? exist|existing pms?|don'?t trust|trust is low|founder control|delegat)\b/i.test(text);
+}
+
 function stabilizeArchetype(inferred: CurrentReadArchetype, latestText: string, previousRead?: CurrentRead): CurrentReadArchetype {
   if (!previousRead || previousRead.thesisTitle === "Unknown / Needs Clarification") return inferred;
   if (previousRead.stability !== "committed") return inferred;
   if (isExplicitCorrection(latestText)) return inferred;
+  if (isConcreteContradictoryEvidence(latestText, previousRead.thesisTitle, inferred)) return inferred;
   if (inferred === "Urgent Hiring Triage" && previousRead.thesisTitle !== "Urgent Hiring Triage") return previousRead.thesisTitle;
+  if (inferred === "Senior Ownership Gap" && previousRead.thesisTitle !== "Senior Ownership Gap") return previousRead.thesisTitle;
+  if (isRepeatedOriginalRequest(latestText) || isConstraintOnlyUpdate(latestText)) return previousRead.thesisTitle;
   if (/^(yes|sure|ok|okay|sounds good|sounds great|great|makes sense|asap|urgent|need now)$/i.test(latestText.trim())) return previousRead.thesisTitle;
   return inferred;
 }
 
 function isExplicitCorrection(text: string) {
   return /\b(actually|no,|not that|i mean|switch|changed|different role|new role)\b/i.test(text);
+}
+
+function isRepeatedOriginalRequest(text: string) {
+  return /\b(i still need|we still need|just hire|just need|need this|need them|need someone|hire now|find someone|source|pull candidates)\b/i.test(text) &&
+    !/\b(actually|i mean|different|not|instead|new role)\b/i.test(text);
+}
+
+function isConstraintOnlyUpdate(text: string) {
+  return /\b(asap|urgent|fast|quickly|senior|more senior|junior|remote|sf|nyc|comp|salary|budget|full[-\s]?time|fractional|interim|location|speed)\b/i.test(text) &&
+    !/\b(actually|i mean|different|not|instead|new role|engineering|product|sales|support|people|ops|ai)\b/i.test(text);
+}
+
+function isConcreteContradictoryEvidence(latestText: string, previous: CurrentReadArchetype, inferred: CurrentReadArchetype) {
+  if (previous === inferred) return false;
+  if (inferred === "Unknown / Needs Clarification" || inferred === "Urgent Hiring Triage" || inferred === "Senior Ownership Gap") return false;
+  if (previous === "Operating Cadence / Founder Delegation Gap" && /\b(engineering|technical|sales|revenue|product roadmap|people manager|support tickets|ai)\b/i.test(latestText)) return true;
+  if (previous === "Founder Control / Product Delegation Gap" && /\b(not product|engineering|sales|support|people|ops cadence)\b/i.test(latestText)) return true;
+  if (previous === "Workflow Ownership Before AI Hire" && /\b(research|model architecture|training data|ml platform|deep learning|phd required)\b/i.test(latestText)) return true;
+  return /\b(actually|i mean|different|not that|instead)\b/i.test(latestText);
 }
 
 function inferStability(
@@ -472,6 +616,46 @@ function buildReadForArchetype(archetype: CurrentReadArchetype, text: string, st
         risk: "A process-heavy PM may add updates and meetings without actually taking decision load off the founder.",
         whatWouldChangeMyMind: "Evidence that product judgment is strong and the issue is mostly project throughput.",
         nextBestMove: "Clarify whether this person must own product taste, execution discipline, customer signal, or founder leverage."
+      };
+    case "Operating Cadence / Founder Delegation Gap":
+      return {
+        observation: "When the operating rhythm lives in the founder's head, hiring ops capacity does not automatically create delegation.",
+        hypothesis: "This is likely an operating cadence and founder delegation gap: the company needs repeatable rhythm and decision ownership before a classic Head of Ops layer.",
+        risk: "A Head of Ops can become a translation layer for the founder's brain instead of the person who makes the company run without it.",
+        whatWouldChangeMyMind: "Evidence that weekly cadence, decision rights, and handoffs are already explicit and the only gap is senior ops capacity.",
+        nextBestMove: "Define the weekly operating cadence and the decisions this person owns without founder translation."
+      };
+    case "Manager Enablement / Feedback Cadence Gap":
+      return {
+        observation: "People problems in first-time manager teams often look like a people-leader hire when the real gap is feedback cadence.",
+        hypothesis: "This is likely a manager enablement and feedback cadence gap: managers need a sharper operating rhythm for hard conversations, not just HR coverage.",
+        risk: "A people leader will get pulled into cushioning feedback unless the founder and managers agree who owns the hard conversations.",
+        whatWouldChangeMyMind: "Evidence that managers already give timely direct feedback and the gap is policy, compliance, or people operations capacity.",
+        nextBestMove: "Define the feedback cadence managers must run and what the founder will stop cushioning."
+      };
+    case "Product/Ops Generalist Archetype":
+      return {
+        observation: "A founder admiring a high-agency product/operator is usually describing a company gene, not a clean job title.",
+        hypothesis: "This is likely a product/ops generalist archetype: the search should decode the behaviors that make the reference profile work inside this company.",
+        risk: "Searching for a clone will overfit pedigree and miss the actual culture code: judgment, pace, customer proximity, and ownership.",
+        whatWouldChangeMyMind: "Evidence that the admired profile maps to one narrow function rather than a cross-functional operating pattern.",
+        nextBestMove: "Translate the admired person into proof signals and false positives before sourcing."
+      };
+    case "Workflow Ownership Before AI Hire":
+      return {
+        observation: "Asking for ML depth on an onboarding problem can hide the simpler issue: nobody owns the workflow tightly enough yet.",
+        hypothesis: "This is likely workflow ownership before AI hire: activation and process complexity need a clear owner before a specialized ML PhD.",
+        risk: "A deep AI hire may build sophistication around a workflow that still lacks product ownership, data volume, and operational clarity.",
+        whatWouldChangeMyMind: "Evidence that the workflow is already owned, data is sufficient, and the technical uncertainty truly requires ML research depth.",
+        nextBestMove: "Name the onboarding workflow owner and the activation decision they must own before hiring AI depth."
+      };
+    case "Founder Control / Product Delegation Gap":
+      return {
+        observation: "When PMs exist but roadmap churn continues, the gap is usually not more product capacity; it is product authority.",
+        hypothesis: "This is likely founder control and product delegation gap: the founder still owns the roadmap, so PMs cannot stabilize priorities.",
+        risk: "A VP Product becomes a polished messenger unless the founder actually transfers roadmap decision rights.",
+        whatWouldChangeMyMind: "Evidence that PMs already hold roadmap authority and the churn comes from market change rather than founder override.",
+        nextBestMove: "Define which roadmap and priority decisions the founder will no longer own."
       };
     case "Internal Technical Leadership Gap":
       return {
@@ -587,6 +771,11 @@ function wrongAssumptionFor(read: CurrentRead) {
   if (read.likelyArchetype === "Founder-Led Sales Transition") return "that a classic sales executive is the answer before the motion is repeatable";
   if (read.likelyArchetype === "Engineering Leadership Bottleneck") return "that adding another senior engineer will fix leadership latency";
   if (read.likelyArchetype === "Product/Execution Ownership Gap") return "that a PM title alone solves founder decision load";
+  if (read.likelyArchetype === "Operating Cadence / Founder Delegation Gap") return "that a Head of Ops can run what still only exists in the founder's head";
+  if (read.likelyArchetype === "Manager Enablement / Feedback Cadence Gap") return "that a people leader can replace manager feedback cadence";
+  if (read.likelyArchetype === "Product/Ops Generalist Archetype") return "that the goal is to clone a profile instead of decode the operating pattern";
+  if (read.likelyArchetype === "Workflow Ownership Before AI Hire") return "that ML depth is the first answer before workflow ownership is clear";
+  if (read.likelyArchetype === "Founder Control / Product Delegation Gap") return "that a VP Product fixes roadmap churn without founder delegation";
   if (read.likelyArchetype === "Recruiting System Before Recruiter") return "that recruiter capacity is the bottleneck before the hiring plan is calibrated";
   if (read.likelyArchetype === "Support Load Root Cause") return "that adding support reps automatically fixes the customer problem";
   if (read.likelyArchetype === "Internal Technical Leadership Gap") return "that an external senior engineer is the only way to create technical leadership";
