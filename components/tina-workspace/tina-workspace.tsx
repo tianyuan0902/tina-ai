@@ -8,9 +8,11 @@ import {
   ArrowRight,
   Brain,
   CheckCircle2,
+  Mic,
   MoreHorizontal,
   Pencil,
   Sparkles,
+  Square,
   SlidersHorizontal,
   XCircle
 } from "lucide-react";
@@ -32,16 +34,19 @@ type ChatThread = {
   time: string;
   messages: TinaMvpMessage[];
   manuallyRenamed?: boolean;
+  sessionId?: string;
 };
 
 const THREAD_STORAGE_KEY = "tina:mvp:threads";
 const ACTIVE_THREAD_STORAGE_KEY = "tina:mvp:active-thread-id";
+const SESSION_ID_STORAGE_KEY = "tina:mvp:anonymous-session-id";
 const PROFILE_LEAD_STATUS_STORAGE_KEY = "tina:mvp:profile-lead-status";
 const BRAIN_STATE_STORAGE_KEY = "tina:mvp:brain-state";
 const CANONICAL_SEARCH_STATE_STORAGE_KEY = "tina:mvp:canonical-search-state";
 const WORKING_THESIS_STORAGE_KEY = "tina:mvp:working-thesis";
 const CURRENT_READ_STORAGE_KEY = "tina:mvp:current-read";
 const SIGNAL_MAP_STORAGE_KEY = "tina:mvp:signal-map";
+const LOG_CONSENT_VERSION = "public-demo-v1";
 const MAX_FEEDBACK_SUMMARY_LEADS = 8;
 
 const typingPhrases = ["Shaping the search", "Reading candidate signal", "Tightening the Talent Pool"];
@@ -68,6 +73,13 @@ type ProfileLeadItem = {
   lead: ProfileLead;
   batchId: string;
   statusKey: string;
+};
+
+type ClickedActionLog = {
+  label: string;
+  prompt: string;
+  source: "chat_input" | "right_rail" | "empty_state";
+  timestamp: string;
 };
 
 type SourcingStrategy = {
@@ -208,7 +220,8 @@ function TinaWorkspaceLoading() {
 }
 
 function TinaWorkspaceInner() {
-  const [threads, setThreads] = useState<ChatThread[]>([stableNewRoleThread, ...initialThreads.filter((thread) => thread.id !== stableNewRoleThread.id)]);
+  const [anonymousSessionId] = useState(() => getOrCreateAnonymousSessionId());
+  const [threads, setThreads] = useState<ChatThread[]>([{ ...stableNewRoleThread, sessionId: anonymousSessionId }]);
   const [activeThreadId, setActiveThreadId] = useState(stableNewRoleThread.id);
   const [storageReady, setStorageReady] = useState(false);
   const [storedCurrentReads, setShellCurrentReads] = useState<Record<string, CurrentRead>>({});
@@ -218,9 +231,8 @@ function TinaWorkspaceInner() {
   const activeThread = threads.find((thread) => thread.id === activeThreadId) || threads[0];
 
   useEffect(() => {
-    let cancelled = false;
     const storedThreads = readStoredThreads();
-    const sessionThread = createNewRoleThread();
+    const sessionThread = createNewRoleThread(anonymousSessionId);
     setShellCurrentReads(readStoredCurrentReads());
 
     if (storedThreads.length) {
@@ -229,54 +241,32 @@ function TinaWorkspaceInner() {
       setLatestSynthesis(latestThreadSynthesis(sessionThread.messages));
     }
 
-    async function loadStoredWorkspace() {
-      try {
-        const response = await fetch("/api/tina-mvp/threads", { cache: "no-store" });
-        if (!response.ok) return;
-
-        const data = (await response.json()) as { enabled?: boolean; threads?: ChatThread[] };
-        const remoteThreads = Array.isArray(data.threads) ? data.threads.filter(isChatThread) : [];
-        if (!data.enabled || !remoteThreads.length || cancelled) return;
-
-        setThreads([sessionThread, ...remoteThreads.filter((thread) => !isBlankNewRoleThread(thread))]);
-        setActiveThreadId(sessionThread.id);
-        setLatestSynthesis(latestThreadSynthesis(sessionThread.messages));
-      } catch {
-        // Local storage remains the fallback while Supabase is not fully configured.
-      } finally {
-        if (!cancelled) setStorageReady(true);
-      }
-    }
-
-    loadStoredWorkspace();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    setStorageReady(true);
+  }, [anonymousSessionId]);
 
   useEffect(() => {
     if (!storageReady) return;
     const persistedThreads = threads.map((thread) => ({
       ...thread,
+      sessionId: anonymousSessionId,
       latestSynthesis: thread.id === activeThreadId ? latestSynthesis : latestThreadSynthesis(thread.messages)
     }));
 
-    window.localStorage.setItem(THREAD_STORAGE_KEY, JSON.stringify(persistedThreads));
-    window.localStorage.setItem(ACTIVE_THREAD_STORAGE_KEY, activeThreadId);
+    window.sessionStorage.setItem(THREAD_STORAGE_KEY, JSON.stringify(persistedThreads));
+    window.sessionStorage.setItem(ACTIVE_THREAD_STORAGE_KEY, activeThreadId);
 
     const timer = window.setTimeout(() => {
       fetch("/api/tina-mvp/threads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ threads: persistedThreads })
+        body: JSON.stringify({ sessionId: anonymousSessionId, threads: persistedThreads })
       }).catch(() => {
-        // Local storage has already saved the workspace.
+        // Session storage has already saved the workspace for this tab.
       });
     }, 400);
 
     return () => window.clearTimeout(timer);
-  }, [activeThreadId, latestSynthesis, storageReady, threads]);
+  }, [activeThreadId, anonymousSessionId, latestSynthesis, storageReady, threads]);
 
   function selectThread(threadId: string) {
     const nextThread = threads.find((thread) => thread.id === threadId);
@@ -294,7 +284,7 @@ function TinaWorkspaceInner() {
       return;
     }
 
-    const nextThread = createNewRoleThread();
+    const nextThread = createNewRoleThread(anonymousSessionId);
 
     setThreads((current) => [nextThread, ...current.filter((thread) => !isBlankNewRoleThread(thread))]);
     setActiveThreadId(nextThread.id);
@@ -307,6 +297,7 @@ function TinaWorkspaceInner() {
         thread.id === activeThreadId
           ? {
               ...thread,
+              sessionId: thread.sessionId || anonymousSessionId,
               title: !thread.manuallyRenamed && titleOverride
                 ? titleOverride
                 : shouldAutoRenameThread(thread)
@@ -332,7 +323,7 @@ function TinaWorkspaceInner() {
     setThreads((current) => {
       const remaining = current.filter((thread) => thread.id !== threadId);
       if (!remaining.length) {
-        const replacement = createNewRoleThread();
+        const replacement = createNewRoleThread(anonymousSessionId);
         setActiveThreadId(replacement.id);
         setLatestSynthesis(latestThreadSynthesis(replacement.messages));
         return [replacement];
@@ -506,6 +497,7 @@ function HomeCommandCenter({
   const [storedWorkingTheses, setStoredWorkingTheses] = useState<Record<string, WorkingThesis>>({});
   const [storedCurrentReads, setStoredCurrentReads] = useState<Record<string, CurrentRead>>({});
   const [storedSignalMaps, setStoredSignalMaps] = useState<Record<string, SignalMap>>({});
+  const [clickedActionsByThread, setClickedActionsByThread] = useState<Record<string, ClickedActionLog[]>>({});
   const [showFullConversation, setShowFullConversation] = useState(false);
   const [isClientMounted, setIsClientMounted] = useState(false);
   const [pendingActionText, setPendingActionText] = useState("");
@@ -593,6 +585,7 @@ function HomeCommandCenter({
   const feedbackRead = buildFeedbackLearningRead(currentLatestProfileLeadItems, profileLeadStatus);
   const refineLabel = shortlistedItems.length ? "Find more like saved candidates" : "Refine Talent Pool";
   const latestBatchRead = buildTalentBatchRead(currentLatestProfileLeadItems.length ? currentLatestProfileLeadItems : visibleProfileLeadItems);
+  const clickedActions = clickedActionsByThread[activeThread.id] || [];
   const displayedMessages = hasCandidateResults && !showFullConversation ? latestConversationExchange(messages) : messages;
   const hiddenMessageCount = Math.max(0, messages.length - displayedMessages.length);
   const showMarketReality = shouldShowMarketReality(messages, currentRead, hasCandidateResults || Boolean(latestSourcingBatch));
@@ -600,11 +593,28 @@ function HomeCommandCenter({
   const handleRefineSearch = () => {
     const summary = buildTalentPoolFeedbackSummary(currentLatestProfileLeadItems, profileLeadStatus);
     if (summary) {
+      recordClickedAction("Refine Talent Pool", "Refine this search based on my Talent Pool feedback. Find another batch.", "right_rail");
       sendMessage("Refine this search based on my Talent Pool feedback. Find another batch.", {
         sourcingRefinementSummary: summary
       });
     }
   };
+
+  function recordClickedAction(label: string, prompt: string, source: ClickedActionLog["source"]) {
+    setClickedActionsByThread((current) => {
+      const nextActions = [
+        ...(current[activeThread.id] || []),
+        {
+          label,
+          prompt,
+          source,
+          timestamp: new Date().toISOString()
+        }
+      ].slice(-30);
+
+      return { ...current, [activeThread.id]: nextActions };
+    });
+  }
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -613,6 +623,60 @@ function HomeCommandCenter({
   useEffect(() => {
     setShowFullConversation(false);
   }, [activeThread.id, hasCandidateResults]);
+
+  useEffect(() => {
+    if (!isClientMounted || !hasConversation) return;
+
+    const timer = window.setTimeout(() => {
+      const artifacts = collectHiringArtifacts(messages);
+      const marketReality = artifacts.find((artifact) => artifact.kind === "market_reality")?.marketReality;
+      const artifactSourcingStrategy = artifacts.find((artifact) => artifact.kind === "sourcing_strategy")?.sourcingStrategy;
+
+      fetch("/api/tina-mvp/conversation-log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          anonymousSessionId: activeThread.sessionId || getOrCreateAnonymousSessionId(),
+          threadId: activeThread.id,
+          messages,
+          currentRead,
+          workingThesis,
+          canonicalSearchState,
+          signalMap,
+          artifacts,
+          marketReality,
+          sourcingStrategy: artifactSourcingStrategy || sourcingStrategy,
+          clickedActions,
+          metadata: {
+            threadTitle: activeThread.title,
+            hasCandidateResults,
+            latestSourcingBatch,
+            loggedFrom: "public-demo"
+          },
+          consentVersion: LOG_CONSENT_VERSION
+        })
+      }).catch(() => {
+        // Logging is private product telemetry and should never interrupt the chat UX.
+      });
+    }, 1200);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    activeThread.id,
+    activeThread.sessionId,
+    activeThread.title,
+    canonicalSearchState,
+    clickedActions,
+    currentRead,
+    hasCandidateResults,
+    hasConversation,
+    isClientMounted,
+    latestSourcingBatch,
+    messages,
+    signalMap,
+    sourcingStrategy,
+    workingThesis
+  ]);
 
   useEffect(() => {
     setIsClientMounted(true);
@@ -625,13 +689,13 @@ function HomeCommandCenter({
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem(PROFILE_LEAD_STATUS_STORAGE_KEY, JSON.stringify(profileLeadStatus));
+    window.sessionStorage.setItem(PROFILE_LEAD_STATUS_STORAGE_KEY, JSON.stringify(profileLeadStatus));
   }, [profileLeadStatus]);
 
   useEffect(() => {
     setStoredBrainStates((current) => {
       const next = { ...current, [activeThread.id]: brainState };
-      window.localStorage.setItem(BRAIN_STATE_STORAGE_KEY, JSON.stringify(next));
+      window.sessionStorage.setItem(BRAIN_STATE_STORAGE_KEY, JSON.stringify(next));
       return next;
     });
   }, [activeThread.id, brainState]);
@@ -642,7 +706,7 @@ function HomeCommandCenter({
 
     setStoredCanonicalSearchStates((current) => {
       const next = { ...current, [activeThread.id]: fallbackCanonicalSearchState };
-      window.localStorage.setItem(CANONICAL_SEARCH_STATE_STORAGE_KEY, JSON.stringify(next));
+      window.sessionStorage.setItem(CANONICAL_SEARCH_STATE_STORAGE_KEY, JSON.stringify(next));
       return next;
     });
   }, [activeThread.id, fallbackCanonicalSearchState, storedCanonicalSearchStates]);
@@ -684,28 +748,28 @@ function HomeCommandCenter({
       if (data.canonicalSearchState) {
         setStoredCanonicalSearchStates((current) => {
           const next = { ...current, [activeThread.id]: data.canonicalSearchState! };
-          window.localStorage.setItem(CANONICAL_SEARCH_STATE_STORAGE_KEY, JSON.stringify(next));
+          window.sessionStorage.setItem(CANONICAL_SEARCH_STATE_STORAGE_KEY, JSON.stringify(next));
           return next;
         });
       }
       if (data.workingThesis) {
         setStoredWorkingTheses((current) => {
           const next = { ...current, [activeThread.id]: data.workingThesis! };
-          window.localStorage.setItem(WORKING_THESIS_STORAGE_KEY, JSON.stringify(next));
+          window.sessionStorage.setItem(WORKING_THESIS_STORAGE_KEY, JSON.stringify(next));
           return next;
         });
       }
       if (data.currentRead) {
         setStoredCurrentReads((current) => {
           const next = { ...current, [activeThread.id]: data.currentRead! };
-          window.localStorage.setItem(CURRENT_READ_STORAGE_KEY, JSON.stringify(next));
+          window.sessionStorage.setItem(CURRENT_READ_STORAGE_KEY, JSON.stringify(next));
           return next;
         });
       }
       if (data.signalMap) {
         setStoredSignalMaps((current) => {
           const next = { ...current, [activeThread.id]: data.signalMap! };
-          window.localStorage.setItem(SIGNAL_MAP_STORAGE_KEY, JSON.stringify(next));
+          window.sessionStorage.setItem(SIGNAL_MAP_STORAGE_KEY, JSON.stringify(next));
           return next;
         });
       }
@@ -793,13 +857,13 @@ function HomeCommandCenter({
                   </div>
                 </div>
               ) : null}
-              {!hasConversation ? <LeadingQuestionButtons onSubmit={sendMessage} isThinking={isThinking} /> : null}
+              {!hasConversation ? <LeadingQuestionButtons onSubmit={sendMessage} onActionClick={recordClickedAction} isThinking={isThinking} /> : null}
               <div ref={transcriptEndRef} />
             </div>
           </div>
 
           <div className="shrink-0 border-t border-[#ECE7E1] bg-[#FAF8F5] p-3">
-            <CommandInput onSubmit={sendMessage} isThinking={isThinking} hasTasteSignal={hasCandidateResults || hasFeedback} currentRead={currentRead} hasSignalMap={Boolean(signalMap)} />
+            <CommandInput onSubmit={sendMessage} onActionClick={recordClickedAction} isThinking={isThinking} hasTasteSignal={hasCandidateResults || hasFeedback} currentRead={currentRead} hasSignalMap={Boolean(signalMap)} />
           </div>
         </div>
         </div>
@@ -827,7 +891,10 @@ function HomeCommandCenter({
         messages={messages}
         canonicalSearchState={canonicalSearchState}
         currentRead={currentRead}
-        onCurrentReadAction={sendMessage}
+        onCurrentReadAction={(value) => {
+          recordClickedAction(actionLabelFromPrompt(value), value, "right_rail");
+          sendMessage(value);
+        }}
       />
     </div>
   );
@@ -835,18 +902,28 @@ function HomeCommandCenter({
 
 function CommandInput({
   onSubmit,
+  onActionClick,
   isThinking,
   hasTasteSignal,
   currentRead,
   hasSignalMap
 }: {
   onSubmit: (value: string) => void;
+  onActionClick: (label: string, prompt: string, source: ClickedActionLog["source"]) => void;
   isThinking: boolean;
   hasTasteSignal: boolean;
   currentRead?: CurrentRead;
   hasSignalMap?: boolean;
 }) {
   const [value, setValue] = useState("");
+  const [isRecording, setIsRecording] = useState(false);
+  const [isUploadingAudio, setIsUploadingAudio] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [voiceError, setVoiceError] = useState("");
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<BlobPart[]>([]);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const cancelRecordingRef = useRef(false);
   const visibleChips = hasSignalMap
     ? [
         { label: "Build scorecard", prompt: "Build a lightweight scorecard from this signal map." },
@@ -857,10 +934,26 @@ function CommandInput({
       ]
     : actionButtonsForCurrentRead(currentRead, hasTasteSignal);
 
+  useEffect(() => {
+    if (!isRecording) return;
+
+    const intervalId = window.setInterval(() => {
+      setRecordingSeconds((seconds) => seconds + 1);
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [isRecording]);
+
+  useEffect(() => {
+    return () => {
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
+
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const content = value.trim();
-    if (!content || isThinking) return;
+    if (!content || isThinking || isRecording || isUploadingAudio) return;
     onSubmit(content);
     setValue("");
   }
@@ -873,9 +966,110 @@ function CommandInput({
 
     event.preventDefault();
     const content = value.trim();
-    if (!content || isThinking) return;
+    if (!content || isThinking || isRecording || isUploadingAudio) return;
     onSubmit(content);
     setValue("");
+  }
+
+  async function startRecording() {
+    if (isThinking || isRecording || isUploadingAudio) return;
+    setVoiceError("");
+
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setVoiceError("Voice recording is not supported in this browser.");
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaStreamRef.current = stream;
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+      cancelRecordingRef.current = false;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        const chunks = audioChunksRef.current;
+        const shouldCancel = cancelRecordingRef.current;
+        cleanupRecording();
+        if (!shouldCancel) {
+          void uploadRecording(chunks, mediaRecorder.mimeType || "audio/webm");
+        }
+      };
+
+      setRecordingSeconds(0);
+      setIsRecording(true);
+      mediaRecorder.start();
+    } catch (error) {
+      setVoiceError(isPermissionDenied(error) ? "Microphone permission was denied." : "Could not start recording. Please try again.");
+      cleanupRecording();
+    }
+  }
+
+  function stopRecording() {
+    if (!mediaRecorderRef.current || mediaRecorderRef.current.state === "inactive") return;
+    cancelRecordingRef.current = false;
+    mediaRecorderRef.current.stop();
+  }
+
+  function cancelRecording() {
+    cancelRecordingRef.current = true;
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    } else {
+      cleanupRecording();
+    }
+  }
+
+  function cleanupRecording() {
+    mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    mediaStreamRef.current = null;
+    mediaRecorderRef.current = null;
+    audioChunksRef.current = [];
+    setIsRecording(false);
+    setRecordingSeconds(0);
+  }
+
+  async function uploadRecording(chunks: BlobPart[], mimeType: string) {
+    if (!chunks.length) {
+      setVoiceError("I did not catch any audio. Try recording again.");
+      return;
+    }
+
+    setIsUploadingAudio(true);
+    setVoiceError("");
+
+    try {
+      const audioBlob = new Blob(chunks, { type: mimeType });
+      if (!audioBlob.size) {
+        setVoiceError("I did not catch any audio. Try recording again.");
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("audio", audioBlob, `tina-voice-memo.${audioExtensionForMimeType(mimeType)}`);
+
+      const response = await fetch("/api/tina-mvp/transcribe", {
+        method: "POST",
+        body: formData
+      });
+      const data = (await response.json()) as { transcript?: string; error?: string };
+      const transcript = data.transcript?.trim();
+
+      if (!response.ok || !transcript) {
+        throw new Error(data.error || "Transcription failed.");
+      }
+
+      setValue((current) => (current.trim() ? `${current.trim()}\n${transcript}` : transcript));
+    } catch (error) {
+      setVoiceError(error instanceof Error ? error.message : "Could not transcribe the voice memo.");
+    } finally {
+      setIsUploadingAudio(false);
+    }
   }
 
   return (
@@ -887,40 +1081,119 @@ function CommandInput({
         placeholder="Ask Tina anything about this hire..."
         className="min-h-14 w-full resize-none bg-transparent text-[13px] leading-5 text-[#171717] outline-none placeholder:text-[#9B9289]"
       />
+      {isRecording ? (
+        <div className="mt-2 rounded-lg border border-[#E7D8CB] bg-[#FFF8F1] px-3 py-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-xs font-medium text-[#7B4E27]">
+              <span className="h-2 w-2 rounded-full bg-[#D95336] shadow-[0_0_0_5px_rgba(217,83,54,0.12)]" />
+              Recording {formatRecordingTime(recordingSeconds)}
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={stopRecording}
+                className="inline-flex items-center gap-1.5 rounded-md bg-[#1E1E1E] px-2.5 py-1.5 text-xs font-medium text-white"
+              >
+                <Square className="h-3 w-3 fill-current" />
+                Stop
+              </button>
+              <button
+                type="button"
+                onClick={cancelRecording}
+                className="inline-flex items-center gap-1.5 rounded-md border border-[#E3D6CA] bg-white px-2.5 py-1.5 text-xs font-medium text-[#6B6259]"
+              >
+                <XCircle className="h-3.5 w-3.5" />
+                Cancel
+              </button>
+            </div>
+          </div>
+          <p className="mt-2 text-[11px] leading-4 text-[#8A6A55]">
+            Voice memos are transcribed to improve Tina. Don&apos;t include sensitive personal information.
+          </p>
+        </div>
+      ) : null}
+      {voiceError ? <p className="mt-2 text-[11px] font-medium leading-4 text-[#B34532]">{voiceError}</p> : null}
+      {isUploadingAudio ? <p className="mt-2 text-[11px] font-medium leading-4 text-[#6B6259]">Transcribing voice memo...</p> : null}
+      <p className="mt-2 text-[11px] leading-4 text-[#8A8178]">
+        Conversations may be reviewed to improve Tina. Don&apos;t include sensitive personal information.
+      </p>
       <div className="mt-3 flex flex-col gap-3 border-t border-[#ECE7E1] pt-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap gap-2">
           {visibleChips.map((chip) => (
             <button
               key={chip.label}
               type="button"
-              onClick={() => setValue(chip.prompt)}
+              onClick={() => {
+                onActionClick(chip.label, chip.prompt, "chat_input");
+                setValue(chip.prompt);
+              }}
               className="rounded-lg border border-[#E3DED7] bg-white px-3 py-1.5 text-xs font-medium text-[#625A52] shadow-[0_8px_18px_rgba(23,23,23,0.035)] transition hover:border-[#CFC4FF] hover:bg-[#F8F6FF] hover:text-[#4B28C9]"
             >
               {chip.label}
             </button>
           ))}
         </div>
-        <button
-          type="submit"
-          className="inline-flex items-center justify-center gap-2 rounded-md bg-[#1E1E1E] px-3.5 py-2 text-xs font-medium text-white shadow-[0_10px_28px_rgba(23,23,23,0.18)] transition hover:bg-[#262626] disabled:opacity-60"
-          disabled={isThinking}
-        >
-          Send
-          <ArrowRight className="h-4 w-4" />
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={startRecording}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-[#E3DED7] bg-white text-[#625A52] shadow-[0_8px_18px_rgba(23,23,23,0.045)] transition hover:border-[#D7C9FF] hover:bg-[#F8F6FF] hover:text-[#4B28C9] disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={isThinking || isRecording || isUploadingAudio}
+            aria-label="Record voice memo"
+            title="Record voice memo"
+          >
+            <Mic className="h-4 w-4" />
+          </button>
+          <button
+            type="submit"
+            className="inline-flex items-center justify-center gap-2 rounded-md bg-[#1E1E1E] px-3.5 py-2 text-xs font-medium text-white shadow-[0_10px_28px_rgba(23,23,23,0.18)] transition hover:bg-[#262626] disabled:opacity-60"
+            disabled={isThinking || isRecording || isUploadingAudio}
+          >
+            Send
+            <ArrowRight className="h-4 w-4" />
+          </button>
+        </div>
       </div>
     </form>
   );
 }
 
-function LeadingQuestionButtons({ onSubmit, isThinking }: { onSubmit: (value: string) => void; isThinking: boolean }) {
+function formatRecordingTime(seconds: number) {
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return `${minutes}:${String(remainder).padStart(2, "0")}`;
+}
+
+function audioExtensionForMimeType(mimeType: string) {
+  if (mimeType.includes("mp4")) return "mp4";
+  if (mimeType.includes("ogg")) return "ogg";
+  if (mimeType.includes("wav")) return "wav";
+  return "webm";
+}
+
+function isPermissionDenied(error: unknown) {
+  return error instanceof DOMException && (error.name === "NotAllowedError" || error.name === "PermissionDeniedError");
+}
+
+function LeadingQuestionButtons({
+  onSubmit,
+  onActionClick,
+  isThinking
+}: {
+  onSubmit: (value: string) => void;
+  onActionClick: (label: string, prompt: string, source: ClickedActionLog["source"]) => void;
+  isThinking: boolean;
+}) {
   return (
     <div className="ml-0 mt-1 flex max-w-full flex-wrap gap-2.5 sm:ml-10">
       {leadingQuestions.map((question, index) => (
         <button
           key={question.label}
           type="button"
-          onClick={() => onSubmit(question.prompt)}
+          onClick={() => {
+            onActionClick(question.label, question.prompt, "empty_state");
+            onSubmit(question.prompt);
+          }}
           disabled={isThinking}
           className="inline-flex max-w-full items-center gap-2 rounded-lg border border-[#E5E0DA] bg-white px-3 py-1.5 text-xs font-medium text-[#4B453F] shadow-[0_12px_30px_rgba(23,23,23,0.055)] transition hover:-translate-y-0.5 hover:border-[#CFC4FF] hover:bg-[#F8F6FF] hover:text-[#4B28C9] disabled:opacity-60"
         >
@@ -1567,7 +1840,7 @@ function toProfileLeadItem(threadId: string, batchId: string, lead: ProfileLead)
 
 function readProfileLeadStatus() {
   try {
-    const rawStatus = window.localStorage.getItem(PROFILE_LEAD_STATUS_STORAGE_KEY);
+    const rawStatus = window.sessionStorage.getItem(PROFILE_LEAD_STATUS_STORAGE_KEY);
     if (!rawStatus) return {};
     const parsed = JSON.parse(rawStatus) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
@@ -1580,7 +1853,7 @@ function readProfileLeadStatus() {
 
 function readStoredBrainStates() {
   try {
-    const rawStates = window.localStorage.getItem(BRAIN_STATE_STORAGE_KEY);
+    const rawStates = window.sessionStorage.getItem(BRAIN_STATE_STORAGE_KEY);
     if (!rawStates) return {};
     const parsed = JSON.parse(rawStates) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
@@ -1596,7 +1869,7 @@ function readStoredBrainStates() {
 
 function readStoredCanonicalSearchStates() {
   try {
-    const rawStates = window.localStorage.getItem(CANONICAL_SEARCH_STATE_STORAGE_KEY);
+    const rawStates = window.sessionStorage.getItem(CANONICAL_SEARCH_STATE_STORAGE_KEY);
     if (!rawStates) return {};
     const parsed = JSON.parse(rawStates) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
@@ -1612,7 +1885,7 @@ function readStoredCanonicalSearchStates() {
 
 function readStoredWorkingTheses() {
   try {
-    const rawStates = window.localStorage.getItem(WORKING_THESIS_STORAGE_KEY);
+    const rawStates = window.sessionStorage.getItem(WORKING_THESIS_STORAGE_KEY);
     if (!rawStates) return {};
     const parsed = JSON.parse(rawStates) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
@@ -1628,7 +1901,7 @@ function readStoredWorkingTheses() {
 
 function readStoredCurrentReads() {
   try {
-    const rawStates = window.localStorage.getItem(CURRENT_READ_STORAGE_KEY);
+    const rawStates = window.sessionStorage.getItem(CURRENT_READ_STORAGE_KEY);
     if (!rawStates) return {};
     const parsed = JSON.parse(rawStates) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
@@ -1644,7 +1917,7 @@ function readStoredCurrentReads() {
 
 function readStoredSignalMaps() {
   try {
-    const rawStates = window.localStorage.getItem(SIGNAL_MAP_STORAGE_KEY);
+    const rawStates = window.sessionStorage.getItem(SIGNAL_MAP_STORAGE_KEY);
     if (!rawStates) return {};
     const parsed = JSON.parse(rawStates) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
@@ -1660,7 +1933,7 @@ function readStoredSignalMaps() {
 
 function readStoredThreads() {
   try {
-    const rawThreads = window.localStorage.getItem(THREAD_STORAGE_KEY);
+    const rawThreads = window.sessionStorage.getItem(THREAD_STORAGE_KEY);
     if (!rawThreads) return [];
     const parsed = JSON.parse(rawThreads) as unknown;
     if (!Array.isArray(parsed)) return [];
@@ -1752,6 +2025,23 @@ function isSignalMapFresh(signalMap: SignalMap, currentRead?: CurrentRead) {
   return signalMap.derivedFromThesisTitle === (currentRead.likelyArchetype || currentRead.thesisTitle);
 }
 
+function collectHiringArtifacts(messages: TinaMvpMessage[]) {
+  return messages.flatMap((message) => message.hiringArtifact ? [message.hiringArtifact] : []);
+}
+
+function actionLabelFromPrompt(prompt: string) {
+  const clean = prompt.trim();
+  if (/scorecard/i.test(clean)) return "Build scorecard";
+  if (/interview plan/i.test(clean)) return "Create interview plan";
+  if (/candidate archetype/i.test(clean)) return "Define candidate archetype";
+  if (/market reality/i.test(clean)) return "Pressure-test market reality";
+  if (/sourcing strategy|search lanes/i.test(clean)) return "Build sourcing strategy";
+  if (/source|candidate|profile|people/i.test(clean)) return "Source against this thesis";
+  if (/ownership/i.test(clean)) return "Clarify ownership gap";
+  if (/compare/i.test(clean)) return "Compare role archetypes";
+  return clean.slice(0, 60) || "Planning action";
+}
+
 function isStoredCanonicalStateFresh(stored: CanonicalSearchState, fallback: CanonicalSearchState) {
   if (stored.lastUpdatedReason !== fallback.lastUpdatedReason) return false;
   if (fallback.roleTitle !== "Role forming" && stored.roleTitle !== fallback.roleTitle) return false;
@@ -1785,19 +2075,36 @@ function isTinaMessage(value: unknown): value is TinaMvpMessage {
   );
 }
 
-function createNewRoleThread(): ChatThread {
+function createNewRoleThread(sessionId?: string): ChatThread {
   const threadId = `thread-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
-  return createNewRoleThreadWithId(threadId);
+  return createNewRoleThreadWithId(threadId, sessionId);
 }
 
-function createNewRoleThreadWithId(threadId: string): ChatThread {
+function createNewRoleThreadWithId(threadId: string, sessionId?: string): ChatThread {
   return {
     id: threadId,
     title: "New role",
     time: "Just now",
-    messages: []
+    messages: [],
+    sessionId
   };
+}
+
+function getOrCreateAnonymousSessionId() {
+  try {
+    const existing = window.sessionStorage.getItem(SESSION_ID_STORAGE_KEY);
+    if (existing) return existing;
+
+    const randomId = typeof window.crypto?.randomUUID === "function"
+      ? window.crypto.randomUUID()
+      : `anon-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const sessionId = `anon-${randomId}`;
+    window.sessionStorage.setItem(SESSION_ID_STORAGE_KEY, sessionId);
+    return sessionId;
+  } catch {
+    return `anon-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  }
 }
 
 function isBlankNewRoleThread(thread: ChatThread) {

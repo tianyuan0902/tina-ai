@@ -6,7 +6,7 @@ import { actionButtonsForCurrentRead, buildCurrentRead, buildCurrentReadResponse
 import { buildFounderModel, buildFounderModelResponseSketch } from "../.tmp/eval-brain-state/lib/tina-mvp/founder-model.js";
 import { buildHiringArtifact } from "../.tmp/eval-brain-state/lib/tina-mvp/hiring-artifacts.js";
 import { buildReferenceProfileInsightFromText, buildReferenceProfileResponse, formatReferenceProfileInsightForPrompt, isReferenceProfileRequest } from "../.tmp/eval-brain-state/lib/tina-mvp/reference-profiles.js";
-import { buildSignalMap } from "../.tmp/eval-brain-state/lib/tina-mvp/signal-map.js";
+import { buildSignalMap, buildSignalMapResponse } from "../.tmp/eval-brain-state/lib/tina-mvp/signal-map.js";
 import { buildWorkingThesis, buildWorkingThesisResponseSketch, formatWorkingThesisForPrompt } from "../.tmp/eval-brain-state/lib/tina-mvp/working-thesis.js";
 import { TINA_SYSTEM_PROMPT } from "../.tmp/eval-brain-state/lib/tina-mvp/system-prompt.js";
 
@@ -162,6 +162,12 @@ if (!/Adaptive advisor engine/i.test(TINA_SYSTEM_PROMPT)) {
 }
 if (!/generate a working founder model/i.test(TINA_SYSTEM_PROMPT)) {
   throw new Error("system prompt should require a working founder model before responding.");
+}
+if (!/Chat is the short bridge; structured artifacts carry the detail/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should keep chat brief and move detail into structured artifacts.");
+}
+if (!/short confirmation after Tina proposes an artifact/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should turn artifact confirmations into concise artifact generation.");
 }
 if (!/Founder → Problem → Role reasoning/i.test(TINA_SYSTEM_PROMPT)) {
   throw new Error("system prompt should reason Founder → Problem → Role.");
@@ -455,6 +461,16 @@ const longFounderReadCases = [
     nextMove: /hiring plan|interview process|fractional recruiting/i
   },
   {
+    name: "Recruiter next-step language does not become capital allocation",
+    messages: [
+      { id: "recruiter-next-1", role: "founder", content: "I think we need our first recruiter." },
+      { id: "recruiter-next-2", role: "founder", content: "We have five important hires this year and interview loops are slow." },
+      { id: "recruiter-next-3", role: "founder", content: "What should we do next?" }
+    ],
+    expected: "Recruiting System Before Recruiter",
+    nextMove: /hiring plan|interview process|fractional recruiting|decision/i
+  },
+  {
     name: "Support reps hold root cause under urgency",
     messages: [
       { id: "support-1", role: "founder", content: "We need more support reps." },
@@ -568,6 +584,9 @@ const productSignalMap = buildSignalMap(buildCurrentRead({ messages: pmThesisMes
 expectEqual(productSignalMap.derivedFromThesisTitle, "Senior Ownership Gap", "PM progression signal map should derive from the evolved ownership thesis");
 expectIncludes(productSignalMap.mustProveSignals, /founder direction|judgment calls|founder dependency/i, "PM progression signal map should focus on ownership evidence");
 expectNotIncludes(productSignalMap.mustProveSignals, /generic Head of Engineering|large team/i, "PM progression signal map should not use unrelated generic criteria");
+const productSignalMapResponse = buildSignalMapResponse(productSignalMap);
+expectAtMost(productSignalMapResponse.split(/\s+/).filter(Boolean).length, 90, "signal map chat response should stay concise");
+expectNotIncludes([productSignalMapResponse], /Weak signals:\n-|False positives:\n-|Interview probes:\n-/i, "signal map chat response should not become a long report");
 console.log("PASS signal map thesis-specific criteria");
 
 const customerOpsSignalMap = buildSignalMap({ thesisTitle: "Support Load Root Cause" });

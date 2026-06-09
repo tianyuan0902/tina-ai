@@ -6,6 +6,7 @@ export type TinaStoredThread = {
   time: string;
   messages: TinaMvpMessage[];
   latestSynthesis?: string;
+  sessionId?: string;
 };
 
 type TinaThreadRow = {
@@ -45,19 +46,10 @@ export async function getStoredThreads() {
   return rows.map(fromRow);
 }
 
-export async function saveStoredThreads(threads: TinaStoredThread[]) {
+export async function saveStoredThreads(threads: TinaStoredThread[], sessionId?: string) {
   if (!isSupabaseConfigured()) return;
 
-  const rows = threads.map(toRow);
-  const deleteResponse = await fetch(
-    `${SUPABASE_URL}/rest/v1/tina_threads?workspace_id=eq.${encodeURIComponent(WORKSPACE_ID)}`,
-    {
-      method: "DELETE",
-      headers: supabaseHeaders()
-    }
-  );
-
-  if (!deleteResponse.ok) throw new Error(`Supabase delete failed: ${deleteResponse.status}`);
+  const rows = threads.map((thread) => toRow(thread, sessionId));
   if (!rows.length) return;
 
   const response = await fetch(`${SUPABASE_URL}/rest/v1/tina_threads?on_conflict=id`, {
@@ -90,14 +82,20 @@ function fromRow(row: TinaThreadRow): TinaStoredThread {
   };
 }
 
-function toRow(thread: TinaStoredThread) {
+function toRow(thread: TinaStoredThread, sessionId?: string) {
+  const anonymousSessionId = thread.sessionId || sessionId || "anon-unknown";
+  const storedId = thread.id.startsWith(`${anonymousSessionId}:`) ? thread.id : `${anonymousSessionId}:${thread.id}`;
+
   return {
-    id: thread.id,
+    id: storedId,
     workspace_id: WORKSPACE_ID,
     title: thread.title,
     time_label: thread.time,
     messages: thread.messages,
-    latest_synthesis: thread.latestSynthesis || null,
+    latest_synthesis: JSON.stringify({
+      anonymousSessionId,
+      summary: thread.latestSynthesis || null
+    }),
     updated_at: new Date().toISOString()
   };
 }

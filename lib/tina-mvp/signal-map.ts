@@ -285,21 +285,19 @@ export function formatSignalMapForPrompt(signalMap?: SignalMap) {
 }
 
 export function buildSignalMapResponse(signalMap: SignalMap) {
+  const mustProve = signalMap.mustProveSignals.slice(0, 2).join("; ");
+  const avoid = signalMap.falsePositives[0] || signalMap.weakSignals[0] || "title match without proof";
+  const test = signalMap.interviewProbes[0] || "Ask for one concrete example where they owned the real tension.";
+
   return [
-    "Yes. I’d use this as the signal map before looking at candidates.",
+    "Yes — I’d keep this tight.",
     "",
-    "Must prove:",
-    ...signalMap.mustProveSignals.map((signal) => `- ${signal}`),
+    `Must prove: ${mustProve}`,
     "",
-    "Weak signals:",
-    ...signalMap.weakSignals.slice(0, 2).map((signal) => `- ${signal}`),
+    `Watch out for: ${avoid}`,
     "",
-    "False positives:",
-    ...signalMap.falsePositives.slice(0, 2).map((signal) => `- ${signal}`),
+    `Test it with: ${test}`,
     "",
-    "Interview probes:",
-    ...signalMap.interviewProbes.slice(0, 2).map((probe) => `- ${probe}`),
-    "",
-    `Best archetype: ${signalMap.bestCandidateArchetype}`
+    `Best fit: ${signalMap.bestCandidateArchetype}`
   ].join("\n");
 }

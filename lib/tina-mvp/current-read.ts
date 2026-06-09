@@ -470,7 +470,7 @@ function isPlanningArtifactRequest(text: string) {
 }
 
 function inferArchetype(text: string, latestText: string, roleFamily: string): CurrentReadArchetype {
-  if (/\b(\$500k|500k|500,000|capital allocation|budget allocation|what should i do next|what should we do next)\b/i.test(text)) return "Capital Allocation Diagnosis";
+  if (isCapitalAllocationSignal(text)) return "Capital Allocation Diagnosis";
   if (isWorkflowBeforeAiHire(text)) return "Workflow Ownership Before AI Hire";
   if (isManagerEnablementGap(text)) return "Manager Enablement / Feedback Cadence Gap";
   if (isFounderControlProductGap(text)) return "Founder Control / Product Delegation Gap";
@@ -489,6 +489,12 @@ function inferArchetype(text: string, latestText: string, roleFamily: string): C
   if (/\b(urgent|asap|fast|yesterday|panic|lost|left|need now|quickly)\b/i.test(text) || /\b(urgent|asap|fast|panic|need now|quickly)\b/i.test(latestText)) return "Urgent Hiring Triage";
   if (roleFamily === "engineering") return "Engineering Leadership Bottleneck";
   return "Unknown / Needs Clarification";
+}
+
+function isCapitalAllocationSignal(text: string) {
+  const hasCapitalContext = /\b(\$500k|500k|500,000|capital allocation|budget allocation|budget|runway|cash|capital|allocate|spend|investment)\b/i.test(text);
+  const asksAllocation = /\b(what should i do next|what should we do next|how should (i|we) allocate|where should (i|we) spend|what should (i|we) spend)\b/i.test(text);
+  return hasCapitalContext && asksAllocation;
 }
 
 function isOperatingCadenceFounderDelegationGap(text: string) {
