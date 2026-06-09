@@ -297,7 +297,7 @@ export function getRequestedProfileCount(message: string) {
 
   if (numericMatch) return clampProfileBatchSize(Number(numericMatch[1]));
   if (wordMatch) return clampProfileBatchSize(wordCounts[wordMatch[1].toLowerCase()]);
-  if (/\b(a few|few|small batch|first batch)\b.*\b(profiles?|people|leads?|candidates?|targets?)\b/i.test(message)) return 5;
+  if (/\b(a few|few|small batch|first batch)\b.*\b(profiles?|people|leads?|candidates?|targets?)\b/i.test(message)) return 3;
 
   return DEFAULT_PROFILE_BATCH_SIZE;
 }

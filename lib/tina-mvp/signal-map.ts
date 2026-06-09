@@ -11,8 +11,22 @@ export type SignalMap = {
 };
 
 const FALLBACK_TITLE = "Unknown / Needs Clarification";
+const BANNED_WEAK_ITEM_PATTERNS = [
+  /\bspecific example\b/i,
+  /\bwas broken\b/i,
+  /\btitle match\b/i,
+  /\bstrong communicator\b/i,
+  /\bhas experience\b/i,
+  /\bleadership experience\b/i,
+  /\bmanaged(?:\s+\w+){0,3}\s+team\b/i,
+  /\bgood operator\b/i
+];
 
 export function buildSignalMap(currentRead?: CurrentRead, canonicalSearchState?: CanonicalSearchState): SignalMap {
+  return sanitizeSignalMap(buildRawSignalMap(currentRead, canonicalSearchState));
+}
+
+function buildRawSignalMap(currentRead?: CurrentRead, canonicalSearchState?: CanonicalSearchState): SignalMap {
   const thesisTitle = currentRead?.likelyArchetype || currentRead?.thesisTitle || FALLBACK_TITLE;
   const statedRole = currentRead?.statedRole || canonicalSearchState?.roleTitle || "this hire";
 
@@ -192,6 +206,31 @@ export function buildSignalMap(currentRead?: CurrentRead, canonicalSearchState?:
         ],
         bestCandidateArchetype: "Product leader who can take messy founder context, make product calls, and keep engineering moving without adding process theater."
       };
+    case "Founder Control / Product Delegation Gap":
+      return {
+        derivedFromThesisTitle: thesisTitle,
+        mustProveSignals: [
+          "Can own roadmap calls without founder rescue.",
+          "Can create a planning cadence founders will trust.",
+          "Can turn priority churn into stable product tradeoffs."
+        ],
+        weakSignals: [
+          "Polished product strategy without delegated authority.",
+          "Strong roadmap craft but weak founder trust-building.",
+          "PM process that adds meetings before decisions."
+        ],
+        falsePositives: [
+          "VP Product who needs a cleaner org than this one.",
+          "Senior PM who reports options instead of making calls.",
+          "Operator who follows founder taste too closely."
+        ],
+        interviewProbes: [
+          "Which roadmap decision did you take off a founder's plate?",
+          "How did you rebuild planning trust after priority churn?",
+          "What product call did you make with incomplete founder input?"
+        ],
+        bestCandidateArchetype: "Product leader who can earn founder trust, own roadmap decisions, and turn planning churn into a reliable cadence."
+      };
     case "Support Load Root Cause":
       return {
         derivedFromThesisTitle: thesisTitle,
@@ -216,6 +255,56 @@ export function buildSignalMap(currentRead?: CurrentRead, canonicalSearchState?:
           "Where did customer support insight change the product or onboarding?"
         ],
         bestCandidateArchetype: "Customer-facing operator who can reduce support demand by fixing the product, onboarding, or implementation loop."
+      };
+    case "Workflow Ownership Before AI Hire":
+      return {
+        derivedFromThesisTitle: thesisTitle,
+        mustProveSignals: [
+          "Can simplify the workflow before adding AI.",
+          "Can turn activation friction into product fixes.",
+          "Can use APIs without overbuilding a research team."
+        ],
+        weakSignals: [
+          "ML depth before workflow ownership.",
+          "Prototype demos without activation improvement.",
+          "Research skill disconnected from customer behavior."
+        ],
+        falsePositives: [
+          "ML PhD solving a product workflow problem.",
+          "AI builder who needs clean data too early.",
+          "Technical hire who skips onboarding diagnosis."
+        ],
+        interviewProbes: [
+          "Where did you simplify a workflow before automating it?",
+          "How did activation data change the product path?",
+          "When did you avoid hiring deep ML talent?"
+        ],
+        bestCandidateArchetype: "Workflow owner who can fix activation and apply AI pragmatically before the company needs deep research talent."
+      };
+    case "Capital Allocation Diagnosis":
+      return {
+        derivedFromThesisTitle: thesisTitle,
+        mustProveSignals: [
+          "Can identify the bottleneck before spending.",
+          "Can tie capital to runway and learning speed.",
+          "Can separate urgent pressure from highest-leverage bet."
+        ],
+        weakSignals: [
+          "Budget split before bottleneck clarity.",
+          "Hiring plan without runway context.",
+          "Tooling spend without operating diagnosis."
+        ],
+        falsePositives: [
+          "Role-first answer to a capital-allocation problem.",
+          "Equal budget spread that avoids the hard bet.",
+          "Hiring because cash is available."
+        ],
+        interviewProbes: [
+          "What breaks first if you spend none of it?",
+          "Which constraint most limits learning speed?",
+          "What bet would you reverse in 60 days?"
+        ],
+        bestCandidateArchetype: "This is not a hiring profile yet; the founder needs a capital decision tied to the real operating bottleneck."
       };
     case "Recruiting System Before Recruiter":
       return {
@@ -268,6 +357,108 @@ export function buildSignalMap(currentRead?: CurrentRead, canonicalSearchState?:
         bestCandidateArchetype: "High-ownership candidate who has solved the actual operating tension, not just performed the visible function."
       };
   }
+}
+
+function sanitizeSignalMap(signalMap: SignalMap): SignalMap {
+  const mustProveSignals = cleanSignalItems(signalMap.mustProveSignals, signalMap.derivedFromThesisTitle, "must").slice(0, 3);
+  const weakSignals = cleanSignalItems(signalMap.weakSignals, signalMap.derivedFromThesisTitle, "weak").slice(0, 3);
+  const falsePositives = cleanSignalItems(signalMap.falsePositives, signalMap.derivedFromThesisTitle, "false").slice(0, 3);
+  const interviewProbes = cleanSignalItems(signalMap.interviewProbes, signalMap.derivedFromThesisTitle, "test").slice(0, 3);
+
+  return {
+    derivedFromThesisTitle: signalMap.derivedFromThesisTitle,
+    mustProveSignals,
+    weakSignals,
+    falsePositives,
+    interviewProbes,
+    bestCandidateArchetype: cleanBestFit(signalMap.bestCandidateArchetype, signalMap.derivedFromThesisTitle)
+  };
+}
+
+function cleanSignalItems(items: string[], thesisTitle: string, column: "must" | "weak" | "false" | "test") {
+  const seen = new Set<string>();
+  const cleaned = items
+    .map((item) => rewriteWeakSignalItem(item, thesisTitle, column))
+    .map((item) => item.trim())
+    .filter((item) => isFounderReadableSignalItem(item))
+    .filter((item) => {
+      const key = item.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+  return cleaned.length ? cleaned : fallbackSignalItems(thesisTitle, column);
+}
+
+function rewriteWeakSignalItem(item: string, thesisTitle: string, column: "must" | "weak" | "false" | "test") {
+  const text = item.trim();
+  const thesis = thesisTitle.toLowerCase();
+  if (!BANNED_WEAK_ITEM_PATTERNS.some((pattern) => pattern.test(text))) return text;
+
+  if (column === "must") {
+    if (thesis.includes("product delegation")) return "Can own roadmap decisions without founder rescue.";
+    if (thesis.includes("support")) return "Can reduce repeated customer friction.";
+    if (thesis.includes("capital")) return "Can name the bottleneck before spending.";
+    return "Can prove ownership in the actual messy context.";
+  }
+
+  if (column === "test") {
+    if (thesis.includes("product delegation")) return "Which roadmap call did you own without founder input?";
+    if (thesis.includes("support")) return "Which support pattern did you make disappear?";
+    if (thesis.includes("capital")) return "What breaks first if no money is spent?";
+    return "Which hard decision did you own end-to-end?";
+  }
+
+  if (thesis.includes("product delegation")) return "Roadmap polish without decision transfer.";
+  if (thesis.includes("support")) return "Ticket coverage without root-cause fixes.";
+  if (thesis.includes("capital")) return "Spending plan without bottleneck clarity.";
+  return "Visible title signal without real ownership proof.";
+}
+
+function isFounderReadableSignalItem(item: string) {
+  const clean = item.trim();
+  if (!clean || clean.length < 12 || clean.length > 180) return false;
+  if (/\.\.\.|TODO|placeholder|\[[^\]]+\]/i.test(clean)) return false;
+  if (/^(how|what|tell)\s*$/i.test(clean)) return false;
+  return !BANNED_WEAK_ITEM_PATTERNS.some((pattern) => pattern.test(clean));
+}
+
+function fallbackSignalItems(thesisTitle: string, column: "must" | "weak" | "false" | "test") {
+  const thesis = thesisTitle.toLowerCase();
+  if (column === "test") {
+    if (thesis.includes("support")) return ["Which support pattern did you make disappear?"];
+    if (thesis.includes("product")) return ["Which decision did you take off the founder's plate?"];
+    if (thesis.includes("capital")) return ["What breaks first if no money is spent?"];
+    return ["Which hard decision did you own end-to-end?"];
+  }
+
+  if (column === "must") {
+    if (thesis.includes("support")) return ["Can reduce repeated customer friction."];
+    if (thesis.includes("product")) return ["Can own decisions without founder rescue."];
+    if (thesis.includes("capital")) return ["Can identify the bottleneck before spending."];
+    return ["Can prove ownership in messy context."];
+  }
+
+  if (thesis.includes("support")) return ["Ticket coverage without root-cause fixes."];
+  if (thesis.includes("product")) return ["Process polish without decision transfer."];
+  if (thesis.includes("capital")) return ["Budget split before bottleneck clarity."];
+  return ["Polish without ownership proof."];
+}
+
+function cleanBestFit(value: string, thesisTitle: string) {
+  const clean = value.replace(/\s+/g, " ").replace(/\.\.\./g, "").trim();
+  if (clean.length >= 24 && clean.length <= 180 && !/placeholder|TODO/i.test(clean)) return clean;
+  if (thesisTitle === "Founder Control / Product Delegation Gap") {
+    return "Product leader who earns founder trust and owns roadmap decisions without adding process theater.";
+  }
+  if (thesisTitle === "Support Load Root Cause") {
+    return "Customer-facing operator who reduces repeat support demand by fixing the product or onboarding loop.";
+  }
+  if (thesisTitle === "Capital Allocation Diagnosis") {
+    return "Not a hiring profile yet; first identify the operating bottleneck the money should unlock.";
+  }
+  return "High-ownership operator who has solved the real operating tension before.";
 }
 
 export function formatSignalMapForPrompt(signalMap?: SignalMap) {

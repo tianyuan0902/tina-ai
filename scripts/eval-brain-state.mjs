@@ -587,6 +587,31 @@ expectNotIncludes(productSignalMap.mustProveSignals, /generic Head of Engineerin
 const productSignalMapResponse = buildSignalMapResponse(productSignalMap);
 expectAtMost(productSignalMapResponse.split(/\s+/).filter(Boolean).length, 90, "signal map chat response should stay concise");
 expectNotIncludes([productSignalMapResponse], /Weak signals:\n-|False positives:\n-|Interview probes:\n-/i, "signal map chat response should not become a long report");
+
+const founderDelegationSignalMap = buildSignalMap(committedFounderControlRead);
+expectEqual(founderDelegationSignalMap.derivedFromThesisTitle, "Founder Control / Product Delegation Gap", "VP Product founder-control signal map should derive from committed thesis");
+expectIncludes(founderDelegationSignalMap.mustProveSignals, /roadmap|planning cadence|priority churn|founder/i, "VP Product signal map should focus on roadmap ownership and founder decision transfer");
+expectIncludes(founderDelegationSignalMap.interviewProbes, /roadmap|planning trust|founder input/i, "VP Product signal map should test planning cadence and founder transfer");
+
+const capitalSignalMap = buildSignalMap({ thesisTitle: "Capital Allocation Diagnosis" });
+expectIncludes([capitalSignalMap.bestCandidateArchetype], /not a hiring profile|operating bottleneck/i, "$500K allocation should not produce a hiring-role rubric");
+expectNotIncludes([...capitalSignalMap.mustProveSignals, ...capitalSignalMap.falsePositives], /scorecard|candidate|interview/i, "$500K signal map should stay capital-diagnosis oriented");
+
+const bannedSignalMapItems = [
+  ...engineeringSignalMap.mustProveSignals,
+  ...engineeringSignalMap.weakSignals,
+  ...engineeringSignalMap.falsePositives,
+  ...engineeringSignalMap.interviewProbes,
+  ...productSignalMap.mustProveSignals,
+  ...productSignalMap.weakSignals,
+  ...productSignalMap.falsePositives,
+  ...productSignalMap.interviewProbes,
+  ...founderDelegationSignalMap.mustProveSignals,
+  ...founderDelegationSignalMap.weakSignals,
+  ...founderDelegationSignalMap.falsePositives,
+  ...founderDelegationSignalMap.interviewProbes
+];
+expectNotIncludes(bannedSignalMapItems, /specific example|was broken|title match|strong communicator|has experience|leadership experience|managed .*team|good operator/i, "signal map items should not render banned weak phrases");
 console.log("PASS signal map thesis-specific criteria");
 
 const customerOpsSignalMap = buildSignalMap({ thesisTitle: "Support Load Root Cause" });

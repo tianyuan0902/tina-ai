@@ -956,6 +956,7 @@ function CommandInput({
     if (!content || isThinking || isRecording || isUploadingAudio) return;
     onSubmit(content);
     setValue("");
+    setVoiceError("");
   }
 
   function sendOnEnter(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -969,6 +970,12 @@ function CommandInput({
     if (!content || isThinking || isRecording || isUploadingAudio) return;
     onSubmit(content);
     setValue("");
+    setVoiceError("");
+  }
+
+  function updateDraft(nextValue: string) {
+    setValue(nextValue);
+    if (voiceError) setVoiceError("");
   }
 
   async function startRecording() {
@@ -1076,7 +1083,7 @@ function CommandInput({
     <form onSubmit={submit} className="rounded-xl border border-[#E2DDD6] bg-white p-3 shadow-[0_18px_48px_rgba(23,23,23,0.07)] transition focus-within:border-[#BBAEFF] focus-within:shadow-[0_22px_60px_rgba(91,53,213,0.09)]">
       <textarea
         value={value}
-        onChange={(event) => setValue(event.target.value)}
+        onChange={(event) => updateDraft(event.target.value)}
         onKeyDown={sendOnEnter}
         placeholder="Ask Tina anything about this hire..."
         className="min-h-14 w-full resize-none bg-transparent text-[13px] leading-5 text-[#171717] outline-none placeholder:text-[#9B9289]"
@@ -1125,7 +1132,7 @@ function CommandInput({
               type="button"
               onClick={() => {
                 onActionClick(chip.label, chip.prompt, "chat_input");
-                setValue(chip.prompt);
+                updateDraft(chip.prompt);
               }}
               className="rounded-lg border border-[#E3DED7] bg-white px-3 py-1.5 text-xs font-medium text-[#625A52] shadow-[0_8px_18px_rgba(23,23,23,0.035)] transition hover:border-[#CFC4FF] hover:bg-[#F8F6FF] hover:text-[#4B28C9]"
             >
