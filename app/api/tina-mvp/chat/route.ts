@@ -1300,14 +1300,21 @@ function buildSourcingRefinementDebug(refinementSummary: string, messages: TinaM
   const positivePatterns = extractRefinementSections(refinementSummary, "Positive signals");
   const negativePatterns = extractRefinementSections(refinementSummary, "Negative signals");
   const excludedUrls = collectShownProfileUrls(messages);
+  const conversationContext = messages.map((message) => message.content).join("\n");
+  const isFounderLedSalesRefinement = /founder-led sales transition|founder led sales|founder still closes|not repeatable|repeatable sales motion|first gtm|founding ae|early sales lead|sales builder|vp sales/i.test(`${conversationContext}\n${refinementSummary}`);
+  const locationConstraint = extractKnownSalesLocation(`${conversationContext}\n${refinementSummary}`);
   const updatedSearchThesis = [
+    isFounderLedSalesRefinement ? `Stay anchored on Founder-Led Sales Transition: first GTM hires, founding AEs, early sales leads, sales builders, player-coach AEs, and people who built repeatable sales motion from founder selling${locationConstraint ? ` in ${locationConstraint}` : ""}.` : "",
     positivePatterns.length ? `Bias toward ${compactPatternList(positivePatterns)}.` : "",
     negativePatterns.length ? `Avoid ${compactPatternList(negativePatterns)}.` : "",
+    isFounderLedSalesRefinement ? "Do not drift into founder office, generic startup operator, product operator, or AI operator lanes." : "",
     "Find novel public profiles only."
   ].filter(Boolean).join(" ");
-  const queryHints = extractQueryHints([...positivePatterns, updatedSearchThesis]);
+  const queryHints = isFounderLedSalesRefinement
+    ? extractQueryHints([...positivePatterns, updatedSearchThesis]).filter(isFounderLedSalesQueryHint)
+    : extractQueryHints([...positivePatterns, updatedSearchThesis]);
   const updatedQueries = queryHints.length
-    ? queryHints.slice(0, 5).map((hint) => `site:linkedin.com/in "${hint}" "startup"`)
+    ? queryHints.slice(0, 5).map((hint) => buildRefinementQuery(hint, locationConstraint, isFounderLedSalesRefinement))
     : undefined;
   const debugObject = {
     positivePatterns,
@@ -1322,6 +1329,25 @@ function buildSourcingRefinementDebug(refinementSummary: string, messages: TinaM
   }
 
   return debugObject;
+}
+
+function isFounderLedSalesQueryHint(value: string) {
+  return /\b(first gtm|first sales hire|founding ae|founding account executive|early sales lead|sales builder|player-coach ae|founder-led sales|repeatable sales)\b/i.test(value);
+}
+
+function buildRefinementQuery(hint: string, locationConstraint: string, isFounderLedSalesRefinement: boolean) {
+  if (isFounderLedSalesRefinement) {
+    return `site:linkedin.com/in "${hint}" "founder-led sales" "startup"${locationConstraint ? ` "${locationConstraint}"` : ""} -"founder office" -"chief of staff" -"product operator" -"AI operator"`;
+  }
+
+  return `site:linkedin.com/in "${hint}" "startup"`;
+}
+
+function extractKnownSalesLocation(value: string) {
+  if (/\bremote\s+(us|u\.s\.|united states)|\bus\s+remote\b/i.test(value)) return "Remote US";
+  if (/\bbay area|san francisco|sf\b/i.test(value)) return "Bay Area";
+  if (/\bunited states|u\.s\.|usa\b/i.test(value)) return "United States";
+  return "";
 }
 
 function extractRefinementSections(summary: string, label: string) {
@@ -1347,6 +1373,10 @@ function compactPatternList(patterns: string[]) {
 function extractQueryHints(values: string[]) {
   const text = values.join(" ").toLowerCase();
   const hints = [
+    /\b(first gtm hire|first gtm|first sales hire)\b/i,
+    /\b(founding ae|founding account executive)\b/i,
+    /\b(early sales lead|sales builder|player-coach ae)\b/i,
+    /\b(founder-led sales|repeatable sales motion|repeatable sales)\b/i,
     /\b(ai product engineer|applied ai engineer|founding ai engineer)\b/i,
     /\b(founder office|chief of staff|startup operator|bizops)\b/i,
     /\b(founding product manager|product operator|product lead)\b/i,

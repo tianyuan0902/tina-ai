@@ -14,7 +14,7 @@ const SEARCH_TERMS = {
   engLeadership: ["Head of Engineering", "VP Engineering", "Director of Engineering", "Engineering Manager", "Engineering Lead"],
   operator: ["startup operator", "founder office operator"],
   design: ["founding product designer", "product designer"],
-  gtm: ["founding account executive", "startup gtm", "sales leader", "growth operator"],
+  gtm: ["first GTM hire", "founding AE", "early sales lead", "sales builder", "player-coach AE", "founder-led sales"],
   web3: ["Solidity engineer", "smart contract engineer", "DeFi engineer", "protocol engineer"],
   plant: ["plant manager", "manufacturing operations manager", "operations director", "quality operations leader"]
 };
@@ -60,6 +60,10 @@ export function buildPublicTalentSearchQueries(hiringContext: string, refinement
     return buildAiInfrastructureQueries(text);
   }
 
+  if (canonicalFamily === "gtm" || isFounderLedSalesSearch(text)) {
+    return buildFounderLedSalesQueries(text, refinement);
+  }
+
   if (canonicalFamily === "engineering" || engineeringSearch) {
     const engineeringTerms = roleTerms.some((term) => /\bengineer|developer\b/i.test(term))
       ? roleTerms
@@ -85,6 +89,28 @@ export function buildPublicTalentSearchQueries(hiringContext: string, refinement
 
 export function buildExpandedPublicTalentSearchQueries(hiringContext: string, pass: "adjacent" | "domain") {
   const text = hiringContext.toLowerCase();
+
+  if (isFounderLedSalesSearch(text) || inferCanonicalRoleFamily(text) === "gtm") {
+    const { primary, secondary } = inferFounderLedSalesMarkets(text);
+
+    if (pass === "adjacent") {
+      return [
+        `site:linkedin.com/in "first GTM hire" "founder-led sales" "${primary}"`,
+        `site:linkedin.com/in "founding AE" "repeatable sales" "${secondary || primary}"`,
+        `site:linkedin.com/in "early sales lead" "founder-led" "startup"`,
+        `site:linkedin.com/in "player-coach AE" "startup" "${primary}"`,
+        `site:linkedin.com/in "sales builder" "first sales hire" "seed"`
+      ];
+    }
+
+    return [
+      `site:linkedin.com/in "built repeatable sales motion" "founder-led sales"`,
+      `site:linkedin.com/in "first sales hire" "Series A" "startup" "${primary}"`,
+      `site:linkedin.com/in "GTM lead" "founder-led sales" "pipeline"`,
+      `site:linkedin.com/in "sales builder" "repeatable motion" "${secondary || "Bay Area"}"`,
+      `site:linkedin.com/in "founding account executive" "startup" "outbound"`
+    ];
+  }
 
   if (isAiInfrastructureSearch(text)) {
     const location = inferLocationTerm(text) || "San Francisco";
@@ -143,10 +169,28 @@ function buildEngineeringLeadershipQueries(text: string) {
   ].slice(0, 5);
 }
 
+function buildFounderLedSalesQueries(text: string, refinement?: PublicTalentSearchRefinement) {
+  const { primary, secondary } = inferFounderLedSalesMarkets(text);
+  const positiveTerm = compactPatternTerm(refinement?.positivePatterns?.[0] || refinement?.updatedSearchThesis || "");
+  const qualifier = positiveTerm || "repeatable sales motion";
+
+  return [
+    `site:linkedin.com/in "first GTM hire" "founder-led sales" "${primary}" -\"founder office\" -\"chief of staff\" -\"product operator\" -\"AI operator\"`,
+    `site:linkedin.com/in "founding AE" "built repeatable sales motion" "${secondary || primary}" -\"late-stage\" -\"enterprise sales manager\"`,
+    `site:linkedin.com/in "early sales lead" "founder-led" "startup" "${qualifier}"`,
+    `site:linkedin.com/in "sales builder" "first sales hire" "seed" "${primary}"`,
+    `site:linkedin.com/in "player-coach AE" "startup" "repeatable sales"`
+  ].slice(0, 5);
+}
+
 function isEngineeringSearch(text: string) {
   if (inferCanonicalRoleFamily(text) === "engineering") return true;
   if (/\b(pm|product manager|founding pm|head of product|product lead|account executive|sales|gtm|chief of staff|operator)\b/.test(text)) return false;
   return /\b(engineer|developer|software|full-stack|full stack|backend|frontend|ml engineer|ai engineer|product engineer|founding engineer|solidity|smart contract|technical founder)\b/.test(text);
+}
+
+function isFounderLedSalesSearch(text: string) {
+  return /\b(founder-led sales transition|founder led sales transition|founder-led sales|founder led sales|founder still closes|founder closes|not repeatable|repeatable sales motion|first gtm|first sales hire|founding ae|early sales lead|sales builder|player-coach ae|vp sales|head of sales)\b/.test(text);
 }
 
 function isPlantSearch(text: string) {
@@ -171,11 +215,25 @@ function isEngineeringLeadershipSearch(text: string) {
 }
 
 function inferLocationTerm(text: string) {
+  if (/\bremote\s+(us|u\.s\.|united states)|\bus\s+remote\b/.test(text)) return "Remote US";
+  if (/\bbay area\b/.test(text)) return "Bay Area";
+  if (/\bunited states|u\.s\.| usa | us\b/.test(text)) return "United States";
   if (/\bpeoria\b/.test(text)) return "Peoria Illinois";
   if (/\bchicago\b/.test(text)) return "Chicago";
   if (/\bindianapolis\b/.test(text)) return "Indianapolis";
   if (/\bsf|san francisco|bay area\b/.test(text)) return "San Francisco";
   return "";
+}
+
+function inferFounderLedSalesMarkets(text: string) {
+  const remoteUs = /\bremote\s+(us|u\.s\.|united states)|\bus\s+remote\b/.test(text);
+  const bayArea = /\bbay area|sf|san francisco\b/.test(text);
+
+  if (remoteUs && bayArea) return { primary: "Remote US", secondary: "Bay Area" };
+  if (remoteUs) return { primary: "Remote US", secondary: "" };
+  if (bayArea) return { primary: "Bay Area", secondary: "San Francisco" };
+
+  return { primary: inferLocationTerm(text) || "United States", secondary: "" };
 }
 
 function inferPlantDomainTerm(text: string) {
@@ -205,8 +263,8 @@ function inferRoleTerms(text: string) {
   if (canonicalFamily === "engineering" && /\b(infrastructure|platform|systems|backend)\b/.test(text)) return SEARCH_TERMS.backend;
   if (canonicalFamily === "engineering") return ["software engineer", "founding engineer", "product engineer", "full-stack engineer", "ML engineer"];
   if (canonicalFamily === "product") return SEARCH_TERMS.product;
+  if (canonicalFamily === "gtm" || isFounderLedSalesSearch(text) || /\b(gtm|sales|account executive|ae|revenue)\b/.test(text)) return SEARCH_TERMS.gtm;
   if (/\b(operator|ops|operations|chief of staff|founder office)\b/.test(text)) return SEARCH_TERMS.operator;
-  if (/\b(gtm|sales|account executive|ae|growth|revenue)\b/.test(text)) return SEARCH_TERMS.gtm;
   if (explicitProductRole) return SEARCH_TERMS.product;
   if (explicitEngineeringRole && /\b(solidity|smart contract|smartcontract|web3|defi|protocol|mainnet)\b/.test(text)) return SEARCH_TERMS.web3;
   if (/\b(design|designer)\b/.test(text)) return SEARCH_TERMS.design;
@@ -230,7 +288,7 @@ function compactPatternTerm(value: string) {
     .replace(/[;|]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  const match = cleaned.match(/\b(founder(?:[-\s]adjacent)?|customer-facing|product judgment|startup|operator|ai|llm|builder|clarity|ownership|workflow|evals?)\b/i);
+  const match = cleaned.match(/\b(first gtm hire|first gtm|founding ae|early sales lead|sales builder|player-coach ae|founder[-\s]led sales|repeatable sales motion|repeatable sales|founder(?:[-\s]adjacent)?|customer-facing|product judgment|startup|operator|ai|llm|builder|clarity|ownership|workflow|evals?)\b/i);
 
   return match?.[0] || "";
 }

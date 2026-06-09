@@ -219,6 +219,30 @@ function mapToProfileLead(result: TavilyLikeResult, query: string, hiringContext
 function mockPublicSearchResults(queries: string[], hiringContext: string): TavilyLikeResult[] {
   const isAI = /\b(ai|llm|model|agent|machine learning|ml)\b/i.test(hiringContext);
   const isOperator = /\b(operator|ops|operations|chief of staff)\b/i.test(hiringContext);
+  const isFounderLedSales = isFounderLedSalesContext(hiringContext) || /canonical role family:\s*gtm/i.test(hiringContext);
+
+  if (isFounderLedSales) {
+    return [
+      {
+        title: "Jordan Lee - First GTM Hire / Founding AE",
+        url: "https://www.linkedin.com/in/jordan-lee-first-gtm",
+        content: `Mock result for ${queries[0]}. First GTM hire who helped move founder-led sales into a repeatable early startup sales motion across remote US and Bay Area customers.`,
+        synthetic: true
+      },
+      {
+        title: "Priya Shah - Early Sales Lead, Startup Sales Builder",
+        url: "https://www.linkedin.com/in/priya-shah-sales-builder",
+        content: `Mock result for ${queries[1]}. Early sales lead and player-coach AE background, built repeatable outbound and founder handoff from seed to Series A.`,
+        synthetic: true
+      },
+      {
+        title: "Marcus Chen - Founding Account Executive",
+        url: "https://www.linkedin.com/in/marcus-chen-founding-ae",
+        content: `Mock result for ${queries[2]}. Founding AE with startup GTM motion, owner of first repeatable pipeline, founder-led sales transition, and customer discovery loops.`,
+        synthetic: true
+      }
+    ];
+  }
 
   if (isOperator) {
     return [
@@ -504,8 +528,8 @@ function hasClearEngineeringEvidence(text: string) {
 }
 
 function classifyEvidenceStrength(text: string, lead: ProfileLead): "strong" | "medium" | "weak" {
-  const strongSignals = /\b(shipped|built|launched|owned|github|repo|mainnet|production|founding engineer|product manager|head of product|engineer)\b/.test(text);
-  const mediumSignals = /\b(product|customer|startup|founding|workflow|ai|ml|operator|design|sales)\b/.test(text);
+  const strongSignals = /\b(shipped|built|launched|owned|github|repo|mainnet|production|founding engineer|product manager|head of product|engineer|first gtm|first sales hire|founding ae|founding account executive|repeatable sales|founder-led sales|sales builder)\b/.test(text);
+  const mediumSignals = /\b(product|customer|startup|founding|workflow|ai|ml|operator|design|sales|gtm|account executive|revenue)\b/.test(text);
 
   if (lead.confidence === "high" && strongSignals) return "strong";
   if (strongSignals || (lead.confidence !== "low" && mediumSignals)) return "medium";
@@ -518,7 +542,15 @@ function filteredReasonFor(requestedFunction: RoleFunction, actualFunction: Role
   return `unclear ${requestedFunction} evidence`;
 }
 
+function isFounderLedSalesContext(value: string) {
+  return /\b(founder-led sales transition|founder led sales transition|founder-led sales|founder led sales|founder still closes|founder closes|not repeatable|repeatable sales motion|first gtm|first sales hire|founding ae|founding account executive|early sales lead|sales builder|player-coach ae|vp sales|head of sales)\b/i.test(value);
+}
+
 function buildFitReason(hiringContext: string, snippet: string) {
+  if (isFounderLedSalesContext(hiringContext)) {
+    return "Possible fit because the public result points to first-GTM or founder-led sales transition work, not just sales management.";
+  }
+
   if (/\b(plant manager|manufacturing|factory|production manager|quality operations|medical device|pharma|fda|iso)\b/i.test(hiringContext)) {
     return "Possible fit because the public result overlaps with manufacturing operations or regulated plant leadership.";
   }
@@ -552,7 +584,13 @@ function buildTags(hiringContext: string, snippet: string) {
   const text = `${hiringContext} ${snippet}`.toLowerCase();
   const canonicalEngineering = /canonical role family:\s*engineering/i.test(hiringContext);
   const canonicalProduct = /canonical role family:\s*product/i.test(hiringContext);
+  const canonicalGtm = /canonical role family:\s*gtm/i.test(hiringContext) || isFounderLedSalesContext(hiringContext);
   const tags = [];
+
+  if (canonicalGtm || /\b(first gtm|founding ae|early sales lead|sales builder|founder-led sales|repeatable sales)\b/.test(text)) {
+    tags.push("first GTM", "founder-led sales", "repeatable motion");
+    return tags.slice(0, 4);
+  }
 
   if (/\b(ai|llm|machine learning|ml|agent)\b/.test(text)) tags.push("AI");
   if (canonicalEngineering || /\b(infrastructure|backend|platform|systems|software engineer|developer|github)\b/.test(text)) tags.push("engineering");
@@ -640,8 +678,8 @@ function inferTargetLane(hiringContext: string) {
   if (/canonical role family:\s*product/i.test(text)) return "product";
   if (/canonical role family:\s*design/i.test(text)) return "design";
   if (/canonical role family:\s*gtm/i.test(text)) return "gtm";
+  if (isFounderLedSalesContext(text) || /\b(gtm|sales|account executive|ae|revenue)\b/.test(text)) return "gtm";
   if (/\b(operator|ops|operations|chief of staff|founder office)\b/.test(text)) return "operator";
-  if (/\b(gtm|sales|account executive|ae|growth|revenue)\b/.test(text)) return "gtm";
   if (explicitProductRole) return "product";
   if (explicitEngineeringRole && /\b(solidity|smart contract|smartcontract|web3|defi|protocol|mainnet)\b/.test(text)) return "web3";
   if (/\b(design|designer)\b/.test(text)) return "design";
@@ -661,7 +699,10 @@ function scoreResult(result: TavilyLikeResult, target: string) {
     plant: [/\b(plant manager|manufacturing|factory|production manager|quality operations|fda|iso|medical device|pharma)\b/],
     operator: [/\b(operator|operations|chief of staff|founder office|bizops|business operations)\b/],
     design: [/\b(product designer|founding designer|design lead|ux|ui)\b/],
-    gtm: [/\b(gtm|sales|account executive|revenue|growth|go-to-market)\b/],
+    gtm: [
+      /\b(gtm|sales|account executive|revenue|go-to-market)\b/,
+      /\b(first gtm|first sales hire|founding ae|founding account executive|early sales lead|sales builder|player-coach|repeatable sales|founder-led sales)\b/
+    ],
     web3: [/\b(solidity|smart contract|smartcontract|web3|defi|protocol|mainnet|ethereum)\b/, /\b(engineer|developer|security|audit)\b/],
     general: [/\b(startup|founding|early stage|builder|operator)\b/]
   };

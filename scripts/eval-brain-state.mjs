@@ -1091,6 +1091,48 @@ const canonicalCases = [
       expectEqual(state.location, "United States", "US should normalize to United States");
       expectNotIncludes(state.mustHaveSignals, /shipping proof|technical ownership/i, "scope chips should not invent strong proof signals");
     }
+  },
+  {
+    name: "founder-led sales calibration lane stays GTM",
+    messages: [
+      { id: "founder-sales-1", role: "founder", content: "We need a VP Sales." },
+      { id: "founder-sales-2", role: "founder", content: "Founder still closes most deals." },
+      { id: "founder-sales-3", role: "founder", content: "Sales motion is not repeatable." },
+      { id: "founder-sales-4", role: "founder", content: "Remote US, Bay Area plus." },
+      { id: "founder-sales-5", role: "founder", content: "Show me 3 calibration profiles." }
+    ],
+    assert(state) {
+      const context = [
+        `Canonical search state:\n${formatCanonicalSearchStateForPrompt(state)}`,
+        "Current Read: Founder-Led Sales Transition",
+        "Founder still closes most deals.",
+        "Sales motion is not repeatable.",
+        "Remote US, Bay Area plus."
+      ].join("\n");
+      const queries = buildPublicTalentSearchQueries(context).join("\n");
+      const positiveQueryText = queries.replace(/-"[^"]+"/g, "");
+      const refinedQueries = buildPublicTalentSearchQueries(context, {
+        positivePatterns: [
+          "first GTM hires",
+          "founder-led sales builders",
+          "built repeatable motion from founder selling"
+        ],
+        negativePatterns: [
+          "late-stage VP Sales",
+          "enterprise sales managers",
+          "people who only managed reps after process existed"
+        ],
+        updatedSearchThesis: "Bias toward first GTM hires and founder-led sales builders. Avoid late-stage VP Sales and enterprise sales managers."
+      }).join("\n");
+      const positiveRefinedQueryText = refinedQueries.replace(/-"[^"]+"/g, "");
+
+      expectEqual(state.roleFamily, "gtm", "founder-led sales request should be GTM");
+      expectIncludes([queries], /first GTM|founding AE|early sales lead|sales builder|player-coach|founder-led sales|repeatable sales/i, "sales-transition queries should target first-GTM lanes");
+      expectIncludes([queries], /Remote US|Bay Area/i, "sales-transition queries should preserve remote US / Bay Area constraint");
+      expectNotIncludes([positiveQueryText], /founder office|startup operator|product operator|AI operator/i, "sales-transition queries should not drift into operator lanes");
+      expectIncludes([refinedQueries], /first GTM|founding AE|sales builder|founder-led sales|repeatable sales/i, "feedback refinement should stay in founder-led sales lanes");
+      expectNotIncludes([positiveRefinedQueryText], /founder office|startup operator|product operator|AI operator/i, "feedback refinement should not reintroduce generic operator lanes");
+    }
   }
 ];
 
