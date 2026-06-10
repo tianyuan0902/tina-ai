@@ -122,6 +122,8 @@ export function formatCanonicalSearchStateForPrompt(state: CanonicalSearchState)
 
 function classifyRoleFamily(value: string): CanonicalRoleFamily {
   const text = value.toLowerCase();
+  if (/\bnot people hire\b/.test(text) && /\b(sales|gtm|account executive|ae\b|revenue)\b/.test(text)) return "gtm";
+  if (/\b(people-ish|peopleish|people who feel|people.*right shape|show me.*people|people.*examples?|react to something)\b/.test(text)) return "other";
   if (/\b(plant manager|plant|factory|manufacturing|production manager|quality operations|fda|iso|medical device|pharma|regulated manufacturing)\b/.test(text)) return "manufacturing operations";
   if (isEngineeringLeadershipText(text)) return "engineering";
   if (/\b(engineer|eng\b|software|developer|backend|frontend|full[-\s]?stack|infrastructure|platform|devops|sre|ml engineer|ai engineer|product eng|founding engineer)\b/.test(text)) return "engineering";
@@ -149,6 +151,7 @@ function leadMatchesCanonicalState(lead: ProfileLead, family: CanonicalRoleFamil
 }
 
 function locationMatchesLead(text: string, location: string) {
+  if (/remote us \/ bay area plus/i.test(location)) return /\b(remote|distributed|united states|u\.s\.|usa|sf|san francisco|bay area|palo alto|menlo park|mountain view|san jose)\b/.test(text);
   if (/san francisco|sf bay area/i.test(location)) return /\b(sf|san francisco|bay area|palo alto|menlo park|mountain view|san jose)\b/.test(text);
   if (/peoria/i.test(location)) return /\bpeoria|illinois|midwest\b/.test(text);
   if (/remote/i.test(location)) return /\bremote|distributed\b/.test(text);
@@ -185,6 +188,11 @@ function inferCanonicalRoleTitle(founderText: string, latestFounder: string, fam
 function inferExplicitRoleTitle(value: string) {
   const text = value;
   const lower = text.toLowerCase();
+  if (/\b(vp sales|vp of sales)\b/.test(lower)) return "VP Sales";
+  if (/\b(head of sales)\b/.test(lower)) return "Head of Sales";
+  if (/\b(sales person|salesperson|sales hire)\b/.test(lower)) return "Sales Hire";
+  if (/\b(first gtm hire|first sales hire)\b/.test(lower)) return "First GTM Hire";
+  if (/\bfounding ae|founding account executive\b/.test(lower)) return "Founding AE";
   if (/\b(head of eng|head of engineering)\b/.test(lower)) return "Head of Engineering";
   if (/\b(vp engineering|vp of engineering)\b/.test(lower)) return "VP Engineering";
   if (/\b(engineering manager|eng manager)\b/.test(lower)) return "Engineering Manager";
@@ -211,6 +219,8 @@ function inferExplicitRoleTitle(value: string) {
 
 function inferCanonicalLocation(value: string) {
   const text = value.toLowerCase();
+  if (/\b(sf|san francisco|bay area)\b/.test(text) && /\b(remote|anywhere|distributed)\b/.test(text)) return "Remote US / Bay Area plus";
+  if (/\bremote\s+(us|u\.s\.|united states)|\bus\s+remote\b/.test(text)) return "Remote US";
   if (/\bpeoria\b/.test(text)) return "Peoria, IL";
   if (/\bsf|san francisco|bay area\b/.test(text)) return "San Francisco";
   if (/\bnyc|new york\b/.test(text)) return "New York";
@@ -251,6 +261,11 @@ function inferMustHaveSignals(text: string, family: CanonicalRoleFamily) {
     if (/\bproduct judgment|judgment|prioritization|tradeoff|trade-off\b/.test(text)) signals.push("product judgment");
     if (/\bcustomer|user|activation|onboarding|conversion\b/.test(text)) signals.push("customer signal");
   }
+  if (family === "gtm") {
+    if (/\bfounder.*clos|founder-led sales|founder led sales|vision|demo\b/.test(text)) signals.push("founder-led selling");
+    if (/\brepeatable|not predictable|predictable|sales motion|motion\b/.test(text)) signals.push("repeatable sales motion");
+    if (/\bcall|deal|pipeline|customer\b/.test(text)) signals.push("customer-facing sales proof");
+  }
   if (/\bhealthcare|medical device|fda|iso|regulated\b/.test(text)) signals.push("regulated environment");
   if (/\brapid|scale|asap|urgent\b/.test(text)) signals.push("scale-up pace");
   return unique(signals);
@@ -267,11 +282,43 @@ function inferNiceToHaveSignals(text: string, family: CanonicalRoleFamily) {
 
 function inferExclusions(text: string, family: CanonicalRoleFamily) {
   const exclusions: string[] = [];
+  exclusions.push(...inferNegatedRoleExclusions(text));
   if (family === "manufacturing operations") exclusions.push("generic startup operator", "pure GTM", "finance-only profile");
   if (family === "engineering" && isEngineeringLeadershipText(text)) exclusions.push("IC-only software engineer", "manager without technical judgment", "GTM-only profile");
   else if (family === "engineering") exclusions.push("founder office without building proof", "GTM-only profile");
+  if (family === "gtm") {
+    if (/\bnot people hire|not.*people\b/.test(text)) exclusions.push("people/recruiting profile");
+    if (/\bbig company|corporate|whole machine|machine already working|late-stage|late stage\b/.test(text)) exclusions.push("late-stage VP who needs a mature machine");
+    exclusions.push("founder office / generic operator");
+  }
   if (/\bnot pm|not product\b/.test(text)) exclusions.push("product-only profile");
   return unique(exclusions);
+}
+
+function inferNegatedRoleExclusions(text: string) {
+  const exclusions: string[] = [];
+  const negated = (pattern: RegExp) => pattern.test(text);
+
+  if (negated(/\b(not|no|isn['’]?t|is not|don['’]?t want|do not want)\b.{0,28}\b(people|recruiter|recruiting|hr|people ops)\b/i)) {
+    exclusions.push("people/recruiting profile");
+  }
+  if (negated(/\b(not|no|isn['’]?t|is not|don['’]?t want|do not want)\b.{0,28}\b(pm|product manager|product)\b/i)) {
+    exclusions.push("product-only profile");
+  }
+  if (negated(/\b(not|no|isn['’]?t|is not|don['’]?t want|do not want)\b.{0,28}\b(engineer|engineering|technical|developer)\b/i)) {
+    exclusions.push("engineering-only profile");
+  }
+  if (negated(/\b(not|no|isn['’]?t|is not|don['’]?t want|do not want)\b.{0,28}\b(sales|gtm|ae|account executive|revenue)\b/i)) {
+    exclusions.push("sales/GTM profile");
+  }
+  if (negated(/\b(not|no|isn['’]?t|is not|don['’]?t want|do not want)\b.{0,28}\b(chief of staff|founder.?s office|operator|ops generalist)\b/i)) {
+    exclusions.push("founder-office / generic operator");
+  }
+  if (negated(/\b(not|no|isn['’]?t|is not|don['’]?t want|do not want)\b.{0,28}\b(big company|corporate|late[-\s]?stage|enterprise)\b/i)) {
+    exclusions.push("corporate / late-stage profile");
+  }
+
+  return exclusions;
 }
 
 function inferSourceCompanyLanes(text: string, family: CanonicalRoleFamily, location: string) {
@@ -286,6 +333,7 @@ function inferSourceCompanyLanes(text: string, family: CanonicalRoleFamily, loca
   if (family === "engineering" && isEngineeringLeadershipText(text)) return ["startup engineering leadership", "scaled engineering teams", "founder-facing technical leaders", "architecture-heavy teams"];
   if (family === "engineering") return ["startup engineering teams", "infrastructure/platform teams", "builders with public proof"];
   if (family === "product") return ["founder-led product teams", "customer-facing product orgs"];
+  if (family === "gtm") return ["first GTM hires", "founding AEs", "early sales leads", "founder-led sales builders"];
   return [];
 }
 

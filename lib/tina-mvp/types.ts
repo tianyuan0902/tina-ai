@@ -6,6 +6,7 @@ import type { HiringArtifact } from "@/lib/tina-mvp/hiring-artifacts";
 import type { WorkingThesis } from "@/lib/tina-mvp/working-thesis";
 import type { SignalMap } from "@/lib/tina-mvp/signal-map";
 import type { ReferenceProfileInsight } from "@/lib/tina-mvp/reference-profiles";
+import type { ExampleShapeFeedback, ExampleShapeSet } from "@/lib/tina-mvp/example-shapes";
 
 export type TinaMvpRole = "founder" | "tina";
 
@@ -19,6 +20,8 @@ export type TinaMvpMessage = {
   signalMap?: SignalMap;
   hiringArtifact?: HiringArtifact;
   referenceProfileInsight?: ReferenceProfileInsight;
+  exampleShapes?: ExampleShapeSet;
+  exampleShapeFeedback?: ExampleShapeFeedback;
 };
 
 export type TinaCandidateArchetype = {
@@ -42,9 +45,11 @@ export type TinaChatApiResponse = {
   signalMap?: SignalMap;
   hiringArtifact?: HiringArtifact;
   referenceProfileInsight?: ReferenceProfileInsight;
+  exampleShapes?: ExampleShapeSet;
+  exampleShapeFeedback?: ExampleShapeFeedback;
   profileLeads?: ProfileLead[];
   marketIntel?: unknown;
-  source: "openai" | "local_scope_guard" | "local_profile_feedback" | "local_conversation_move" | "local_fallback" | "public_search" | "sourcing_readiness";
+  source: "openai" | "local_scope_guard" | "local_profile_feedback" | "local_example_shapes" | "local_conversation_move" | "local_fallback" | "public_search" | "sourcing_readiness";
   responseId?: string;
   debugCode?: string;
 };

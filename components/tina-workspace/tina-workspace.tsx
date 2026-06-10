@@ -24,6 +24,7 @@ import type { ProfileLead, SourcingBatchMetadata } from "@/lib/tina/profile-lead
 import { evaluateSourcingReadiness, type SourcingReadiness } from "@/lib/tina/sourcing-readiness";
 import { actionButtonsForCurrentRead, type CurrentRead, type CurrentReadArchetype } from "@/lib/tina-mvp/current-read";
 import type { HiringArtifact } from "@/lib/tina-mvp/hiring-artifacts";
+import { isExampleShapeFeedback, isExampleShapeRequest, type ExampleShapeSet } from "@/lib/tina-mvp/example-shapes";
 import type { SignalMap } from "@/lib/tina-mvp/signal-map";
 import type { TinaChatApiResponse, TinaMvpMessage } from "@/lib/tina-mvp/types";
 import type { WorkingThesis } from "@/lib/tina-mvp/working-thesis";
@@ -49,7 +50,7 @@ const SIGNAL_MAP_STORAGE_KEY = "tina:mvp:signal-map";
 const LOG_CONSENT_VERSION = "public-demo-v1";
 const MAX_FEEDBACK_SUMMARY_LEADS = 8;
 
-const typingPhrases = ["Shaping the search", "Reading candidate signal", "Tightening the Talent Pool"];
+const typingPhrases = ["Shaping the read", "Reading candidate signal", "Tightening the example shapes"];
 
 const stableNewRoleThread: ChatThread = {
   id: "session-new-role",
@@ -583,7 +584,7 @@ function HomeCommandCenter({
   const hasCandidateResults = visibleProfileLeadItems.length > 0;
   const hasFeedback = currentLatestProfileLeadItems.some((item) => hasProfileLeadFeedback(profileLeadStatus[item.statusKey]));
   const feedbackRead = buildFeedbackLearningRead(currentLatestProfileLeadItems, profileLeadStatus);
-  const refineLabel = shortlistedItems.length ? "Find more like saved candidates" : "Refine Talent Pool";
+  const refineLabel = shortlistedItems.length ? "Turn saved shapes into a sourcing brief" : "Refine Example Shapes";
   const latestBatchRead = buildTalentBatchRead(currentLatestProfileLeadItems.length ? currentLatestProfileLeadItems : visibleProfileLeadItems);
   const clickedActions = clickedActionsByThread[activeThread.id] || [];
   const displayedMessages = hasCandidateResults && !showFullConversation ? latestConversationExchange(messages) : messages;
@@ -593,8 +594,8 @@ function HomeCommandCenter({
   const handleRefineSearch = () => {
     const summary = buildTalentPoolFeedbackSummary(currentLatestProfileLeadItems, profileLeadStatus);
     if (summary) {
-      recordClickedAction("Refine Talent Pool", "Refine this search based on my Talent Pool feedback. Find another batch.", "right_rail");
-      sendMessage("Refine this search based on my Talent Pool feedback. Find another batch.", {
+      recordClickedAction("Refine Example Shapes", "Turn my Example Shapes feedback into a sourcing brief.", "right_rail");
+      sendMessage("Turn my Example Shapes feedback into a sourcing brief.", {
         sourcingRefinementSummary: summary
       });
     }
@@ -845,6 +846,7 @@ function HomeCommandCenter({
                   message={message}
                   signals={message.role === "tina" ? deriveInlineSignals(messages.slice(0, messages.findIndex((item) => item.id === message.id) + 1)) : []}
                   animate={message.role === "tina" && message.id === latestTinaMessageId && hasConversation}
+                  onExampleShapeReaction={sendMessage}
                 />
               ))}
               {isThinking ? (
@@ -1216,7 +1218,17 @@ function LeadingQuestionButtons({
   );
 }
 
-function ChatMessage({ message, signals, animate }: { message: TinaMvpMessage; signals: string[]; animate: boolean }) {
+function ChatMessage({
+  message,
+  signals,
+  animate,
+  onExampleShapeReaction
+}: {
+  message: TinaMvpMessage;
+  signals: string[];
+  animate: boolean;
+  onExampleShapeReaction?: (value: string) => void;
+}) {
   if (message.role === "founder") {
     return (
       <div className="flex min-w-0 justify-end">
@@ -1239,10 +1251,87 @@ function ChatMessage({ message, signals, animate }: { message: TinaMvpMessage; s
         ) : null}
         {message.signalMap ? <SignalMapBoard signalMap={message.signalMap} /> : null}
         {message.hiringArtifact ? <HiringArtifactBoard artifact={message.hiringArtifact} /> : null}
+        {message.exampleShapes ? <ExampleShapesBoard exampleShapes={message.exampleShapes} onReaction={onExampleShapeReaction} /> : null}
+        {message.exampleShapeFeedback ? <ExampleShapeFeedbackBoard feedback={message.exampleShapeFeedback} /> : null}
         {message.profileLeads?.length ? <SourcingResultArtifact leads={message.profileLeads} sourcingBatch={message.sourcingBatch} /> : null}
         <InlineSignalRows signals={signals} />
       </div>
     </div>
+  );
+}
+
+function ExampleShapesBoard({ exampleShapes, onReaction }: { exampleShapes: ExampleShapeSet; onReaction?: (value: string) => void }) {
+  const reactionButtons = ["closer", "wrong", "too senior", "too junior", "too corporate", "too generic"];
+
+  return (
+    <section className="mt-3 max-w-full overflow-hidden rounded-2xl border border-[#E4DCD1] bg-[#FFFCF7] shadow-[0_18px_50px_rgba(23,23,23,0.05)]">
+      <div className="px-4 pb-2 pt-4">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8A8178]">Example Shapes</p>
+        <h3 className="mt-1 text-sm font-semibold leading-5 text-[#171717]">{exampleShapes.title}</h3>
+      </div>
+      <div className="grid gap-3 p-4 pt-2 lg:grid-cols-3">
+        {exampleShapes.shapes.slice(0, 3).map((shape) => (
+          <article key={shape.id} className="rounded-xl border border-[#E6DDD2] bg-white/85 p-3.5">
+            <h4 className="text-sm font-semibold leading-5 text-[#171717]">{shape.name}</h4>
+            <div className="mt-3 grid gap-2 text-xs leading-5 text-[#4B453F]">
+              <ExampleShapeField label="Solves" value={shape.solves} />
+              <ExampleShapeField label="Fails when" value={shape.fails} />
+              <ExampleShapeField label="Recognize by" value={shape.recognize} />
+            </div>
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {reactionButtons.map((reaction) => (
+                <button
+                  key={reaction}
+                  type="button"
+                  onClick={() => onReaction?.(`${reaction}: ${shape.name}`)}
+                  className="rounded-full border border-[#E1D8CE] bg-[#FFFCF7] px-2.5 py-1 text-[11px] font-medium text-[#625A52] transition hover:border-[#CFC4FF] hover:bg-[#F8F6FF] hover:text-[#4B28C9]"
+                >
+                  {reaction}
+                </button>
+              ))}
+            </div>
+          </article>
+        ))}
+      </div>
+      <p className="px-4 pb-4 text-xs leading-5 text-[#8A8178]">These are examples to react to, not candidates.</p>
+    </section>
+  );
+}
+
+function ExampleShapeField({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8A8178]">{label}</p>
+      <p className="mt-0.5 font-medium text-[#2F2A25]">{value}</p>
+    </div>
+  );
+}
+
+function ExampleShapeFeedbackBoard({ feedback }: { feedback: NonNullable<TinaMvpMessage["exampleShapeFeedback"]> }) {
+  const rows = [
+    { label: "Positive", items: feedback.positiveSignals },
+    { label: "Avoid", items: feedback.negativeSignals },
+    { label: "Must prove", items: feedback.mustHaveEvidence },
+    { label: "False positives", items: feedback.falsePositives }
+  ];
+
+  return (
+    <section className="mt-3 rounded-2xl border border-[#E4DCD1] bg-[#FFFCF7] p-4 shadow-[0_18px_50px_rgba(23,23,23,0.05)]">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8A8178]">Shape feedback</p>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        {rows.map((row) => (
+          <div key={row.label} className="rounded-xl border border-[#E8DED3] bg-white/80 p-3">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8A8178]">{row.label}</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {row.items.slice(0, 3).map((item) => (
+                <span key={item} className="rounded-full bg-[#F8F4EE] px-2.5 py-1 text-[11px] font-medium text-[#4B453F]">{item}</span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="mt-3 rounded-xl border border-[#D7E9DD] bg-[#F4FBF6] px-3 py-2 text-xs font-semibold leading-5 text-[#244933]">{feedback.recommendedNextStep}</p>
+    </section>
   );
 }
 
@@ -1566,16 +1655,16 @@ function SourcingResultArtifact({ leads, sourcingBatch }: { leads: ProfileLead[]
   return (
     <div className="mt-3 max-w-full overflow-hidden rounded-lg border border-[#E1D8CE] bg-[#FFFCF7] p-3 shadow-[0_12px_32px_rgba(23,23,23,0.04)]">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="rounded-full bg-[#EEF8F1] px-2.5 py-1 text-[11px] font-semibold text-[#108A4B]">Talent Pool updated</span>
+        <span className="rounded-full bg-[#EEF8F1] px-2.5 py-1 text-[11px] font-semibold text-[#108A4B]">Example Shapes updated</span>
         <span className="text-xs font-medium text-[#625A52]">{leads.length} {leads.length === 1 ? "profile" : "profiles"}</span>
         {highCount ? <span className="text-xs text-[#8A8178]">{highCount} strong</span> : null}
         {evidenceSummary ? <span className="text-xs text-[#8A8178]">{evidenceSummary}</span> : null}
         {sourcingBatch ? <SearchSourceBadge sourcingBatch={sourcingBatch} /> : null}
       </div>
       <p className="mt-2 break-words text-xs leading-5 text-[#4B453F]">
-        I found {leads.length} possible {leads.length === 1 ? "profile" : "profiles"} and updated Market Reality on the right. Best signal: {topTags.join(", ") || "role adjacency"}. Weakness: {missingThemes.join(", ") || "proof still needs review"}.
+        I found {leads.length} possible {leads.length === 1 ? "archetype" : "archetypes"} and updated the right rail. Best signal: {topTags.join(", ") || "role adjacency"}. Weakness: {missingThemes.join(", ") || "proof still needs review"}.
       </p>
-      <p className="mt-1 text-[11px] text-[#8A8178]">Review compact profiles in Market Reality.</p>
+      <p className="mt-1 text-[11px] text-[#8A8178]">Review as calibration examples, not finalists.</p>
     </div>
   );
 }
@@ -1774,9 +1863,43 @@ function isMarketRealityRequest(value: string) {
 function shouldShowMarketReality(messages: TinaMvpMessage[], currentRead?: CurrentRead, hasMarketArtifacts = false) {
   const latestFounder = latestFounderContent(messages);
   if (isClarificationQuestion(latestFounder)) return false;
+  if (isExampleShapeRequest(latestFounder) || isExampleShapeFeedback(latestFounder)) return false;
+  if (latestExampleShapeMessageIndex(messages) > latestMarketEvidenceMessageIndex(messages)) return false;
   if (isMarketRealityRequest(latestFounder)) return true;
   if (latestMessageHasMarketArtifact(messages)) return true;
   return Boolean(hasMarketArtifacts && latestMessageHasProfileEvidence(messages) && currentRead?.mode === "sourcing");
+}
+
+function latestExampleShapeMessageIndex(messages: TinaMvpMessage[]) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.exampleShapes?.shapes?.length || message.exampleShapeFeedback) return index;
+  }
+  return -1;
+}
+
+function latestMarketEvidenceMessageIndex(messages: TinaMvpMessage[]) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (
+      message.hiringArtifact?.kind === "market_reality" ||
+      message.hiringArtifact?.kind === "sourcing_strategy" ||
+      message.profileLeads?.length ||
+      message.sourcingBatch
+    ) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function latestExampleShapeMode(messages: TinaMvpMessage[]) {
+  const latestExampleIndex = latestExampleShapeMessageIndex(messages);
+  if (latestExampleIndex <= latestMarketEvidenceMessageIndex(messages)) return "";
+  const latestExample = messages[latestExampleIndex];
+  if (latestExample?.exampleShapeFeedback) return "feedback";
+  if (latestExample?.exampleShapes?.shapes?.length) return "shapes";
+  return "";
 }
 
 function latestMessageHasMarketArtifact(messages: TinaMvpMessage[]) {
@@ -2268,14 +2391,18 @@ function RightIntelligenceRail({
 }) {
   const visibleItems = isClientMounted ? prioritizeLatestProfileLeadItems(profileLeadItems, latestProfileLeadItems) : [];
   const showMarketReality = shouldShowMarketReality(messages, currentRead, Boolean(sourcingBatch) || visibleItems.length > 0);
+  const exampleShapeMode = showMarketReality ? "" : latestExampleShapeMode(messages);
+  const railEyebrow = showMarketReality ? "Market Reality" : exampleShapeMode === "feedback" ? "Shape feedback" : exampleShapeMode === "shapes" ? "Example Shapes" : "Tina’s read";
+  const railTitle = showMarketReality ? "Market reality" : exampleShapeMode === "feedback" ? "Shape feedback" : exampleShapeMode === "shapes" ? "Example shapes" : "Hiring thesis";
+  const railSubtitle = showMarketReality ? "Shown when Tina is executing or sourcing." : exampleShapeMode ? "Calibration shapes, not market data." : "What Tina thinks is happening.";
 
   return (
     <aside className="hidden h-full min-h-0 min-w-0 max-w-full overflow-y-auto md:block md:pt-2 xl:pt-3">
       <section className="min-h-[calc(100%-0.75rem)] min-w-0 overflow-hidden rounded-xl border border-[#E7E3DD] bg-white shadow-[0_22px_70px_rgba(23,23,23,0.055)]">
         <div className="border-b border-[#ECE7E1] bg-white px-3 py-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">{showMarketReality ? "Market Reality" : "Tina’s read"}</p>
-          <h2 className="mt-1 text-base font-semibold text-[#171717]">{showMarketReality ? "Market reality" : "Hiring thesis"}</h2>
-          <p className="mt-1 text-xs leading-5 text-[#625A52]">{showMarketReality ? "Shown when Tina is executing or sourcing." : "What Tina thinks is happening."}</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">{railEyebrow}</p>
+          <h2 className="mt-1 text-base font-semibold text-[#171717]">{railTitle}</h2>
+          <p className="mt-1 text-xs leading-5 text-[#625A52]">{railSubtitle}</p>
         </div>
 
         <div className="min-w-0 overflow-hidden p-3">
@@ -2557,9 +2684,9 @@ function MarketIntelRail({
       <section className="rounded-lg border border-[#E2D8CD] bg-white p-3">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Profiles</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Archetypes</p>
             <p className="mt-1 text-sm font-semibold text-[#171717]">
-              {sortedItems.length ? `${sortedItems.length} ${sortedItems.length === 1 ? "profile" : "profiles"}` : "No reliable profiles yet"}
+              {sortedItems.length ? `${sortedItems.length} ${sortedItems.length === 1 ? "archetype" : "archetypes"}` : "No validated archetypes yet"}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -2591,9 +2718,9 @@ function MarketIntelRail({
             <p className="rounded-lg border border-dashed border-[#DED5CA] bg-[#FFFCF7] px-3 py-4 text-center text-xs text-[#8A8178]">
               {sourcingBatch
                 ? sourcingBatch.filteredCount
-                  ? `Tina searched public profiles and filtered ${sourcingBatch.filteredCount} weak or wrong-fit results. Next: widen geography or loosen title while keeping proof strict.`
-                  : "Tina searched public profiles but did not find reliable role-fit matches yet. Next: widen geography or loosen title while keeping proof strict."
-                : "No profile search has run in this mode."}
+                  ? `Experimental sourcing filtered ${sourcingBatch.filteredCount} weak or wrong-fit results. Next: turn the thesis into a cleaner sourcing brief.`
+                  : "Experimental sourcing ran but did not find reliable role-fit matches yet. Next: turn the thesis into a cleaner sourcing brief."
+                : "No example shapes yet."}
             </p>
           )}
         </div>
@@ -2644,7 +2771,7 @@ function TalentPoolSnapshotCard({ intel }: { intel: MarketIntelSnapshot }) {
   return (
     <section className="rounded-lg border border-[#E2D8CD] bg-white p-3">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Talent Pool Snapshot</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8178]">Example Shapes Snapshot</p>
         <span className="rounded-full bg-[#F4F1EC] px-2 py-1 text-[10px] font-medium text-[#6F675E]">{intel.dataLabel}</span>
       </div>
 
@@ -3041,8 +3168,9 @@ function candidateEvidenceLabel(lead: ProfileLead) {
 function actionProgressText(content: string) {
   const text = content.toLowerCase();
   if (isPlanningArtifactRequest(content)) return "Building the requested artifact...";
-  if (/\b(refine|more like|talent pool feedback)\b/.test(text)) return "Refining Talent Pool from feedback...";
-  if (/\b(source|candidate|profile|people|pull|find)\b/.test(text)) return "Searching public profiles...";
+  if (/\b(refine|more like|talent pool feedback|example shape|archetype feedback)\b/.test(text)) return "Refining example shapes...";
+  if (/\b(search real profiles|public profiles|linkedin profiles|source candidates)\b/.test(text)) return "Searching public profiles...";
+  if (/\b(candidate|profile|people|pull|find)\b/.test(text)) return "Building example shapes...";
   if (/\b(lane|market|where should|strategy)\b/.test(text)) return "Building search lanes...";
   return "Updating Market Reality...";
 }
@@ -3371,7 +3499,7 @@ function TalentPoolTab({
   );
   const hasFeedback = latestProfileLeadItems.some((item) => hasProfileLeadFeedback(profileLeadStatus[item.statusKey]));
   const feedbackRead = buildFeedbackLearningRead(latestProfileLeadItems, profileLeadStatus);
-  const refineLabel = shortlistedItems.length ? "Find more like saved candidates" : "Refine Talent Pool";
+  const refineLabel = shortlistedItems.length ? "Turn saved shapes into a sourcing brief" : "Refine Example Shapes";
   const handleRefineSearch = () => {
     const summary = buildTalentPoolFeedbackSummary(latestProfileLeadItems, profileLeadStatus);
     if (summary) onRefineSearch(summary);
@@ -5021,7 +5149,7 @@ function deriveInlineSignals(messages: TinaMvpMessage[]) {
   if (founderMessages.length >= 3) signals.push("Calibration read stabilizing");
 
   if (canShowMarketChip) {
-    if (hasSourcingEvidence) signals.push("Talent Pool evidence added");
+    if (hasSourcingEvidence) signals.push("Example-shape evidence added");
     if (hasLocationEvidence) signals.push(locationSignalChip(text));
     if (hasCompEvidence) signals.push("Comp constraint noted");
   }

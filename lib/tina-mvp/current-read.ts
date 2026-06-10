@@ -280,16 +280,16 @@ export function actionButtonsForCurrentRead(read?: Pick<CurrentRead, "mode" | "l
   const executionActions: CurrentReadAction[] = [
     { label: "Build signal map", prompt: "Build signal map for this hiring thesis." },
     { label: "Create interview plan", prompt: "Create an interview plan for this hiring thesis." },
-    { label: "Source against this thesis", prompt: "Source against this hiring thesis." },
-    { label: "Build search lanes", prompt: "Build search lanes for this hiring thesis." }
+    { label: "Turn into sourcing brief", prompt: "Turn this hiring thesis into a sourcing brief. Do not search real profiles yet." },
+    { label: "Build search lanes", prompt: "Build search lanes for this hiring thesis without sourcing candidates." }
   ];
 
   if (read.mode === "execution") return executionActions;
 
   return [
-    { label: "Source against this thesis", prompt: "Source against this hiring thesis." },
-    ...(hasTasteSignal ? [{ label: "Find people like this", prompt: "Find people like the strongest saved or selected profiles." }] : []),
-    { label: "Refine Talent Pool", prompt: "Refine this search based on my Talent Pool feedback. Find another batch." }
+    { label: "Turn into sourcing brief", prompt: "Turn this hiring thesis into a sourcing brief. Do not search real profiles yet." },
+    ...(hasTasteSignal ? [{ label: "Turn into sourcing brief", prompt: "Turn the strongest example-shape feedback into a sourcing brief. Do not search real profiles yet." }] : []),
+    { label: "Refine Example Shapes", prompt: "Refine the example shapes from my feedback before sourcing." }
   ];
 }
 
@@ -451,6 +451,7 @@ function inferCurrentReadMode(
   state?: CanonicalSearchState
 ): CurrentReadMode {
   if (isPlanningArtifactRequest(latestText)) return "execution";
+  if (isExampleShapeLanguage(latestText)) return meaningfulSignals >= 3 ? "calibration" : "thesis";
   if (!isOperatingPullPhrase(latestText) && /\b(source|pull|find|show|get|build).*\b(profiles?|candidates?|people|leads?|list)\b/i.test(latestText)) return "sourcing";
   if (state?.candidateProfiles?.length) return "sourcing";
   if (/\b(scorecard|search lane|search plan|pull|source|candidates?|profiles?|ready|execute|go ahead)\b/i.test(text)) return "execution";
@@ -463,6 +464,11 @@ function inferCurrentReadMode(
 function isOperatingPullPhrase(text: string) {
   return /\bpull(?:ing)?\s+(people|engineers?|team|folks|resources?)\s+off\b/i.test(text) ||
     /\btake\s+(people|engineers?|team|folks|resources?)\s+off\b/i.test(text);
+}
+
+function isExampleShapeLanguage(text: string) {
+  return /\b(show me|send me|give me|show|find|pull|bring me)\b.*\b(people-ish|peopleish|examples?|what good looks like|right shape|kinda like the right shape|someone like this|someone like that|people who feel|people that feel)\b/i.test(text) ||
+    /\b(i need to see it|need to see it|too abstract|just want to react|react to something|not perfect|people-ish examples?|peopleish examples?)\b/i.test(text);
 }
 
 function isPlanningArtifactRequest(text: string) {
@@ -480,6 +486,7 @@ function inferArchetype(text: string, latestText: string, roleFamily: string): C
   if (/\b(vp marketing|head of marketing|marketing leader|growth is slow|positioning|icp|acquisition channel|demand gen)\b/i.test(text)) return "Marketing Positioning Gap";
   if (/\b(ai team|build an ai|ai roadmap|customers.*ai|existing roadmap|shiny object)\b/i.test(text)) return "AI Prioritization Gap";
   if (/\b(vp sales|head of sales|sales leader|ae\b|account executive|gtm|revenue)\b/i.test(text) || roleFamily === "gtm") return "Founder-Led Sales Transition";
+  if (hasNoExistingTeamSignal(text) && (roleFamily === "engineering" || /\b(engineering|engineer|technical|head of eng|vp engineering)\b/i.test(text))) return "Senior Ownership Gap";
   if (/\b(head of eng|head of engineering|engineering manager|eng leader|engineering leadership|cto|vp engineering)\b/i.test(text)) return "Engineering Leadership Bottleneck";
   if (/\b(staff engineer|tech lead|technical lead|existing technical|promote|promotion|level up|clarify.*technical|internal.*technical)\b/i.test(text) && /\b(existing|already|internal|promote|team|lead)\b/i.test(text)) return "Internal Technical Leadership Gap";
   if (/\b(more senior|senior person|adult in the room|experienced|too junior|not senior enough|run themselves|autonomy|independent)\b/i.test(text)) return "Senior Ownership Gap";
@@ -487,8 +494,12 @@ function inferArchetype(text: string, latestText: string, roleFamily: string): C
   if (/\b(customer ops|implementation|support|support reps?|success|onboarding|customer success|deployment|tickets?|queue|handoffs?)\b/i.test(text)) return "Support Load Root Cause";
   if (/\b(vp product|chief product|cpo|pm|product manager|head of product|product lead|priorities|prioritization|alignment|product execution|ship)\b/i.test(text) || roleFamily === "product") return "Product/Execution Ownership Gap";
   if (/\b(urgent|asap|fast|yesterday|panic|lost|left|need now|quickly)\b/i.test(text) || /\b(urgent|asap|fast|panic|need now|quickly)\b/i.test(latestText)) return "Urgent Hiring Triage";
-  if (roleFamily === "engineering") return "Engineering Leadership Bottleneck";
+  if (roleFamily === "engineering") return hasNoExistingTeamSignal(text) ? "Senior Ownership Gap" : "Engineering Leadership Bottleneck";
   return "Unknown / Needs Clarification";
+}
+
+function hasNoExistingTeamSignal(text: string) {
+  return /\b(no existing team|no team|no engineers?|no eng team|zero engineers?|first engineer|first technical hire|haven['’]?t hired engineers?|don['’]?t have an engineering team)\b/i.test(text);
 }
 
 function isCapitalAllocationSignal(text: string) {

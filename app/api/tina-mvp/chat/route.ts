@@ -6,6 +6,14 @@ import { formatCompanyContext, isCompanyContextMessage, retrieveCompanyContext }
 import { getRequestedProfileCount, searchPublicProfileBatch } from "@/lib/tina/public-search";
 import { evaluateSourcingReadiness } from "@/lib/tina/sourcing-readiness";
 import { buildCurrentRead, formatCurrentReadForPrompt, type CurrentRead } from "@/lib/tina-mvp/current-read";
+import {
+  buildExampleShapeFeedback,
+  buildExampleShapeFeedbackResponse,
+  buildExampleShapeResponse,
+  buildExampleShapes,
+  isExampleShapeFeedback,
+  isExampleShapeRequest
+} from "@/lib/tina-mvp/example-shapes";
 import { buildFounderModel, formatFounderModelForPrompt } from "@/lib/tina-mvp/founder-model";
 import { buildHiringArtifact, formatHiringArtifactForPrompt, inferHiringArtifactKind } from "@/lib/tina-mvp/hiring-artifacts";
 import {
@@ -82,7 +90,8 @@ export async function POST(request: Request) {
   const shouldRunAdjacentLane = isAdjacentLaneConfirmationRequest(cleanMessages);
   const shouldContinueSourcing = isSourcingContinuationRequest(cleanMessages);
   const planningArtifactRequest = isPlanningArtifactRequest(latestUserMessage.content);
-  const shouldRunProfileSearch = !planningArtifactRequest && (isPublicProfileSearchRequest(latestUserMessage.content) || shouldRunPromisedSourcing || shouldRunAdjacentLane || shouldContinueSourcing);
+  const exampleShapeRequest = isExampleShapeRequest(latestUserMessage.content);
+  const shouldRunProfileSearch = !planningArtifactRequest && !exampleShapeRequest && (isPublicProfileSearchRequest(latestUserMessage.content) || shouldRunPromisedSourcing || shouldRunAdjacentLane || shouldContinueSourcing);
 
   if (!shouldRunProfileSearch && isClearlyOffTopic(latestUserMessage.content)) {
     return NextResponse.json({
@@ -115,6 +124,48 @@ export async function POST(request: Request) {
       signalMap,
       referenceProfileInsight,
       source: "local_conversation_move"
+    });
+  }
+
+  if (!shouldRunProfileSearch && isExampleShapeFeedback(latestUserMessage.content) && hasPreviousExampleShapes(cleanMessages)) {
+    const exampleShapeFeedback = buildExampleShapeFeedback(latestUserMessage.content, currentRead);
+    const responseContent = buildExampleShapeFeedbackResponse(exampleShapeFeedback);
+
+    return NextResponse.json({
+      message: {
+        id: `tina-example-shape-feedback-${Date.now()}`,
+        role: "tina",
+        content: responseContent,
+        exampleShapeFeedback
+      },
+      canonicalSearchState,
+      workingThesis: buildWorkingThesisWithAssistant(cleanMessages, responseContent, canonicalSearchState),
+      currentRead,
+      signalMap,
+      referenceProfileInsight,
+      exampleShapeFeedback,
+      source: "local_example_shapes"
+    });
+  }
+
+  if (!shouldRunProfileSearch && exampleShapeRequest) {
+    const exampleShapes = buildExampleShapes(currentRead, canonicalSearchState, signalMap, latestUserMessage.content);
+    const responseContent = buildExampleShapeResponse(exampleShapes);
+
+    return NextResponse.json({
+      message: {
+        id: `tina-example-shapes-${Date.now()}`,
+        role: "tina",
+        content: responseContent,
+        exampleShapes
+      },
+      canonicalSearchState,
+      workingThesis: buildWorkingThesisWithAssistant(cleanMessages, responseContent, canonicalSearchState),
+      currentRead,
+      signalMap,
+      referenceProfileInsight,
+      exampleShapes,
+      source: "local_example_shapes"
     });
   }
 
@@ -382,8 +433,10 @@ export async function POST(request: Request) {
     const isRefinementSearch = isSourcingRefinementRequest(latestUserMessage.content) && Boolean(refinementSummary);
     const readiness = initialReadiness;
     const explicitSourceRequest = isPublicProfileSearchRequest(latestUserMessage.content) || shouldRunPromisedSourcing || shouldRunAdjacentLane || shouldContinueSourcing;
+    const naturalCalibrationProfileRequest = isCalibrationProfileBatchRequest(latestUserMessage.content, cleanMessages, currentRead, signalMap);
+    const canRunNaturalCalibrationBatch = naturalCalibrationProfileRequest && (canRunCalibrationBatch(canonicalSearchState) || hasUsableCurrentRead(currentRead));
 
-    if (explicitSourceRequest && needsLocationAlignmentBeforeSourcing(canonicalSearchState, latestUserMessage.content)) {
+    if (explicitSourceRequest && !canRunNaturalCalibrationBatch && needsLocationAlignmentBeforeSourcing(canonicalSearchState, latestUserMessage.content)) {
       return NextResponse.json({
         message: {
           id: `tina-location-before-sourcing-${Date.now()}`,
@@ -399,7 +452,7 @@ export async function POST(request: Request) {
       });
     }
 
-    const allowCalibrationBatch = explicitSourceRequest && canRunCalibrationBatch(canonicalSearchState);
+    const allowCalibrationBatch = explicitSourceRequest && (canRunCalibrationBatch(canonicalSearchState) || canRunNaturalCalibrationBatch);
     const allowLowConfidenceSearch = allowCalibrationBatch || shouldRunPromisedSourcing || shouldRunAdjacentLane || shouldContinueSourcing || /\b(source anyway|search anyway|pull anyway|continue|go ahead|show me anyway)\b/i.test(latestUserMessage.content);
 
     if ((readiness.readinessStatus === "needs_calibration" && !allowCalibrationBatch) || (readiness.readinessStatus === "low_confidence_search" && !allowLowConfidenceSearch)) {
@@ -432,13 +485,13 @@ export async function POST(request: Request) {
       referenceProfileText,
       cleanMessages.map((message) => message.content).join("\n"),
       readiness.searchThesis ? `Search thesis:\n${readiness.searchThesis}` : "",
-      refinementSummary ? `Talent Pool feedback summary for sourcing refinement:\n${refinementSummary}` : "",
+      refinementSummary ? `Example-shape feedback summary for sourcing-brief refinement:\n${refinementSummary}` : "",
       refinement ? `Updated sourcing thesis:\n${refinement.updatedSearchThesis}` : ""
     ].filter(Boolean).join("\n\n");
     const requestedCount = getRequestedProfileCount(latestUserMessage.content);
     const promisedCount = getRequestedProfileCount(searchTriggerMessage);
     const recentRequestedCount = getRecentExplicitProfileRequestCount(cleanMessages);
-    const isCalibrationProfileBatch = isCalibrationProfileBatchRequest(latestUserMessage.content, cleanMessages, currentRead, signalMap) && !hasExplicitProfileCount(latestUserMessage.content);
+    const isCalibrationProfileBatch = naturalCalibrationProfileRequest && !hasExplicitProfileCount(latestUserMessage.content);
     const finalRequestedCount = shouldRunPromisedSourcing || shouldContinueSourcing
       ? recentRequestedCount || promisedCount
       : isCalibrationProfileBatch
@@ -481,7 +534,7 @@ export async function POST(request: Request) {
     TINA_SYSTEM_PROMPT,
     "If the founder gives company or product context, treat it as hiring calibration input. Infer what kinds of candidates may fit the company, product surface, customer environment, and operating stage. Do not ask why the company context matters.",
     "If the founder shares LinkedIn URLs, GitHub URLs, profile text, or people they admire, treat it as reference-profile signal. Do not promise you can read private LinkedIn pages. Use public links as breadcrumbs and pasted profile text as evidence. Diagnose the people DNA: what this person proves, what culture/operating signal the founder may be drawn to, what false positives would look similar, and how to translate subjective admiration into searchable criteria.",
-    "Use public profiles to calibrate the hiring thesis, not to pretend the search is complete. There are two moments to offer a tiny calibration batch: early, when the founder has given a plausible role/title plus real hiring load or urgency plus enough scope to search directionally; and later, once Tina has a committed thesis, Signal Map, or candidate archetype. Default these calibration batches to 2–3 profiles. Call them calibration profiles, not final candidates. Say: do not outreach yet; use these to tell me what feels close or wrong. For a founding recruiter request, first pressure-test recruiting load and system readiness: hiring volume, priority roles, location/remote, whether JDs exist, and whether founders/hiring managers can make fast decisions. If the founder says they need something like 20 hires in 6 months, treat that as real recruiting load and move toward a founding recruiter / recruiting systems calibration batch after asking only the missing search-critical input. If public sourcing is thin, offer a LinkedIn search pack or a Codex Cloud sourcing-agent prompt as a next step; do not pretend the app can complete an infinite pipeline.",
+    "Use example shapes to calibrate the hiring thesis before any named-profile sourcing. Natural founder requests like 'show me a few people,' 'what good looks like,' 'people-ish examples,' 'someone like this,' or 'I need to see it' mean: show archetype shapes, not named people, and ask the founder to react. Do not call public profile search or promise named profiles for those requests. Public/LinkedIn profile search is experimental and should happen only when the founder explicitly asks for real public profiles, LinkedIn profiles, or experimental sourcing. For a founding recruiter request, first pressure-test recruiting load and system readiness: hiring volume, priority roles, location/remote, whether JDs exist, and whether founders/hiring managers can make fast decisions. If public sourcing is thin, offer a LinkedIn search pack or a Codex Cloud sourcing-agent prompt as a next step; do not pretend the app can complete an infinite pipeline.",
     "For normal chat, keep the answer compact, complete, and human. Chat is the short bridge; structured artifacts carry the detail. Do not narrate Tina's whole thought process when a Signal Map, scorecard, interview plan, candidate archetype, Market Reality, or sourcing strategy can hold the detail. Sound like you are thinking with the founder in real time. Use contractions. Avoid stiff phrases like 'there are three key dimensions' or 'the optimal approach'. Tina is a Hiring Decision Engine: first diagnose the business problem, organizational context, and whether hiring is actually the right intervention. Your goal is to help the founder think; the task is secondary. Every response needs at least one observation the founder is unlikely to have articulated themselves. Do not merely summarize. On every follow-up, interpret the founder's latest answer before moving the workflow forward: what did it reveal, what ambiguity remains, what tradeoff was exposed, and what assumption surfaced? Once a meaningful signal has been extracted, do not keep rephrasing it; update the working hypothesis and produce a new observation. If the founder names a role but has not asked for candidates yet, do not jump to sourcing or intake fields. Ask one earned diagnostic question such as what changed, what is breaking, who owns the work now, or what fails if nobody is hired. If the current read is committed, explicitly hold the diagnosis even when the founder repeats the original request: say “I no longer think this is mainly a [stated role] problem; I think it is a [root problem] problem.” If the founder asks for VP Product and later reveals founder-owned roadmap, existing PMs, priority churn, or low delegation trust, commit to product/founder-delegation and planning cadence, not title search. If the founder says they need a recruiter, diagnose hiring volume, hiring plan, and interview calibration before suggesting full-time recruiting; after low volume or uncalibrated interviews, recommend process/fractional help first. If the founder asks for more support reps but reveals repeated tickets, product bugs, or missing docs, hold the product/support root-cause diagnosis even if they repeat urgency. If the founder asks for a Staff Engineer but reveals a trusted existing senior engineer and no technical leadership structure, compare clarifying/promoting the internal owner before assuming an external hire. If the founder asks for VP Marketing while ICP, positioning, or channels are unproven, challenge the leadership hire and diagnose positioning/PMF first. If the founder asks for an AI team without roadmap or customer pull, challenge the team build and diagnose prioritization before role design. If the founder gives enough signal for useful guidance, make the recommendation instead of asking more questions. Once the current read is high-confidence or in execution mode, stop asking broad questions and produce the requested planning artifact directly: hiring thesis, must-have signals, signal map, scorecard, candidate archetype, interview plan, criteria, rubric, role shape, or tradeoffs. Those artifact requests are not sourcing requests. If the founder gives a short confirmation after Tina proposes an artifact, generate the artifact with a one-sentence transition instead of adding another explanation. If the founder explicitly asks for candidates, profiles, people, top schools, top companies, SF, fintech, AI infra, PM, or Product Eng, treat it as sourcing work, but do not blindly fill the req when the founder has just exposed a major unresolved tradeoff. Agreement is not permission to switch into process before the thesis is stable; once stable, agreement should advance into role thesis, scorecard, interview plan, search lane, or candidate strategy. Use 'I have enough for a first pass,' 'I’ll make a working assumption,' and 'I’ll filter hard' only when the tradeoff is clear enough. Do not say 'How is this relevant?', 'I’m missing role outcome', 'must-have signals are required', 'please provide', 'source lanes', 'calibration status', or 'canonical state'. Avoid 'Sounds like you need', 'The practical implication is', and 'This implies'. Do not ask location, level, compensation, company lanes, or must-have skills unless the answer materially changes the recommendation. Do not say you are pulling, sharing, or preparing a candidate list later unless actual profile leads are included in this response.",
     adaptiveModeInstruction,
     founderModelText,
@@ -599,7 +652,7 @@ export async function POST(request: Request) {
 
   const advisorText = enforceAdvisorTone(text, canonicalSearchState);
 
-  if (!planningArtifactRequest && isAssistantPromisingProfileList(advisorText)) {
+  if (!planningArtifactRequest && isPublicProfileSearchRequest(latestUserMessage.content) && isAssistantPromisingProfileList(advisorText)) {
     const readiness = evaluateSourcingReadiness(cleanMessages);
 
     if (readiness.readinessStatus !== "needs_calibration") {
@@ -705,6 +758,7 @@ function inferAdaptiveMode(latestUserMessage: string, messages: TinaMvpMessage[]
   const text = latestUserMessage.toLowerCase();
   if (isCapitalAllocationQuestion(latestUserMessage)) return "discovery";
   if (isOverbroadFounderAnswer(latestUserMessage)) return "calibration";
+  if (isExampleShapeRequest(latestUserMessage)) return "calibration";
   if (isPlanningArtifactRequest(latestUserMessage)) return "execution";
   if (isPublicProfileSearchRequest(latestUserMessage) || (!isOperatingPullPhrase(latestUserMessage) && /\b(show|pull|source|find|get|build)\b.*\b(profiles?|candidates?|people|leads?|list)\b/i.test(latestUserMessage))) return "sourcing";
   if (/\b(best|world[-\s]?class|elite|top[-\s]?tier|10x|rockstar)\b/i.test(latestUserMessage)) return "subjective_quality";
@@ -847,6 +901,14 @@ function canRunCalibrationBatch(state: CanonicalSearchState) {
     );
 }
 
+function hasUsableCurrentRead(currentRead?: CurrentRead) {
+  return Boolean(
+    currentRead &&
+      currentRead.thesisTitle !== "Unknown / Needs Clarification" &&
+      (currentRead.mode === "thesis" || currentRead.mode === "calibration" || currentRead.mode === "execution" || currentRead.mode === "sourcing")
+  );
+}
+
 function needsLocationAlignmentBeforeSourcing(state: CanonicalSearchState, message: string) {
   if (state.location && state.location !== "Location forming") return false;
   if (/\b(location flexible|no location constraint|anywhere|global|remote ok|remote is fine|distributed)\b/i.test(message)) return false;
@@ -859,9 +921,9 @@ function buildLocationAlignmentResponse(state: CanonicalSearchState) {
   const comp = suggestCompForSearch(state, seniority);
 
   return [
-    `I would not pull profiles yet — geography will change this search more than another sentence of role nuance.`,
+    `I’d pause one beat before pulling profiles — geography will change this batch more than another sentence of role nuance.`,
     `My working read is ${seniority} for ${role}: senior enough to own judgment and tradeoffs, not necessarily a full executive hire. I’d use ${comp} as a directional comp band until the market tells us otherwise.`,
-    `What location should I anchor first: SF/Bay Area, NYC, remote US, or somewhere else? Once we align that, I’ll add location, seniority, and comp to the search criteria before pulling candidates.`
+    `Should I keep this mostly Bay Area, or is remote US fine for now? Once that’s aligned, I’ll use it as search criteria before pulling examples.`
   ].join("\n\n");
 }
 
@@ -1025,21 +1087,21 @@ function buildProfileSearchResponse(message: string, metadata: SourcingBatchMeta
 
   if (isRefinementSearch) {
     return [
-      validationLead || `Yeah — I ran another pass from your Talent Pool feedback and found ${validCount} new ${validCount === 1 ? "profile" : "profiles"} worth reviewing.`,
-      `I added ${validCount === 1 ? "it" : "them"} to Talent Pool.${sourceNote}${qualityNote}${filteredNote} Tell me what feels closer or off and I’ll adjust the search from there.`
+      validationLead || `Yeah — I ran another experimental public-profile pass and found ${validCount} new ${validCount === 1 ? "unverified lead" : "unverified leads"} worth reviewing.`,
+      `I added ${validCount === 1 ? "it" : "them"} as calibration evidence.${sourceNote}${qualityNote}${filteredNote} Tell me what feels closer or off and I’ll adjust the brief from there.`
     ].join(" ");
   }
 
   if (isCalibrationProfileBatch) {
     return [
-      validationLead || `Yeah — I pulled ${validCount} calibration ${validCount === 1 ? "profile" : "profiles"} to test the shape, not to call the search done.`,
-      `I added ${validCount === 1 ? "it" : "them"} to Talent Pool.${sourceNote}${qualityNote}${filteredNote} Don’t outreach yet — tell me what feels close or wrong and I’ll sharpen the search pattern.`
+      validationLead || `Yeah — I pulled ${validCount} ${validCount === 1 ? "example" : "examples"} to react to, not finalists.`,
+      `I added ${validCount === 1 ? "it" : "them"} as calibration evidence.${sourceNote}${qualityNote}${filteredNote} Don’t outreach yet — tell me what feels close or wrong and I’ll adjust.`
     ].join(" ");
   }
 
   return [
-    validationLead || `Yeah — I ran a first pass and found ${validCount} ${validCount === 1 ? "profile" : "profiles"} worth reviewing.`,
-    `I added ${validCount === 1 ? "it" : "them"} to Talent Pool.${sourceNote}${qualityNote}${filteredNote} Use these for calibration first; tell me what feels on or off and I’ll iterate from there.`
+    validationLead || `Yeah — I ran an experimental public-profile pass and found ${validCount} ${validCount === 1 ? "unverified lead" : "unverified leads"} worth reviewing.`,
+    `I added ${validCount === 1 ? "it" : "them"} as calibration evidence.${sourceNote}${qualityNote}${filteredNote} Use these cautiously; tell me what feels on or off and I’ll iterate from there.`
   ].join(" ");
 }
 
@@ -1513,7 +1575,9 @@ function isCalibrationProfileBatchRequest(
   const asksForSmallTasteBatch =
     /\b(a few|few|some|small batch|first batch|calibration batch|calibration profiles?)\b.*\b(profiles?|people|leads?|candidates?|targets?|folks)\b/i.test(message) ||
     /\b(show|send|source|pull|find|give|get|build|make|create)\b.*\b(profiles?|people|leads?|candidates?|targets?|folks|list)\b.*\b(like this|like that|like them|similar|calibrate|calibration)\b/i.test(message) ||
-    /\b(more|people|profiles?|candidates?|folks)\b.*\b(like this|like that|like them|similar)\b/i.test(message);
+    /\b(more|people|profiles?|candidates?|folks)\b.*\b(like this|like that|like them|similar)\b/i.test(message) ||
+    /\b(show me|send me|give me|pull|find|show)\b.*\b(people-ish|peopleish|examples?|what good looks like|right shape|kinda like the right shape)\b/i.test(message) ||
+    /\b(i need to see it|need to see it|too abstract|just want to react|react to something|not perfect)\b/i.test(message);
   const hasUsefulThesis = Boolean(
     currentRead &&
       currentRead.thesisTitle !== "Unknown / Needs Clarification" &&
@@ -1734,6 +1798,7 @@ function isPublicProfileSearchRequest(message: string) {
   if (isProfileSearchFeedback(message)) return false;
   if (isPlanningArtifactRequest(message)) return false;
   if (isOperatingPullPhrase(message)) return false;
+  if (isExampleShapeRequest(message)) return false;
 
   const text = message.toLowerCase();
   if (isSourcingRefinementRequest(message)) return true;
@@ -1744,13 +1809,16 @@ function isPublicProfileSearchRequest(message: string) {
     /\b(create|write|build|draft|make|generate|give me)\b.*\b(linkedin search|search string|boolean|query|queries|company list|list of companies|companies)\b/.test(text) ||
     /\b(so i can|myself|on my own)\b/.test(text);
   const explicitProfileSearch =
-    /\b(show|send|source|sourcing|look up|pull)\b.*\b(profiles?|people|candidates?|leads?|prospects?|targets?|linkedin|github)\b/.test(text) ||
-    /\b(give me|get me)\b.*\b(profiles?|people|candidates?|leads?|prospects?|targets?|linkedin|github)\b/.test(text) ||
-    /\b(find|look for)\b.*\b(profiles?|linkedin profiles?|github profiles?|public profiles?|people to review|people like this|candidates?|outreach targets|prospects?|leads?)\b/.test(text) ||
-    /\b(build|make|create)\b.*\b(list|candidate list|people list|profile list|talent pool)\b/.test(text) ||
-    /\b(show me candidates|show candidates|give me candidates|get me candidates|who should we reach out to|who should i reach out to|source candidates|source people|find candidates|find people|find linkedin profiles|show linkedin profiles|public profile leads)\b/.test(text);
+    /\b(search real profiles|experimental sourcing|public profiles?|linkedin profiles?|github profiles?)\b/.test(text) ||
+    /\b(show|send|pull|find|look for)\b.*\b(public profiles?|linkedin profiles?|github profiles?|public leads?|public candidates?)\b/.test(text) ||
+    /\b(source|sourcing)\b.*\b(candidates?|people|profiles?|leads?|prospects?|targets?)\b/.test(text) ||
+    /\b(show me candidates|show candidates|give me candidates|get me candidates|who should we reach out to|who should i reach out to|source candidates|source people|find linkedin profiles|show linkedin profiles|public profile leads)\b/.test(text);
 
   return explicitProfileSearch && !asksForApproach && !asksForSearchHelpOnly;
+}
+
+function hasPreviousExampleShapes(messages: TinaMvpMessage[]) {
+  return messages.some((message) => Boolean(message.exampleShapes?.shapes?.length));
 }
 
 function isOperatingPullPhrase(message: string) {

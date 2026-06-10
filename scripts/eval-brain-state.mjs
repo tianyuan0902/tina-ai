@@ -3,6 +3,7 @@ import { buildCanonicalSearchState, formatCanonicalSearchStateForPrompt } from "
 import { evaluateSourcingReadiness } from "../.tmp/eval-brain-state/lib/tina/sourcing-readiness.js";
 import { buildExpandedPublicTalentSearchQueries, buildPublicTalentSearchQueries } from "../.tmp/eval-brain-state/lib/tina/search-query-builder.js";
 import { actionButtonsForCurrentRead, buildCurrentRead, buildCurrentReadResponseSketch, currentReadTitle } from "../.tmp/eval-brain-state/lib/tina-mvp/current-read.js";
+import { buildExampleShapeFeedback, buildExampleShapes, isExampleShapeRequest } from "../.tmp/eval-brain-state/lib/tina-mvp/example-shapes.js";
 import { buildFounderModel, buildFounderModelResponseSketch } from "../.tmp/eval-brain-state/lib/tina-mvp/founder-model.js";
 import { buildHiringArtifact } from "../.tmp/eval-brain-state/lib/tina-mvp/hiring-artifacts.js";
 import { buildReferenceProfileInsightFromText, buildReferenceProfileResponse, formatReferenceProfileInsightForPrompt, isReferenceProfileRequest } from "../.tmp/eval-brain-state/lib/tina-mvp/reference-profiles.js";
@@ -219,6 +220,15 @@ if (!/reports information back to you instead of taking work off your plate/i.te
 if (!/Do not default to "what success looks like"/i.test(TINA_SYSTEM_PROMPT)) {
   throw new Error("system prompt should ban default success-looking questions.");
 }
+if (!/messy founder language as real calibration input/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should treat messy founder language as calibration input.");
+}
+if (!/examples to react to, not finalists/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should label early profiles as examples to react to.");
+}
+if (!/remote US with Bay Area as a plus/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should preserve loose SF-or-remote constraints.");
+}
 if (!/Observation → Risk → One Sharp Question/i.test(TINA_SYSTEM_PROMPT)) {
   throw new Error("system prompt should require observation, risk, then one sharp question before asking.");
 }
@@ -300,7 +310,7 @@ expectIncludes([pmWorkingThesisSketch], /role shape|search lane|concrete/i, "agr
 expectIncludes([pmWorkingThesisPrompt], /Do not repeat the latest insight/i, "working thesis prompt should prevent repeated insights");
 expectIncludes([pmWorkingThesisPrompt], /If the thesis is stable, move to recommendation/i, "working thesis prompt should move stable thesis forward");
 expectEqual(pmCurrentRead.mode, "execution", "multi-turn PM conversation should progress from diagnosis into execution");
-expectEqual(pmCurrentReadActions.join(" | "), "Build signal map | Create interview plan | Source against this thesis | Build search lanes", "execution actions should replace diagnostic buttons once enough signal exists");
+expectEqual(pmCurrentReadActions.join(" | "), "Build signal map | Create interview plan | Turn into sourcing brief | Build search lanes", "execution actions should replace diagnostic buttons once enough signal exists");
 console.log("PASS working thesis progression");
 
 const currentReadScenarios = [
@@ -1132,6 +1142,87 @@ const canonicalCases = [
       expectNotIncludes([positiveQueryText], /founder office|startup operator|product operator|AI operator/i, "sales-transition queries should not drift into operator lanes");
       expectIncludes([refinedQueries], /first GTM|founding AE|sales builder|founder-led sales|repeatable sales/i, "feedback refinement should stay in founder-led sales lanes");
       expectNotIncludes([positiveRefinedQueryText], /founder office|startup operator|product operator|AI operator/i, "feedback refinement should not reintroduce generic operator lanes");
+    }
+  },
+  {
+    name: "messy founder sales language updates canonical state",
+    messages: [
+      { id: "messy-sales-1", role: "founder", content: "I think I need like a sales person. Maybe VP sales? I don’t know. I’m tired of doing all the calls myself and it’s kind of becoming a mess." },
+      { id: "messy-sales-2", role: "founder", content: "Not that predictable honestly. Some deals happen because I know the customer or I can explain the vision. If someone else does it, it feels flat." },
+      { id: "messy-sales-3", role: "founder", content: "Maybe demos can survive without me? The product story maybe not. Can you just show me a few people who feel kinda like the right shape? I need to see it, otherwise this is too abstract." },
+      { id: "messy-sales-4", role: "founder", content: "Ugh no, not people hire. Sales person. Maybe SF or remote, I don’t care that much. Just not some big company VP who needs a whole machine already working." },
+      { id: "messy-sales-5", role: "founder", content: "Yeah that’s right. Now show me like 3 people-ish examples. I don’t need perfect. I just want to react to something." }
+    ],
+    assert(state) {
+      const context = [
+        `Canonical search state:\n${formatCanonicalSearchStateForPrompt(state)}`,
+        "Current Read: Founder-Led Sales Transition",
+        "Founder-dependent sales; demos may survive without founder; product story may not.",
+        "Need examples to react to, not finalists."
+      ].join("\n");
+      const queries = buildPublicTalentSearchQueries(context).join("\n");
+      const positiveQueryText = queries.replace(/-"[^"]+"/g, "");
+
+      expectEqual(state.roleFamily, "gtm", "messy correction should become sales/GTM");
+      expectIncludes([state.roleTitle], /Sales|GTM/i, "messy correction should keep a sales title");
+      expectEqual(state.location, "Remote US / Bay Area plus", "SF or remote loose constraint should not become SF-only");
+      expectIncludes(state.exclusions, /late-stage VP|people\/recruiting|founder office/i, "messy correction should exclude people/corporate/operator drift");
+      expectIncludes([queries], /first GTM|founding AE|early sales lead|sales builder|founder-led sales|repeatable sales/i, "messy sales queries should target calibration sales builders");
+      expectIncludes([queries], /Remote US|Bay Area/i, "messy sales queries should preserve loose location constraint");
+      expectNotIncludes([positiveQueryText], /people hire|recruiter|founder office|startup operator|product operator|AI operator/i, "messy sales queries should not drift into people/operator lanes");
+
+      const naturalShapeRequest = "Can you just show me a few people who feel kinda like the right shape? I need to see it, otherwise this is too abstract.";
+      const read = buildCurrentRead({ messages: [
+        { id: "shape-1", role: "founder", content: "I think I need like a sales person. Maybe VP sales? I don’t know. I’m tired of doing all the calls myself." },
+        { id: "shape-2", role: "founder", content: naturalShapeRequest }
+      ], canonicalSearchState: state });
+      const shapes = buildExampleShapes(read, state);
+      const feedback = buildExampleShapeFeedback("More like founding AE, less executive.", read);
+
+      expectEqual(isExampleShapeRequest(naturalShapeRequest), true, "natural shape request should route to example shapes");
+      expectIncludes([shapes.title], /sales/i, "sales shape request should produce sales-oriented example shapes");
+      expectIncludes(shapes.shapes.map((shape) => shape.name), /Founding AE|First GTM|VP Sales false positive/i, "sales shapes should include founder-led sales archetypes");
+      expectNotIncludes(shapes.shapes.map((shape) => shape.name), /named|LinkedIn|profile/i, "example shapes should not be named profiles");
+      expectIncludes(feedback.positiveSignals, /Founder-led selling|First sales|repeatable/i, "shape feedback should store positive sales signals");
+      expectIncludes(feedback.negativeSignals, /Late-stage VP|Manager of managers|working sales machine/i, "shape feedback should store negative executive signals");
+    }
+  },
+  {
+    name: "no existing team does not become leadership bottleneck",
+    messages: [
+      { id: "no-team-1", role: "founder", content: "I think I need a Head of Engineering, but honestly we have no existing engineering team yet. This would be the first technical hire." }
+    ],
+    assert(state) {
+      const read = buildCurrentRead({ messages: this.messages, canonicalSearchState: state });
+      expectNotEqual(read.thesisTitle, "Engineering Leadership Bottleneck", "no existing team should disqualify leadership bottleneck");
+      expectNotIncludes([read.hypothesis, read.observation, read.nextBestMove], /leadership bottleneck/i, "no existing team read should not phrase as leadership bottleneck");
+    }
+  },
+  {
+    name: "not X becomes explicit exclusion",
+    messages: [
+      { id: "not-x-1", role: "founder", content: "Ugh no, not people hire. Sales person. Not founder office either. Maybe SF or remote, I don't care that much." }
+    ],
+    assert(state) {
+      expectEqual(state.roleFamily, "gtm", "not people hire plus sales should become GTM");
+      expectIncludes(state.exclusions, /people\/recruiting/i, "negated people lane should be excluded");
+      expectIncludes(state.exclusions, /founder-office|generic operator/i, "negated founder-office lane should be excluded");
+      expectEqual(state.location, "Remote US / Bay Area plus", "loose SF/remote should stay loose");
+    }
+  },
+  {
+    name: "category choice produces comparison shapes",
+    messages: [
+      { id: "compare-1", role: "founder", content: "I am choosing between a PM and an operator. Can you compare the shapes?" }
+    ],
+    assert(state) {
+      const request = this.messages[0].content;
+      const read = buildCurrentRead({ messages: this.messages, canonicalSearchState: state });
+      const shapes = buildExampleShapes(read, state, undefined, request);
+
+      expectEqual(isExampleShapeRequest(request), true, "category choice should route to example shapes");
+      expectIncludes([shapes.title], /Product vs operator|Comparison/i, "category choice should produce comparison shapes");
+      expectIncludes(shapes.shapes.map((shape) => shape.name), /Product|operator|false positive/i, "comparison shapes should show the categories, not market fields");
     }
   }
 ];
