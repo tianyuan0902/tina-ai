@@ -256,6 +256,9 @@ if (/I’d kick off with a focused scorecard/i.test(TINA_SYSTEM_PROMPT)) {
 if (!/when the founder says they do not know yet/i.test(TINA_SYSTEM_PROMPT)) {
   throw new Error("system prompt should have a natural move for founder uncertainty.");
 }
+if (!/stay in Current Read.*Do not auto-generate Signal Map, Market Reality/is.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should keep founder uncertainty in Current Read without auto-generating planning or market artifacts.");
+}
 if (!/when the founder says the search has been hard/i.test(TINA_SYSTEM_PROMPT)) {
   throw new Error("system prompt should have a natural move for hard-search moments.");
 }
@@ -399,6 +402,19 @@ expectAtLeast(committedThesisCount, 4, "current read should state a thesis by tu
 expectAtLeast(concreteMoveCount, 4, "current read should give a concrete next best move in at least 4/5 scenarios");
 console.log("PASS current read thesis commitment scenarios");
 
+const founderUncertaintyRead = buildCurrentRead({
+  messages: [
+    {
+      id: "uncertain-technical-v1",
+      role: "founder",
+      content: "I don’t know… I need someone who can tell me what is technically possible and ship v1."
+    }
+  ]
+});
+expectNotIncludes([founderUncertaintyRead.mode], /^execution$|^sourcing$/, "founder uncertainty should stay in Current Read, not Market Reality or sourcing");
+expectIncludes([founderUncertaintyRead.nextBestMove], /clarify|compare|decision|technical|builder|first/i, "technical uncertainty should move toward one question or comparison shapes");
+console.log("PASS founder uncertainty stays in Current Read");
+
 const longFounderReadCases = [
   {
     name: "VP Product does not stay unknown",
@@ -467,7 +483,7 @@ const longFounderReadCases = [
       { id: "recruiter-2", role: "founder", content: "We only have a few roles open, but interviews are slow and I keep changing what good looks like." },
       { id: "recruiter-3", role: "founder", content: "Candidate flow is not the only issue. The team is not calibrated." }
     ],
-    expected: "Recruiting System Before Recruiter",
+    expected: "Hiring Process / Fractional Recruiter",
     nextMove: /hiring plan|interview process|fractional recruiting/i
   },
   {
@@ -487,7 +503,7 @@ const longFounderReadCases = [
       { id: "support-2", role: "founder", content: "Customers keep asking the same questions after onboarding and the queue is growing." },
       { id: "support-3", role: "founder", content: "It is urgent. I need this fixed fast." }
     ],
-    expected: "Support Load Root Cause",
+    expected: "Product/Support Loop",
     nextMove: /support coverage|root cause|repeat demand|product\/support loop/i
   },
   {
@@ -517,7 +533,7 @@ const urgentSupportRead = buildCurrentRead({
   messages: supportRootCauseCase.messages,
   previousRead: { ...committedSupportRead, stability: "committed" }
 });
-expectEqual(urgentSupportRead.thesisTitle, "Support Load Root Cause", "urgency should not collapse support root cause into urgent hiring triage");
+expectEqual(urgentSupportRead.thesisTitle, "Product/Support Loop", "urgency should not collapse product/support loop into urgent hiring triage");
 
 const committedOpsCadenceRead = buildCurrentRead({
   messages: [
@@ -582,6 +598,81 @@ for (const actionCase of newArchetypeActionCases) {
   expectEqual(actions, actionCase.expected, `${actionCase.read.thesisTitle} should have thesis-specific right-rail actions`);
 }
 console.log("PASS long founder diagnosis commitment");
+
+const operatingStateCases = [
+  {
+    name: "CTO plus no team becomes first builder decision",
+    messages: [
+      { id: "cto-no-team-1", role: "founder", content: "I think we need a CTO." },
+      { id: "cto-no-team-2", role: "founder", content: "We have no engineering team yet. It might be cofounder vs first engineer vs agency." }
+    ],
+    expectedTitle: "Technical Ownership / First Builder Decision",
+    operatingState: "no_team",
+    hireDecisionType: /first_builder|cofounder_vs_hire/i
+  },
+  {
+    name: "VP Sales founder still closes",
+    messages: [
+      { id: "vp-sales-state-1", role: "founder", content: "We need a VP Sales." },
+      { id: "vp-sales-state-2", role: "founder", content: "Founder still closes most deals and the sales motion is not repeatable." }
+    ],
+    expectedTitle: "Founder-Led Sales Transition",
+    operatingState: "unknown",
+    hireDecisionType: /founder_delegation_gap/i
+  },
+  {
+    name: "Recruiter four hires no process",
+    messages: [
+      { id: "recruiter-four-1", role: "founder", content: "I think we need a recruiter." },
+      { id: "recruiter-four-2", role: "founder", content: "We have 4 hires coming up but no hiring process and interviews are slow." }
+    ],
+    expectedTitle: "Hiring Process / Fractional Recruiter",
+    operatingState: "capacity_add",
+    hireDecisionType: /agency_vs_internal/i
+  },
+  {
+    name: "Support reps repeated bugs docs missing",
+    messages: [
+      { id: "support-loop-1", role: "founder", content: "We need more support reps." },
+      { id: "support-loop-2", role: "founder", content: "Customers keep hitting repeated bugs and our docs are missing." }
+    ],
+    expectedTitle: "Product/Support Loop",
+    operatingState: "capacity_add",
+    hireDecisionType: /not_hiring_yet/i
+  }
+];
+
+for (const testCase of operatingStateCases) {
+  const canonicalSearchState = buildCanonicalSearchState({ messages: testCase.messages });
+  const read = buildCurrentRead({ messages: testCase.messages, canonicalSearchState });
+  expectEqual(read.thesisTitle, testCase.expectedTitle, `${testCase.name} should derive diagnosis from operating state, not title alone`);
+  expectEqual(read.likelyArchetype, testCase.expectedTitle, `${testCase.name} likely archetype should match`);
+  expectEqual(read.operatingState, testCase.operatingState, `${testCase.name} should infer operating state`);
+  expectIncludes([read.hireDecisionType], testCase.hireDecisionType, `${testCase.name} should infer hire decision type`);
+}
+
+const committedCtoRead = buildCurrentRead({
+  messages: [{ id: "cto-persist-1", role: "founder", content: "I think we need a CTO because technical decisions are slow." }]
+});
+const invalidatedCtoRead = buildCurrentRead({
+  messages: [
+    { id: "cto-persist-1", role: "founder", content: "I think we need a CTO because technical decisions are slow." },
+    { id: "cto-persist-2", role: "founder", content: "Actually there is no team yet. It is really cofounder vs first engineer vs agency." }
+  ],
+  previousRead: { ...committedCtoRead, stability: "committed" }
+});
+expectEqual(invalidatedCtoRead.thesisTitle, "Technical Ownership / First Builder Decision", "later no-team context should invalidate stale leadership diagnosis");
+expectNotEqual(invalidatedCtoRead.thesisTitle, "Engineering Leadership Bottleneck", "no team should not remain engineering leadership bottleneck");
+
+const comparisonRequest = "Should this be cofounder vs first engineer vs agency?";
+expectEqual(isExampleShapeRequest(comparisonRequest), true, "comparison options should count as example-shape request");
+const comparisonShapes = buildExampleShapes(invalidatedCtoRead, undefined, undefined, comparisonRequest);
+expectEqual(
+  comparisonShapes.shapes.map((shape) => shape.name).join(" | "),
+  "Technical Cofounder | First Technical Hire / Founding Engineer | Agency / Studio",
+  "cofounder vs first engineer vs agency should use clean normalized labels"
+);
+console.log("PASS operating-state diagnosis and exact comparison shapes");
 
 const engineeringSignalMap = buildSignalMap(buildCurrentRead({ messages: currentReadScenarios[1].messages }));
 expectEqual(engineeringSignalMap.derivedFromThesisTitle, "Engineering Leadership Bottleneck", "signal map should derive from thesis title");

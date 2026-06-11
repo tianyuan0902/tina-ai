@@ -43,6 +43,7 @@ export type TinaChatApiResponse = {
   workingThesis?: WorkingThesis;
   currentRead?: CurrentRead;
   signalMap?: SignalMap;
+  clearSignalMap?: boolean;
   hiringArtifact?: HiringArtifact;
   referenceProfileInsight?: ReferenceProfileInsight;
   exampleShapes?: ExampleShapeSet;

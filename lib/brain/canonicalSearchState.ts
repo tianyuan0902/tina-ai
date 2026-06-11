@@ -97,7 +97,7 @@ export function buildCanonicalSearchState(input: {
 }
 
 function hasExplicitRoleSignal(value: string) {
-  return classifyRoleFamily(value) !== "other" || /\b(head of eng|head of engineering|vp engineering|vp of engineering|engineering manager|eng manager|engineering leadership|engineering leader|director of engineering|engineering director|plant manager|software engineer|infrastructure engineer|smart contract engineer|solidity engineer|product eng|product engineer|product manager|founding pm|founding engineer|designer|account executive|recruiter|finance|legal)\b/i.test(value);
+  return classifyRoleFamily(value) !== "other" || /\b(cto|head of eng|head of engineering|vp engineering|vp of engineering|engineering manager|eng manager|engineering leadership|engineering leader|director of engineering|engineering director|plant manager|software engineer|infrastructure engineer|smart contract engineer|solidity engineer|product eng|product engineer|product manager|founding pm|founding engineer|designer|account executive|recruiter|finance|legal)\b/i.test(value);
 }
 
 export function formatCanonicalSearchStateForPrompt(state: CanonicalSearchState) {
@@ -193,6 +193,7 @@ function inferExplicitRoleTitle(value: string) {
   if (/\b(sales person|salesperson|sales hire)\b/.test(lower)) return "Sales Hire";
   if (/\b(first gtm hire|first sales hire)\b/.test(lower)) return "First GTM Hire";
   if (/\bfounding ae|founding account executive\b/.test(lower)) return "Founding AE";
+  if (/\bcto\b/.test(lower)) return "CTO";
   if (/\b(head of eng|head of engineering)\b/.test(lower)) return "Head of Engineering";
   if (/\b(vp engineering|vp of engineering)\b/.test(lower)) return "VP Engineering";
   if (/\b(engineering manager|eng manager)\b/.test(lower)) return "Engineering Manager";
@@ -234,7 +235,7 @@ function inferCanonicalLocation(value: string) {
 
 function inferCanonicalSeniority(value: string, roleTitle: string) {
   const text = `${value} ${roleTitle}`.toLowerCase();
-  if (/\b(exec|vp|c-level|chief|head of)\b/.test(text)) return "Executive";
+  if (/\b(exec|vp|c-level|chief|head of|cto)\b/.test(text)) return "Executive";
   if (/\b(founding|principal|staff)\b/.test(text)) return "Founding / Principal";
   if (/\b(senior|sr\b|lead)\b/.test(text)) return "Senior";
   if (/\b(junior|associate|entry)\b/.test(text)) return "Junior";
@@ -364,7 +365,7 @@ function unique(values: string[]) {
 }
 
 function isEngineeringLeadershipText(value: string) {
-  return /\b(head of eng|head of engineering|vp engineering|vp of engineering|engineering manager|eng manager|engineering leadership|engineering leader|director of engineering|engineering director)\b/i.test(value);
+  return /\b(cto|head of eng|head of engineering|vp engineering|vp of engineering|engineering manager|eng manager|engineering leadership|engineering leader|director of engineering|engineering director)\b/i.test(value);
 }
 
 function compact(value: string, max = 80) {

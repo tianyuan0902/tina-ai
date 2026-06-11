@@ -773,6 +773,13 @@ function HomeCommandCenter({
           window.sessionStorage.setItem(SIGNAL_MAP_STORAGE_KEY, JSON.stringify(next));
           return next;
         });
+      } else if (data.clearSignalMap) {
+        setStoredSignalMaps((current) => {
+          const next = { ...current };
+          delete next[activeThread.id];
+          window.sessionStorage.setItem(SIGNAL_MAP_STORAGE_KEY, JSON.stringify(next));
+          return next;
+        });
       }
       onMessagesChange(finalMessages, data.currentRead ? titleFromCurrentRead(data.currentRead) : titleFromMessages(finalMessages));
       onSynthesis(data.message.content);
@@ -1833,11 +1840,13 @@ function controlledThesisTitleFromText(value: string): CurrentReadArchetype {
   if (/\b(vp marketing|head of marketing|marketing leader|growth is slow|positioning|icp|acquisition channel|demand gen)\b/i.test(text)) return "Marketing Positioning Gap";
   if (/\b(ai team|build an ai|ai roadmap|customers.*ai|existing roadmap|shiny object)\b/i.test(text)) return "AI Prioritization Gap";
   if (/\b(vp sales|head of sales|sales leader|ae\b|account executive|gtm|revenue)\b/i.test(text)) return "Founder-Led Sales Transition";
+  if (/\b(no existing team|no team|no engineers?|first engineer|first technical hire|co[-\s]?founder|agency)\b/i.test(text) && /\b(cto|technical|engineer|engineering|build)\b/i.test(text)) return "Technical Ownership / First Builder Decision";
   if (/\b(head of eng|head of engineering|engineering manager|eng leader|engineering leadership|cto|vp engineering)\b/i.test(text)) return "Engineering Leadership Bottleneck";
   if (/\b(more senior|senior person|adult in the room|experienced|too junior|not senior enough|run themselves|autonomy|independent)\b/i.test(text)) return "Senior Ownership Gap";
   if (/\b(generalist|chief of staff|founder.?s office|operator|wear many hats|do everything|all of it)\b/i.test(text)) return "Role Compression / Generalist Hire";
   if (/\b(urgent|asap|fast|yesterday|panic|lost|left|need now|quickly)\b/i.test(text)) return "Urgent Hiring Triage";
   if (/\b(vp product|vp of product|chief product|cpo\b|pm|product manager|head of product|product lead|priorities|prioritization|alignment|product execution|ship)\b/i.test(text)) return "Product/Execution Ownership Gap";
+  if (/\b(support|support reps?|tickets?|queue|onboarding|customer success|deployment)\b/i.test(text) && /\b(repeated|same questions?|bugs?|docs?|documentation|missing docs?|product bug|self[-\s]?serve|feedback loop)\b/i.test(text)) return "Product/Support Loop";
   if (/\b(customer ops|implementation|support|success|onboarding|customer success|deployment)\b/i.test(text)) return "Support Load Root Cause";
   return "Unknown / Needs Clarification";
 }
@@ -1854,15 +1863,22 @@ function isClarificationQuestion(value: string) {
   return /\b(what does that mean|why\??|can you explain|help me understand|what do you mean|say more|explain that)\b/i.test(value.trim());
 }
 
+function isFounderUncertaintyRequest(value: string) {
+  return /\b(i don['’]?t know|not sure|unsure|no idea|still figuring|haven['’]?t figured)\b/i.test(value.trim());
+}
+
 function isMarketRealityRequest(value: string) {
   if (/\b(pressure[-\s]?test market|market reality)\b/i.test(value)) return false;
   if (isPlanningArtifactRequest(value)) return false;
+  if (isExampleShapeRequest(value) || isExampleShapeFeedback(value)) return false;
+  if (isFounderUncertaintyRequest(value)) return false;
   return /\b(market|market reality|comp|compensation|salary|equity|location|geo|geography|talent pool|time[-\s]?to[-\s]?fill|ttf|candidate|candidates|profile|profiles|people|lead|leads|sourcing|source|source against this thesis|build search lanes|search lanes|find people|pull)\b/i.test(value);
 }
 
 function shouldShowMarketReality(messages: TinaMvpMessage[], currentRead?: CurrentRead, hasMarketArtifacts = false) {
   const latestFounder = latestFounderContent(messages);
   if (isClarificationQuestion(latestFounder)) return false;
+  if (isFounderUncertaintyRequest(latestFounder)) return false;
   if (isExampleShapeRequest(latestFounder) || isExampleShapeFeedback(latestFounder)) return false;
   if (latestExampleShapeMessageIndex(messages) > latestMarketEvidenceMessageIndex(messages)) return false;
   if (isMarketRealityRequest(latestFounder)) return true;
@@ -2442,6 +2458,8 @@ function CurrentReadRail({ currentRead, onAction }: { currentRead?: CurrentRead;
     risk: "A vague role can turn into a very expensive guess.",
     confidence: "low",
     stability: "emerging",
+    operatingState: "unknown",
+    hireDecisionType: "not_hiring_yet",
     whatWouldChangeMyMind: "One concrete description of what is breaking today.",
     nextBestMove: "Ask what changed that makes this hire feel necessary now.",
     calibratedScope: [],

@@ -248,17 +248,19 @@ export async function POST(request: Request) {
     });
   }
 
-  if (!shouldRunProfileSearch && isFounderUncertain(latestUserMessage.content)) {
+  if (!shouldRunProfileSearch && isFounderUncertain(latestUserMessage.content) && !isSignalMapRequest(latestUserMessage.content)) {
+    const responseContent = buildFounderUncertainResponse(canonicalSearchState, latestUserMessage.content);
     return NextResponse.json({
       message: {
         id: `tina-uncertain-${Date.now()}`,
         role: "tina",
-        content: buildFounderUncertainResponse(canonicalSearchState)
+        content: responseContent
       },
       canonicalSearchState,
-      workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildFounderUncertainResponse(canonicalSearchState), canonicalSearchState),
+      workingThesis: buildWorkingThesisWithAssistant(cleanMessages, responseContent, canonicalSearchState),
       currentRead,
-      signalMap,
+      clearSignalMap: true,
+      referenceProfileInsight,
       source: "local_conversation_move"
     });
   }
@@ -319,42 +321,6 @@ export async function POST(request: Request) {
       workingThesis: buildWorkingThesisWithAssistant(cleanMessages, buildPartialCoverageResponse(canonicalSearchState), canonicalSearchState),
       currentRead,
       signalMap,
-      source: "local_conversation_move"
-    });
-  }
-
-  if (!shouldRunProfileSearch && isSignalMapContinuationRequest(cleanMessages)) {
-    if (!canGenerateSignalMap(currentRead, canonicalSearchState)) {
-      const responseContent = buildSignalMapMissingSignalResponse(currentRead, canonicalSearchState);
-
-      return NextResponse.json({
-        message: {
-          id: `tina-signal-map-gate-${Date.now()}`,
-          role: "tina",
-          content: responseContent
-        },
-        canonicalSearchState,
-        workingThesis: buildWorkingThesisWithAssistant(cleanMessages, responseContent, canonicalSearchState),
-        currentRead,
-        signalMap,
-        source: "local_conversation_move"
-      });
-    }
-
-    const nextSignalMap = buildSignalMap(currentRead, canonicalSearchState);
-    const responseContent = buildSignalMapResponse(nextSignalMap);
-
-    return NextResponse.json({
-      message: {
-        id: `tina-signal-map-continuation-${Date.now()}`,
-        role: "tina",
-        content: "Yes — I’ll make this concrete. I’d use this Signal Map before looking at candidates.",
-        signalMap: nextSignalMap
-      },
-      canonicalSearchState,
-      workingThesis: buildWorkingThesisWithAssistant(cleanMessages, responseContent, canonicalSearchState),
-      currentRead,
-      signalMap: nextSignalMap,
       source: "local_conversation_move"
     });
   }
@@ -806,15 +772,6 @@ function isSignalMapRequest(message: string) {
   return /\b(signal map|build signal map|map the profile|map this profile|profile map|what to look for|how to evaluate|interview criteria|evaluation criteria|must[-\s]?prove signals?|must[-\s]?have signals?)\b/i.test(message);
 }
 
-function isSignalMapContinuationRequest(messages: TinaMvpMessage[]) {
-  const latest = [...messages].reverse().find((message) => message.role === "founder");
-  if (!latest || !isAgreementOnlySignal(latest.content)) return false;
-
-  const previousTina = getPreviousTinaMessage(messages).toLowerCase();
-  return /\b(ready to map|map the profile|map this profile|build signal map|signal map|must[-\s]?prove|turn this into criteria|translate.*criteria)\b/i.test(previousTina) &&
-    !/\b(source|pull|find|show).*\b(profiles?|candidates?|people|leads?)\b/i.test(previousTina);
-}
-
 function canGenerateSignalMap(currentRead: CurrentRead, canonicalSearchState?: CanonicalSearchState) {
   if (currentRead.thesisTitle === "Unknown / Needs Clarification") return false;
 
@@ -888,6 +845,9 @@ function shouldUseRequestCurrentRead(
   if (!provided) return false;
   if (!/^\s*(yes|sure|go ahead|ok|okay|sounds good|sounds great|great|makes sense)\s*[.!?]*\s*$/i.test(latestUserMessage)) return false;
   if (computed.confidence === "high") return false;
+  if (computed.thesisTitle !== provided.thesisTitle && computed.thesisTitle !== "Unknown / Needs Clarification") return false;
+  if (computed.operatingState !== "unknown" && computed.operatingState !== (provided.operatingState || "unknown")) return false;
+  if (computed.hireDecisionType !== "not_hiring_yet" && computed.hireDecisionType !== (provided.hireDecisionType || "not_hiring_yet")) return false;
   return provided.confidence === "medium" || provided.confidence === "high";
 }
 
@@ -1203,7 +1163,7 @@ function identifyAmbiguousFocalPoint(message: string, state: CanonicalSearchStat
 }
 
 function isFounderUncertain(message: string) {
-  return /\b(i don['’]?t know yet|not sure yet|unsure|haven['’]?t figured it out|still figuring it out|no idea yet)\b/i.test(message);
+  return /\b(i don['’]?t know|not sure|unsure|haven['’]?t figured it out|still figuring it out|no idea)\b/i.test(message);
 }
 
 function isHardSearchSignal(message: string) {
@@ -1320,10 +1280,18 @@ function buildOverbroadAnswerResponse(state: CanonicalSearchState) {
   ].join("\n\n");
 }
 
-function buildFounderUncertainResponse(state: CanonicalSearchState) {
+function buildFounderUncertainResponse(state: CanonicalSearchState, latestMessage = "") {
   const role = readableRole(state);
   const location = state.location !== "Location forming" ? ` in ${state.location}` : "";
   const proof = state.mustHaveSignals[0] || state.niceToHaveSignals[0] || "evidence they have done the hard part before";
+
+  if (/\b(engineer|technical|cto|v1|ship|build|prototype|possible)\b/i.test(`${latestMessage} ${state.roleTitle} ${state.mustHaveSignals.join(" ")} ${state.niceToHaveSignals.join(" ")}`)) {
+    return [
+      `That sounds less like a polished CTO search and more like a first technical ownership decision.`,
+      `The risk is mixing three different shapes: a technical cofounder who helps decide what should exist, a founding engineer who can ship v1, and an agency/studio that can prove the concept without becoming the company’s technical center.`,
+      `Which tradeoff matters most right now: someone to make the technical calls with you, someone to build the first version fast, or someone to help you learn what is feasible before you hire?`
+    ].join("\n\n");
+  }
 
   return [
     `That’s okay — we don’t need the perfect spec yet.`,

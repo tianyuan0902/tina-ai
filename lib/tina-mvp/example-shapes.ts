@@ -179,6 +179,16 @@ function isCategoryComparisonRequest(message: string) {
 
 function buildComparisonShapes(message: string, thesisTitle: string): ExampleShapeSet {
   const text = message.toLowerCase();
+  const namedOptions = normalizeComparisonOptions(extractNamedComparisonOptions(message), message);
+
+  if (namedOptions.length >= 2) {
+    return {
+      title: "Comparison shapes",
+      intro: "Yeah. I’ll compare those exact shapes, not candidates yet. React to what feels closest.",
+      derivedFromThesisTitle: thesisTitle,
+      shapes: namedOptions.slice(0, 3).map((option) => shapeForNamedOption(option))
+    };
+  }
 
   if (/\b(pm|product)\b/.test(text) && /\b(operator|ops|generalist)\b/.test(text)) {
     return {
@@ -269,6 +279,94 @@ function buildComparisonShapes(message: string, thesisTitle: string): ExampleSha
         recognize: "Strong label, weak problem-specific proof."
       }
     ]
+  };
+}
+
+function extractNamedComparisonOptions(message: string) {
+  const normalized = message
+    .replace(/[?!.]/g, " ")
+    .replace(/\b(should i|should we|do we|are we|is it|maybe|compare|choosing between|choose between|which one|which option|options?|shapes?|roles?|hire|hiring|the)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!/\b(vs|versus|or|between)\b/i.test(normalized)) return [];
+
+  return normalized
+    .split(/\s*(?:vs\.?|versus|,|\/|\bor\b|\bbetween\b|\band\b)\s*/i)
+    .map((option) => option.trim())
+    .filter((option) => option.length >= 3)
+    .filter((option) => !/^(a|an|to|for|of|with|and|or)$/i.test(option))
+    .map(cleanOptionLabel)
+    .filter(Boolean)
+    .filter((option, index, options) => options.findIndex((candidate) => candidate.toLowerCase() === option.toLowerCase()) === index);
+}
+
+function cleanOptionLabel(option: string) {
+  return option
+    .replace(/\b(first eng)\b/i, "first engineer")
+    .replace(/\b(cofounder)\b/i, "cofounder")
+    .replace(/\b(co-founder)\b/i, "cofounder")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^\w/, (letter) => letter.toUpperCase());
+}
+
+function normalizeComparisonOptions(options: string[], message: string) {
+  if (/\bco[-\s]?founder\b/i.test(message) && /\bfirst engineer|first technical hire|founding engineer\b/i.test(message) && /\bagency|studio|dev shop\b/i.test(message)) {
+    return ["Technical Cofounder", "First Technical Hire / Founding Engineer", "Agency / Studio"];
+  }
+
+  return options.map(normalizeComparisonOptionLabel);
+}
+
+function normalizeComparisonOptionLabel(option: string) {
+  const lower = option.toLowerCase();
+  if (/\bco[-\s]?founder\b/.test(lower)) return "Technical Cofounder";
+  if (/\bfirst engineer|first technical hire|founding engineer|first builder\b/.test(lower)) return "First Technical Hire / Founding Engineer";
+  if (/\bagency|studio|dev shop\b/.test(lower)) return "Agency / Studio";
+  return option;
+}
+
+function shapeForNamedOption(option: string): ExampleShape {
+  const lower = option.toLowerCase();
+  const id = lower.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "comparison-option";
+
+  if (/\bcofounder|co-founder\b/.test(lower)) {
+    return {
+      id,
+      name: option,
+      solves: "Carries company-level technical and product risk.",
+      fails: "Too heavy if you only need scoped execution.",
+      recognize: "Wants ownership, equity, and real company-building authority."
+    };
+  }
+
+  if (/\bfirst engineer|first technical hire|first builder|founding engineer\b/.test(lower)) {
+    return {
+      id,
+      name: option,
+      solves: "Builds the first real product system hands-on.",
+      fails: "Falls short if the business needs cofounder judgment.",
+      recognize: "Has shipped 0-to-1 without needing a team around them."
+    };
+  }
+
+  if (/\bagency|dev shop|studio|contractor\b/.test(lower)) {
+    return {
+      id,
+      name: option,
+      solves: "Gets a scoped build moving quickly.",
+      fails: "Does not create internal technical ownership.",
+      recognize: "Clear delivery scope, low long-term company ownership."
+    };
+  }
+
+  return {
+    id,
+    name: option,
+    solves: "Solves one version of the operating gap.",
+    fails: "Misses if the real problem is a different lane.",
+    recognize: "Has proof of owning this exact kind of work."
   };
 }
 
