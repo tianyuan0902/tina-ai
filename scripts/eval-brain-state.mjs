@@ -5,7 +5,7 @@ import { buildExpandedPublicTalentSearchQueries, buildPublicTalentSearchQueries 
 import { actionButtonsForCurrentRead, buildCurrentRead, buildCurrentReadResponseSketch, currentReadTitle } from "../.tmp/eval-brain-state/lib/tina-mvp/current-read.js";
 import { buildExampleShapeFeedback, buildExampleShapes, isExampleShapeRequest } from "../.tmp/eval-brain-state/lib/tina-mvp/example-shapes.js";
 import { buildFounderModel, buildFounderModelResponseSketch } from "../.tmp/eval-brain-state/lib/tina-mvp/founder-model.js";
-import { buildHiringArtifact } from "../.tmp/eval-brain-state/lib/tina-mvp/hiring-artifacts.js";
+import { buildHiringArtifact, inferHiringArtifactKind } from "../.tmp/eval-brain-state/lib/tina-mvp/hiring-artifacts.js";
 import { buildReferenceProfileInsightFromText, buildReferenceProfileResponse, formatReferenceProfileInsightForPrompt, isReferenceProfileRequest } from "../.tmp/eval-brain-state/lib/tina-mvp/reference-profiles.js";
 import { buildSignalMap, buildSignalMapResponse } from "../.tmp/eval-brain-state/lib/tina-mvp/signal-map.js";
 import { buildWorkingThesis, buildWorkingThesisResponseSketch, formatWorkingThesisForPrompt } from "../.tmp/eval-brain-state/lib/tina-mvp/working-thesis.js";
@@ -167,8 +167,11 @@ if (!/generate a working founder model/i.test(TINA_SYSTEM_PROMPT)) {
 if (!/Chat is the short bridge; structured artifacts carry the detail/i.test(TINA_SYSTEM_PROMPT)) {
   throw new Error("system prompt should keep chat brief and move detail into structured artifacts.");
 }
-if (!/short confirmation after Tina proposes an artifact/i.test(TINA_SYSTEM_PROMPT)) {
-  throw new Error("system prompt should turn artifact confirmations into concise artifact generation.");
+if (/short confirmation after Tina proposes an artifact/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should not treat short artifact confirmations as automatic artifact generation.");
+}
+if (!/Only generate Hiring Read, Example Shapes, Signal Map, Scorecard, Interview Plan, Sourcing Brief, or Market Reality when the founder explicitly asks/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should gate structured artifacts behind explicit founder requests.");
 }
 if (!/Founder → Problem → Role reasoning/i.test(TINA_SYSTEM_PROMPT)) {
   throw new Error("system prompt should reason Founder → Problem → Role.");
@@ -259,6 +262,19 @@ if (!/when the founder says they do not know yet/i.test(TINA_SYSTEM_PROMPT)) {
 if (!/stay in Current Read.*Do not auto-generate Signal Map, Market Reality/is.test(TINA_SYSTEM_PROMPT)) {
   throw new Error("system prompt should keep founder uncertainty in Current Read without auto-generating planning or market artifacts.");
 }
+if (!/Agreement is not an artifact trigger/i.test(TINA_SYSTEM_PROMPT)) {
+  throw new Error("system prompt should not treat normal agreement as artifact permission.");
+}
+expectEqual(
+  inferHiringArtifactKind("I don’t want to give away too much equity, but I also don’t want to keep paying contractors forever."),
+  undefined,
+  "founder uncertainty about equity vs contractors should not trigger Market Reality"
+);
+expectEqual(
+  inferHiringArtifactKind("Pressure-test market reality for this technical cofounder vs first engineer tradeoff."),
+  "market_reality",
+  "explicit market reality request should still generate Market Reality"
+);
 if (!/when the founder says the search has been hard/i.test(TINA_SYSTEM_PROMPT)) {
   throw new Error("system prompt should have a natural move for hard-search moments.");
 }

@@ -157,7 +157,7 @@ export function formatCurrentReadForPrompt(read: CurrentRead) {
     "Thesis commitment rule: commit when evidence is sufficient, not when a fixed number of turns has passed. A committed read needs a likely root problem, at least two supporting signals, one named risk, what would change your mind, and a next move more specific than “clarify more”. Use this shape when the conversation needs crystallizing: “Here’s what I think is really going on: … This is probably not: … It is more likely: … The next best move: …”. If you cannot form a thesis yet, say exactly which missing signal prevents it.",
     "Thesis persistence rule: urgency can change the plan, but it should not erase the diagnosis. Tina can update her read, but she should not collapse her read just because the founder repeats urgency.",
     "Progression rule: when mode is calibration with medium or high confidence, state the committed thesis, name the practical risk, and recommend one concrete next move. Ask at most one narrow question only if it directly changes that next move.",
-    "Progression rule: when mode is execution or confidence is high, stop asking broad clarifying questions. Produce a compact role thesis, a lightweight scorecard, and an interview plan. Ask only for one missing constraint if it would materially change the plan."
+    "Progression rule: when mode is execution or confidence is high, stop asking broad clarifying questions. Make a concise recommendation and offer the relevant artifact buttons. Do not generate Signal Map, Market Reality, scorecard, interview plan, candidate archetype, or sourcing strategy unless the founder explicitly asks for that artifact."
   ].filter(Boolean).join("\n");
 }
 
