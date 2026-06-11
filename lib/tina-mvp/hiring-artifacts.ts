@@ -99,7 +99,11 @@ function isArtifactActionRequest(message: string) {
 }
 
 export function isMarketRealityArtifactRequest(message: string) {
-  return /\b(pressure[-\s]?test market|market reality|talent pool|market read|market map|source lanes|time[-\s]?to[-\s]?fill|ttf|comp|compensation|salary|equity|pool size)\b/i.test(message);
+  const text = message.toLowerCase();
+  const explicitMarketAsk = /\b(pressure[-\s]?test market|market reality|market read|market map|talent market|candidate pool|pool size|source lanes|time[-\s]?to[-\s]?fill|ttf)\b/i.test(text);
+  const explicitCompAsk = /\b(what|show|give|build|create|make|draft|generate|estimate|range|pressure[-\s]?test|tell me)\b[\s\S]{0,50}\b(comp\b|compensation|salary|equity)\b/i.test(text) ||
+    /\b(comp\b|compensation|salary|equity)\b[\s\S]{0,50}\b(range|market|realistic|pressure[-\s]?test|estimate)\b/i.test(text);
+  return explicitMarketAsk || explicitCompAsk;
 }
 
 export function isSourcingStrategyArtifactRequest(message: string) {

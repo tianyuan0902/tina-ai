@@ -60,11 +60,6 @@ const stableNewRoleThread: ChatThread = {
 };
 const MARKET_INTEL_FORMING_TITLE = "Scope forming";
 
-const leadingQuestions = [
-  { label: "Start with the hiring problem", prompt: "Help me clarify the hiring problem before we talk about candidates." },
-  { label: "Pressure-test this hire", prompt: "Pressure-test whether this is the right hire before we start sourcing." }
-];
-
 type ProfileLeadStatus = {
   action?: "saved" | "rejected";
   preference?: "more_like_this" | "less_like_this";
@@ -209,7 +204,7 @@ export function TinaWorkspace() {
 
 function TinaWorkspaceLoading() {
   return (
-    <main className="relative h-screen overflow-hidden bg-white text-[#171717]">
+    <main className="relative h-screen overflow-hidden bg-[#F7F4EF] text-[#171717]">
       <div className="grid h-full place-items-center">
         <div className="text-center">
           <p className="font-serif text-2xl font-semibold">Tina</p>
@@ -340,7 +335,7 @@ function TinaWorkspaceInner() {
   }
 
   return (
-    <main className="relative h-screen overflow-hidden bg-white text-[#171717]">
+    <main className="relative h-screen overflow-hidden bg-[#F7F4EF] text-[#171717]">
       <div className="relative z-10 flex h-screen min-h-0 max-w-full overflow-hidden">
         <Sidebar
           threads={threads}
@@ -399,7 +394,7 @@ function Sidebar({
   }
 
   return (
-    <aside className="flex h-full min-h-0 w-32 shrink-0 flex-col border-r border-[#E6E0D8] bg-white px-2 py-4 shadow-[14px_0_44px_rgba(23,23,23,0.025)] md:w-36 lg:w-44 xl:w-52 xl:px-3">
+    <aside className="flex h-full min-h-0 w-32 shrink-0 flex-col border-r border-[#E4DDD2] bg-[#FFFCF8] px-2 py-4 shadow-[14px_0_44px_rgba(23,23,23,0.025)] md:w-36 lg:w-44 xl:w-52 xl:px-3">
       <div className="mb-5 px-2">
         <p className="font-serif text-xl font-semibold tracking-normal xl:text-2xl">Tina</p>
       </div>
@@ -419,7 +414,7 @@ function Sidebar({
           <div
             key={thread.id}
             className={`group relative flex min-w-0 max-w-full items-center gap-1 rounded-md px-2 py-1.5 transition ${
-              thread.id === activeThreadId ? "bg-[#F3EFE8] shadow-[0_10px_24px_rgba(62,52,42,0.05)]" : "hover:bg-[#F7F4EF]"
+              thread.id === activeThreadId ? "bg-[#F1ECE4] shadow-[0_10px_24px_rgba(62,52,42,0.05)]" : "hover:bg-[#F7F4EF]"
             }`}
           >
             {editingThreadId === thread.id ? (
@@ -589,8 +584,7 @@ function HomeCommandCenter({
   const clickedActions = clickedActionsByThread[activeThread.id] || [];
   const displayedMessages = hasCandidateResults && !showFullConversation ? latestConversationExchange(messages) : messages;
   const hiddenMessageCount = Math.max(0, messages.length - displayedMessages.length);
-  const showMarketReality = shouldShowMarketReality(messages, currentRead, hasCandidateResults || Boolean(latestSourcingBatch));
-  const missionHeader = buildMissionHeader(canonicalSearchState, messages, currentRead, showMarketReality);
+  const missionHeader = buildMissionHeader(canonicalSearchState, messages, currentRead, false);
   const handleRefineSearch = () => {
     const summary = buildTalentPoolFeedbackSummary(currentLatestProfileLeadItems, profileLeadStatus);
     if (summary) {
@@ -798,14 +792,14 @@ function HomeCommandCenter({
   }
 
   return (
-    <div className={`grid h-screen min-h-0 w-full max-w-full grid-cols-1 gap-3 overflow-hidden px-3 pb-3 pt-6 md:grid-cols-[minmax(0,1fr)_minmax(240px,280px)] md:pb-4 md:pt-8 lg:grid-cols-[minmax(0,1fr)_minmax(280px,320px)] xl:grid-cols-[minmax(0,1fr)_minmax(320px,380px)] xl:gap-[clamp(14px,1.25vw,22px)] xl:px-[clamp(14px,1.4vw,22px)] ${hasConversation ? "xl:pt-7" : "xl:pt-14"}`}>
+    <div className={`grid h-screen min-h-0 w-full max-w-[1320px] grid-cols-1 gap-3 overflow-hidden bg-[#F7F4EF] px-3 pb-3 pt-6 md:mx-auto md:pb-4 md:pt-8 xl:gap-[clamp(14px,1.25vw,22px)] xl:px-[clamp(14px,1.4vw,22px)] ${hasConversation ? "xl:pt-6" : "xl:pt-14"}`}>
       <section className="flex min-h-0 flex-col overflow-hidden">
         <header className={`shrink-0 pt-1 ${hasConversation ? "mb-2 text-left" : "mb-3 text-center xl:mb-5 xl:pt-2"}`}>
           {hasConversation ? (
-            <div className="rounded-xl border border-[#E7E3DD] bg-white/85 px-4 py-3 shadow-[0_14px_40px_rgba(23,23,23,0.045)]">
+            <div className="mx-auto max-w-[900px] rounded-2xl border border-[#E4DDD2] bg-white/90 px-4 py-3 shadow-[0_14px_40px_rgba(23,23,23,0.045)]">
               <p className="flex items-center gap-2 text-[11px] font-medium text-[#6B6259]">
                 <Sparkles className="h-3.5 w-3.5 text-[#178A52]" />
-                {showMarketReality ? "Active sourcing mission" : "Active hiring read"}
+                Active hiring read
               </p>
               <h1 className="mt-1 text-lg font-semibold leading-6 text-[#171717]">{missionHeader}</h1>
             </div>
@@ -823,12 +817,12 @@ function HomeCommandCenter({
         </header>
 
         <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] gap-3 overflow-hidden">
-        <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-[#E7E3DD] bg-white shadow-[0_22px_70px_rgba(23,23,23,0.055)]">
-          <div className="shrink-0 border-b border-[#ECE7E1] bg-white px-4 py-3">
+        <div className="mx-auto flex min-h-0 w-full max-w-[980px] flex-col overflow-hidden rounded-2xl border border-[#E4DDD2] bg-white shadow-[0_24px_80px_rgba(23,23,23,0.06)]">
+          <div className="shrink-0 border-b border-[#E4DDD2] bg-white px-4 py-3">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[13px] font-semibold">Tina</p>
-                  <p className="mt-0.5 text-xs text-[#6F675E]">{shouldShowMarketReality(messages, currentRead, hasCandidateResults || Boolean(latestSourcingBatch)) ? "Market Reality updated on the right. Keep refining here." : "Chat first. Current Read updates as Tina learns."}</p>
+                  <p className="mt-0.5 text-xs text-[#6F675E]">Chat first. Artifacts appear here when you ask.</p>
               </div>
               {hasCandidateResults && hiddenMessageCount > 0 ? (
                 <button
@@ -842,8 +836,10 @@ function HomeCommandCenter({
             </div>
           </div>
 
-          <div className={`min-h-0 flex-1 overflow-y-auto bg-white px-4 ${hasCandidateResults ? "py-3" : "py-4"}`}>
-            <div className="mx-auto grid w-full max-w-3xl gap-3">
+          {hasConversation ? <SessionReadStrip currentRead={currentRead} /> : null}
+
+          <div className={`min-h-0 flex-1 overflow-y-auto bg-white px-4 ${hasCandidateResults ? "py-3" : "py-5"}`}>
+            <div className="mx-auto grid w-full max-w-[880px] gap-4">
               {hasCandidateResults ? (
                 <SourcingResultArtifact leads={(currentLatestProfileLeadItems.length ? currentLatestProfileLeadItems : visibleProfileLeadItems).map((item) => item.lead)} sourcingBatch={latestSourcingBatch} />
               ) : null}
@@ -862,65 +858,71 @@ function HomeCommandCenter({
                   <div>
                     <p className="text-sm font-semibold">Tina</p>
                     <TypingStatus label={pendingActionText} />
-                    <InlineSignalRows signals={[pendingActionText || (shouldShowMarketReality(messages, currentRead, hasCandidateResults || Boolean(latestSourcingBatch)) ? "Market Reality updating" : "Current Read updating"), "Thesis tightening"]} />
+                    <InlineSignalRows signals={[pendingActionText || "Current Read updating", "Thesis tightening"]} />
                   </div>
                 </div>
               ) : null}
-              {!hasConversation ? <LeadingQuestionButtons onSubmit={sendMessage} onActionClick={recordClickedAction} isThinking={isThinking} /> : null}
+              {!hasConversation ? (
+                <div className="flex min-h-[320px] items-center justify-center py-8">
+                  <EmptyConversationNotes />
+                </div>
+              ) : null}
               <div ref={transcriptEndRef} />
             </div>
           </div>
 
-          <div className="shrink-0 border-t border-[#ECE7E1] bg-[#FAF8F5] p-3">
-            <CommandInput onSubmit={sendMessage} onActionClick={recordClickedAction} isThinking={isThinking} hasTasteSignal={hasCandidateResults || hasFeedback} currentRead={currentRead} hasSignalMap={Boolean(signalMap)} />
+          <div className="shrink-0 border-t border-[#E4DDD2] bg-[#F7F4EF] p-3">
+            <CommandInput onSubmit={sendMessage} onActionClick={recordClickedAction} isThinking={isThinking} currentRead={currentRead} hasSignalMap={Boolean(signalMap)} />
           </div>
         </div>
         </div>
       </section>
 
-      <RightIntelligenceRail
-        sourcingStrategy={sourcingStrategy}
-        brainState={brainState}
-        profileLeadItems={currentProfileLeadItems}
-        latestProfileLeadItems={currentLatestProfileLeadItems}
-        profileLeadStatus={profileLeadStatus}
-        onProfileLeadStatusChange={(statusKey, status) =>
-          setProfileLeadStatus((current) => ({
-            ...current,
-            [statusKey]: { ...current[statusKey], ...status }
-          }))
-        }
-        onRefineSearch={handleRefineSearch}
-        batchRead={latestBatchRead}
-        sourcingBatch={latestSourcingBatch}
-        feedbackRead={feedbackRead}
-        hasFeedback={hasFeedback}
-        refineLabel={refineLabel}
-        isClientMounted={isClientMounted}
-        messages={messages}
-        canonicalSearchState={canonicalSearchState}
-        currentRead={currentRead}
-        onCurrentReadAction={(value) => {
-          recordClickedAction(actionLabelFromPrompt(value), value, "right_rail");
-          sendMessage(value);
-        }}
-      />
     </div>
   );
+}
+
+function SessionReadStrip({ currentRead }: { currentRead?: CurrentRead }) {
+  const title = titleFromCurrentReadValue(currentRead);
+  const hasRead = Boolean(title);
+  const status = sessionStatusForRead(currentRead);
+  const nextMove = currentRead?.nextBestMove?.trim() || "Name what feels messy, then Tina will sharpen the read.";
+
+  return (
+    <div className="sticky top-0 z-10 shrink-0 border-b border-[#E4DDD2] bg-[#FFFCF8]/95 px-4 py-3 backdrop-blur">
+      <div className="mx-auto flex w-full max-w-[880px] flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-[#E7F7EF] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#168A5A]">
+              {status}
+            </span>
+            <p className="truncate text-sm font-semibold leading-5 text-[#171717]">{hasRead ? title : "Working read forming"}</p>
+          </div>
+          <p className="mt-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs leading-5 text-[#6F6A63]">
+            Next: {oneSentence(nextMove)}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function sessionStatusForRead(read?: CurrentRead) {
+  if (!read || !titleFromCurrentReadValue(read)) return "forming";
+  if (read.mode === "execution" || read.mode === "sourcing" || read.confidence === "high") return "ready to brief";
+  return "calibrated";
 }
 
 function CommandInput({
   onSubmit,
   onActionClick,
   isThinking,
-  hasTasteSignal,
   currentRead,
   hasSignalMap
 }: {
   onSubmit: (value: string) => void;
   onActionClick: (label: string, prompt: string, source: ClickedActionLog["source"]) => void;
   isThinking: boolean;
-  hasTasteSignal: boolean;
   currentRead?: CurrentRead;
   hasSignalMap?: boolean;
 }) {
@@ -933,15 +935,25 @@ function CommandInput({
   const audioChunksRef = useRef<BlobPart[]>([]);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const cancelRecordingRef = useRef(false);
+  const hasCommittedRead = Boolean(currentRead && titleFromCurrentReadValue(currentRead));
   const visibleChips = hasSignalMap
     ? [
         { label: "Build scorecard", prompt: "Build a lightweight scorecard from this signal map." },
         { label: "Create interview plan", prompt: "Create an interview plan from this signal map." },
         { label: "Define candidate archetype", prompt: "Define the candidate archetype from this signal map." },
-        { label: "Pressure-test market reality", prompt: "Pressure-test market reality from this signal map before sourcing." },
-        { label: "Build sourcing strategy", prompt: "Build sourcing strategy from this signal map and market reality. Do not source candidates yet." }
+        { label: "Pressure-test market", prompt: "Pressure-test market reality from this signal map before sourcing." }
       ]
-    : actionButtonsForCurrentRead(currentRead, hasTasteSignal);
+    : hasCommittedRead
+      ? [
+          { label: "Show example shapes", prompt: "Show me example shapes for this hiring read." },
+          { label: "Turn into Hiring Read", prompt: "Turn this into a concise Hiring Read." },
+          { label: "Build scorecard", prompt: "Build a lightweight scorecard for this hiring read." },
+          { label: "Pressure-test market", prompt: "Pressure-test market reality for this hiring read." }
+        ]
+      : [
+          { label: "Start with the problem", prompt: "Help me clarify the hiring problem before we talk about candidates." },
+          { label: "Pressure-test this hire", prompt: "Pressure-test whether this is the right hire before we start sourcing." }
+        ];
 
   useEffect(() => {
     if (!isRecording) return;
@@ -1089,13 +1101,13 @@ function CommandInput({
   }
 
   return (
-    <form onSubmit={submit} className="rounded-xl border border-[#E2DDD6] bg-white p-3 shadow-[0_18px_48px_rgba(23,23,23,0.07)] transition focus-within:border-[#BBAEFF] focus-within:shadow-[0_22px_60px_rgba(91,53,213,0.09)]">
+    <form onSubmit={submit} className="rounded-2xl border border-[#E4DDD2] bg-white p-4 shadow-[0_18px_48px_rgba(23,23,23,0.07)] transition focus-within:border-[#CFC4FF] focus-within:shadow-[0_22px_60px_rgba(124,103,216,0.11)]">
       <textarea
         value={value}
         onChange={(event) => updateDraft(event.target.value)}
         onKeyDown={sendOnEnter}
-        placeholder="Ask Tina anything about this hire..."
-        className="min-h-14 w-full resize-none bg-transparent text-[13px] leading-5 text-[#171717] outline-none placeholder:text-[#9B9289]"
+        placeholder="Tell Tina what feels messy about this hire..."
+        className="min-h-20 w-full resize-none bg-transparent text-[14px] leading-6 text-[#171717] outline-none placeholder:text-[#9B9289]"
       />
       {isRecording ? (
         <div className="mt-2 rounded-lg border border-[#E7D8CB] bg-[#FFF8F1] px-3 py-2">
@@ -1133,7 +1145,7 @@ function CommandInput({
       <p className="mt-2 text-[11px] leading-4 text-[#8A8178]">
         Conversations may be reviewed to improve Tina. Don&apos;t include sensitive personal information.
       </p>
-      <div className="mt-3 flex flex-col gap-3 border-t border-[#ECE7E1] pt-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mt-4 flex flex-col gap-3 border-t border-[#E4DDD2] pt-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap gap-2">
           {visibleChips.map((chip) => (
             <button
@@ -1143,7 +1155,7 @@ function CommandInput({
                 onActionClick(chip.label, chip.prompt, "chat_input");
                 updateDraft(chip.prompt);
               }}
-              className="rounded-lg border border-[#E3DED7] bg-white px-3 py-1.5 text-xs font-medium text-[#625A52] shadow-[0_8px_18px_rgba(23,23,23,0.035)] transition hover:border-[#CFC4FF] hover:bg-[#F8F6FF] hover:text-[#4B28C9]"
+              className="rounded-lg border border-[#E4DDD2] bg-white px-3 py-1.5 text-xs font-medium text-[#625A52] shadow-[0_8px_18px_rgba(23,23,23,0.035)] transition hover:border-[#CFC4FF] hover:bg-[#F1EEFF] hover:text-[#5A42C8]"
             >
               {chip.label}
             </button>
@@ -1153,7 +1165,7 @@ function CommandInput({
           <button
             type="button"
             onClick={startRecording}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-[#E3DED7] bg-white text-[#625A52] shadow-[0_8px_18px_rgba(23,23,23,0.045)] transition hover:border-[#D7C9FF] hover:bg-[#F8F6FF] hover:text-[#4B28C9] disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-[#E4DDD2] bg-white text-[#625A52] shadow-[0_8px_18px_rgba(23,23,23,0.045)] transition hover:border-[#D7C9FF] hover:bg-[#F1EEFF] hover:text-[#5A42C8] disabled:cursor-not-allowed disabled:opacity-50"
             disabled={isThinking || isRecording || isUploadingAudio}
             aria-label="Record voice memo"
             title="Record voice memo"
@@ -1162,7 +1174,7 @@ function CommandInput({
           </button>
           <button
             type="submit"
-            className="inline-flex items-center justify-center gap-2 rounded-md bg-[#1E1E1E] px-3.5 py-2 text-xs font-medium text-white shadow-[0_10px_28px_rgba(23,23,23,0.18)] transition hover:bg-[#262626] disabled:opacity-60"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#171717] px-4 text-xs font-semibold text-white shadow-[0_10px_28px_rgba(23,23,23,0.18)] transition hover:bg-[#168A5A] disabled:opacity-60"
             disabled={isThinking || isRecording || isUploadingAudio}
           >
             Send
@@ -1191,35 +1203,33 @@ function isPermissionDenied(error: unknown) {
   return error instanceof DOMException && (error.name === "NotAllowedError" || error.name === "PermissionDeniedError");
 }
 
-function LeadingQuestionButtons({
-  onSubmit,
-  onActionClick,
-  isThinking
-}: {
-  onSubmit: (value: string) => void;
-  onActionClick: (label: string, prompt: string, source: ClickedActionLog["source"]) => void;
-  isThinking: boolean;
-}) {
+function EmptyConversationNotes() {
+  const notes = [
+    { label: "What changed?", body: "The moment that made this hire feel urgent.", tone: "green" },
+    { label: "What’s breaking?", body: "The work, decision, or handoff that keeps slipping.", tone: "coral" },
+    { label: "Who owns it now?", body: "The person carrying the load before the role exists.", tone: "blue" }
+  ];
+
   return (
-    <div className="ml-0 mt-1 flex max-w-full flex-wrap gap-2.5 sm:ml-10">
-      {leadingQuestions.map((question, index) => (
-        <button
-          key={question.label}
-          type="button"
-          onClick={() => {
-            onActionClick(question.label, question.prompt, "empty_state");
-            onSubmit(question.prompt);
-          }}
-          disabled={isThinking}
-          className="inline-flex max-w-full items-center gap-2 rounded-lg border border-[#E5E0DA] bg-white px-3 py-1.5 text-xs font-medium text-[#4B453F] shadow-[0_12px_30px_rgba(23,23,23,0.055)] transition hover:-translate-y-0.5 hover:border-[#CFC4FF] hover:bg-[#F8F6FF] hover:text-[#4B28C9] disabled:opacity-60"
+    <div className="mx-auto mt-3 grid w-full max-w-2xl gap-3 sm:grid-cols-3">
+      {notes.map((note) => (
+        <div
+          key={note.label}
+          className={`rounded-2xl border px-3.5 py-3 shadow-[0_10px_28px_rgba(23,23,23,0.035)] ${
+            note.tone === "green"
+              ? "border-[#D6E9DD] bg-[#F3FBF6]"
+              : note.tone === "coral"
+                ? "border-[#F0D4C8] bg-[#FFF0EA]"
+                : "border-[#D9E5EC] bg-[#EDF6FB]"
+          }`}
         >
-          <span className={`grid h-5 w-5 place-items-center rounded-md text-xs ${
-            index === 0 ? "bg-[#F1ECFF] text-[#5B35D5]" : index === 1 ? "bg-[#ECF8F0] text-[#108A4B]" : "bg-[#FFF2E8] text-[#E86A2C]"
+          <p className={`text-[11px] font-semibold uppercase tracking-[0.13em] ${
+            note.tone === "green" ? "text-[#168A5A]" : note.tone === "coral" ? "text-[#B85C3F]" : "text-[#2F6F9F]"
           }`}>
-            {index + 1}
-          </span>
-          <span className="truncate">{question.label}</span>
-        </button>
+            {note.label}
+          </p>
+          <p className="mt-2 text-xs font-medium leading-5 text-[#4B453F]">{note.body}</p>
+        </div>
       ))}
     </div>
   );
@@ -1251,7 +1261,9 @@ function ChatMessage({
       <TinaMark />
       <div className="min-w-0 flex-1">
         <p className="text-[13px] font-semibold">Tina</p>
-        {!message.signalMap ? (
+        {isHiringReadMessage(message) ? (
+          <HiringReadCard content={message.content} />
+        ) : !message.signalMap ? (
           <div className="mt-2 max-w-full overflow-visible whitespace-pre-wrap break-words text-[13px] leading-5 text-[#262626]">
             <TypedText text={message.content} animate={animate} />
           </div>
@@ -1267,20 +1279,80 @@ function ChatMessage({
   );
 }
 
+function isHiringReadMessage(message: TinaMvpMessage) {
+  return message.role === "tina" && /^Here(?:'|’)s the Hiring Read\./i.test(message.content.trim());
+}
+
+function HiringReadCard({ content }: { content: string }) {
+  const sections = parseHiringReadSections(content);
+
+  return (
+    <section className="mt-3 overflow-hidden rounded-2xl border border-[#D9E5EC] bg-white shadow-[0_18px_55px_rgba(47,111,159,0.08)]">
+      <div className="border-b border-[#D9E5EC] bg-[#EDF6FB] px-4 py-3">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#2F6F9F]">Hiring Read</p>
+        <h3 className="mt-1 text-sm font-semibold leading-5 text-[#171717]">A concise snapshot of the decision.</h3>
+      </div>
+      <div className="grid gap-0 divide-y divide-[#E4DDD2] px-4 py-2">
+        {sections.map((section) => (
+          <div key={section.title} className="grid gap-1 py-3 sm:grid-cols-[170px_1fr] sm:gap-4">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-[#6F6A63]">{section.title}</p>
+            <p className="text-[13px] font-medium leading-5 text-[#27211C]">{section.body}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function parseHiringReadSections(content: string) {
+  const body = content.replace(/^Here(?:'|’)s the Hiring Read\.\s*/i, "").trim();
+  const labels = [
+    { source: "What I think is really happening", title: "What’s happening" },
+    { source: "What this is probably not", title: "What it’s not" },
+    { source: "Best-fit role shape", title: "Best-fit role" },
+    { source: "Example shapes / false positives", title: "False positives" },
+    { source: "Must-prove signals", title: "Must prove" },
+    { source: "Next move", title: "Next move" }
+  ];
+
+  const sections = labels
+    .map((label, index) => {
+      const nextLabels = labels.slice(index + 1).map((item) => escapeRegExp(item.source)).join("|");
+      const pattern = nextLabels
+        ? new RegExp(`${escapeRegExp(label.source)}:\\s*([\\s\\S]*?)(?=\\n\\n(?:${nextLabels}):|$)`, "i")
+        : new RegExp(`${escapeRegExp(label.source)}:\\s*([\\s\\S]*)$`, "i");
+      const match = body.match(pattern);
+      return match?.[1]?.trim()
+        ? { title: label.title, body: compactArtifactText(match[1]) }
+        : null;
+    })
+    .filter(Boolean) as { title: string; body: string }[];
+
+  return sections.length ? sections : [{ title: "Read", body: compactArtifactText(body) }];
+}
+
+function compactArtifactText(value: string) {
+  return value.replace(/\s+/g, " ").replace(/^[-•]\s*/, "").trim();
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function ExampleShapesBoard({ exampleShapes, onReaction }: { exampleShapes: ExampleShapeSet; onReaction?: (value: string) => void }) {
   const reactionButtons = ["closer", "wrong", "too senior", "too junior", "too corporate", "too generic"];
 
   return (
-    <section className="mt-3 max-w-full overflow-hidden rounded-2xl border border-[#E4DCD1] bg-[#FFFCF7] shadow-[0_18px_50px_rgba(23,23,23,0.05)]">
-      <div className="px-4 pb-2 pt-4">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8A8178]">Example Shapes</p>
+    <section className="mt-3 max-w-full overflow-hidden rounded-2xl border border-[#D9E5EC] bg-white shadow-[0_18px_55px_rgba(47,111,159,0.08)]">
+      <div className="border-b border-[#D9E5EC] bg-[#EDF6FB] px-4 pb-3 pt-4">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#2F6F9F]">Example Shapes</p>
         <h3 className="mt-1 text-sm font-semibold leading-5 text-[#171717]">{exampleShapes.title}</h3>
       </div>
-      <div className="grid gap-3 p-4 pt-2 lg:grid-cols-3">
+      <div className="grid gap-3 p-4 md:grid-cols-3">
         {exampleShapes.shapes.slice(0, 3).map((shape) => (
-          <article key={shape.id} className="rounded-xl border border-[#E6DDD2] bg-white/85 p-3.5">
+          <article key={shape.id} className="flex min-w-0 flex-col rounded-xl border border-[#E4DDD2] bg-[#FFFCF8] p-3.5 shadow-[0_8px_22px_rgba(23,23,23,0.03)]">
             <h4 className="text-sm font-semibold leading-5 text-[#171717]">{shape.name}</h4>
-            <div className="mt-3 grid gap-2 text-xs leading-5 text-[#4B453F]">
+            <div className="mt-3 grid flex-1 gap-2 text-xs leading-5 text-[#4B453F]">
               <ExampleShapeField label="Solves" value={shape.solves} />
               <ExampleShapeField label="Fails when" value={shape.fails} />
               <ExampleShapeField label="Recognize by" value={shape.recognize} />
@@ -1291,7 +1363,7 @@ function ExampleShapesBoard({ exampleShapes, onReaction }: { exampleShapes: Exam
                   key={reaction}
                   type="button"
                   onClick={() => onReaction?.(`${reaction}: ${shape.name}`)}
-                  className="rounded-full border border-[#E1D8CE] bg-[#FFFCF7] px-2.5 py-1 text-[11px] font-medium text-[#625A52] transition hover:border-[#CFC4FF] hover:bg-[#F8F6FF] hover:text-[#4B28C9]"
+                  className="rounded-full border border-[#D8D0FF] bg-[#F1EEFF] px-2.5 py-1 text-[11px] font-medium text-[#5B4AB6] transition hover:border-[#7C67D8] hover:bg-white"
                 >
                   {reaction}
                 </button>
@@ -1300,7 +1372,7 @@ function ExampleShapesBoard({ exampleShapes, onReaction }: { exampleShapes: Exam
           </article>
         ))}
       </div>
-      <p className="px-4 pb-4 text-xs leading-5 text-[#8A8178]">These are examples to react to, not candidates.</p>
+      <p className="px-4 pb-4 text-xs leading-5 text-[#6F6A63]">These are examples to react to, not candidates.</p>
     </section>
   );
 }
@@ -1669,7 +1741,7 @@ function SourcingResultArtifact({ leads, sourcingBatch }: { leads: ProfileLead[]
         {sourcingBatch ? <SearchSourceBadge sourcingBatch={sourcingBatch} /> : null}
       </div>
       <p className="mt-2 break-words text-xs leading-5 text-[#4B453F]">
-        I found {leads.length} possible {leads.length === 1 ? "archetype" : "archetypes"} and updated the right rail. Best signal: {topTags.join(", ") || "role adjacency"}. Weakness: {missingThemes.join(", ") || "proof still needs review"}.
+        I found {leads.length} possible {leads.length === 1 ? "archetype" : "archetypes"} and added them here. Best signal: {topTags.join(", ") || "role adjacency"}. Weakness: {missingThemes.join(", ") || "proof still needs review"}.
       </p>
       <p className="mt-1 text-[11px] text-[#8A8178]">Review as calibration examples, not finalists.</p>
     </div>
@@ -3189,8 +3261,8 @@ function actionProgressText(content: string) {
   if (/\b(refine|more like|talent pool feedback|example shape|archetype feedback)\b/.test(text)) return "Refining example shapes...";
   if (/\b(search real profiles|public profiles|linkedin profiles|source candidates)\b/.test(text)) return "Searching public profiles...";
   if (/\b(candidate|profile|people|pull|find)\b/.test(text)) return "Building example shapes...";
-  if (/\b(lane|market|where should|strategy)\b/.test(text)) return "Building search lanes...";
-  return "Updating Market Reality...";
+  if (/\b(source lanes|sourcing strategy|search strategy|sourcing plan|search plan|build search lanes)\b/.test(text)) return "Building the requested artifact...";
+  return "Updating the read...";
 }
 
 function isPlanningArtifactRequest(value: string) {
@@ -5137,7 +5209,7 @@ function deriveInlineSignals(messages: TinaMvpMessage[]) {
   const hasSourcingEvidence = messages.some((message) => Boolean(message.sourcingBatch) || Boolean(message.profileLeads?.length));
   const hasMarketRequest = isMarketRealityRequest(latestFounder);
   const hasLocationEvidence = /\b(remote|hybrid|onsite|sf|san francisco|bay area|nyc|new york|peoria|chicago|austin|seattle|london|us|u\.s\.|usa|united states)\b/.test(text);
-  const hasCompEvidence = /\b(comp|compensation|salary|equity|\$\d|budget|pay range|cash)\b/.test(text);
+  const hasCompEvidence = /\b(comp\b|compensation|salary|equity|\$\d|budget|pay range|cash)\b/.test(text);
   const canShowMarketChip = hasSourcingEvidence || hasMarketRequest || hasLocationEvidence || hasCompEvidence;
   const signals: string[] = [];
 
