@@ -816,8 +816,8 @@ function HomeCommandCenter({
           )}
         </header>
 
-        <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] gap-3 overflow-hidden">
-        <div className="mx-auto flex min-h-0 w-full max-w-[980px] flex-col overflow-hidden rounded-2xl border border-[#E4DDD2] bg-white shadow-[0_24px_80px_rgba(23,23,23,0.06)]">
+        <div className={`grid min-h-0 gap-3 overflow-hidden ${hasConversation ? "flex-1 grid-rows-[minmax(0,1fr)]" : "shrink-0"}`}>
+        <div className={`mx-auto flex w-full flex-col overflow-hidden rounded-2xl border border-[#E4DDD2] bg-white shadow-[0_24px_80px_rgba(23,23,23,0.06)] ${hasConversation ? "min-h-0 max-w-[940px]" : "max-w-[1180px]"}`}>
           <div className="shrink-0 border-b border-[#E4DDD2] bg-white px-4 py-3">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
@@ -838,8 +838,8 @@ function HomeCommandCenter({
 
           {hasConversation ? <SessionReadStrip currentRead={currentRead} /> : null}
 
-          <div className={`min-h-0 flex-1 overflow-y-auto bg-white px-4 ${hasCandidateResults ? "py-3" : "py-5"}`}>
-            <div className="mx-auto grid w-full max-w-[880px] gap-4">
+          <div className={`${hasConversation ? "min-h-0 flex-1 overflow-y-auto" : "overflow-visible"} bg-white px-4 ${hasCandidateResults ? "py-3" : hasConversation ? "py-5" : "py-6"}`}>
+            <div className={`mx-auto grid w-full gap-4 ${hasConversation ? "max-w-[880px]" : "max-w-[1040px]"}`}>
               {hasCandidateResults ? (
                 <SourcingResultArtifact leads={(currentLatestProfileLeadItems.length ? currentLatestProfileLeadItems : visibleProfileLeadItems).map((item) => item.lead)} sourcingBatch={latestSourcingBatch} />
               ) : null}
@@ -863,8 +863,8 @@ function HomeCommandCenter({
                 </div>
               ) : null}
               {!hasConversation ? (
-                <div className="flex min-h-[320px] items-center justify-center py-8">
-                  <EmptyConversationNotes />
+                <div className="flex items-start justify-center">
+                  <EmptyConversationNotes onSubmit={sendMessage} onActionClick={recordClickedAction} isThinking={isThinking} />
                 </div>
               ) : null}
               <div ref={transcriptEndRef} />
@@ -872,7 +872,7 @@ function HomeCommandCenter({
           </div>
 
           <div className="shrink-0 border-t border-[#E4DDD2] bg-[#F7F4EF] p-3">
-            <CommandInput onSubmit={sendMessage} onActionClick={recordClickedAction} isThinking={isThinking} currentRead={currentRead} hasSignalMap={Boolean(signalMap)} />
+            <CommandInput onSubmit={sendMessage} onActionClick={recordClickedAction} isThinking={isThinking} currentRead={currentRead} hasSignalMap={Boolean(signalMap)} compact={!hasConversation} />
           </div>
         </div>
         </div>
@@ -918,13 +918,15 @@ function CommandInput({
   onActionClick,
   isThinking,
   currentRead,
-  hasSignalMap
+  hasSignalMap,
+  compact = false
 }: {
   onSubmit: (value: string) => void;
   onActionClick: (label: string, prompt: string, source: ClickedActionLog["source"]) => void;
   isThinking: boolean;
   currentRead?: CurrentRead;
   hasSignalMap?: boolean;
+  compact?: boolean;
 }) {
   const [value, setValue] = useState("");
   const [isRecording, setIsRecording] = useState(false);
@@ -1101,13 +1103,13 @@ function CommandInput({
   }
 
   return (
-    <form onSubmit={submit} className="rounded-2xl border border-[#E4DDD2] bg-white p-4 shadow-[0_18px_48px_rgba(23,23,23,0.07)] transition focus-within:border-[#CFC4FF] focus-within:shadow-[0_22px_60px_rgba(124,103,216,0.11)]">
+    <form onSubmit={submit} className={`rounded-2xl border border-[#E4DDD2] bg-white shadow-[0_18px_48px_rgba(23,23,23,0.07)] transition focus-within:border-[#CFC4FF] focus-within:shadow-[0_22px_60px_rgba(124,103,216,0.11)] ${compact ? "p-3" : "p-4"}`}>
       <textarea
         value={value}
         onChange={(event) => updateDraft(event.target.value)}
         onKeyDown={sendOnEnter}
         placeholder="Tell Tina what feels messy about this hire..."
-        className="min-h-20 w-full resize-none bg-transparent text-[14px] leading-6 text-[#171717] outline-none placeholder:text-[#9B9289]"
+        className={`${compact ? "min-h-12" : "min-h-20"} w-full resize-none bg-transparent text-[14px] leading-6 text-[#171717] outline-none placeholder:text-[#9B9289]`}
       />
       {isRecording ? (
         <div className="mt-2 rounded-lg border border-[#E7D8CB] bg-[#FFF8F1] px-3 py-2">
@@ -1142,10 +1144,10 @@ function CommandInput({
       ) : null}
       {voiceError ? <p className="mt-2 text-[11px] font-medium leading-4 text-[#B34532]">{voiceError}</p> : null}
       {isUploadingAudio ? <p className="mt-2 text-[11px] font-medium leading-4 text-[#6B6259]">Transcribing voice memo...</p> : null}
-      <p className="mt-2 text-[11px] leading-4 text-[#8A8178]">
+      <p className={`${compact ? "mt-1.5" : "mt-2"} text-[11px] leading-4 text-[#8A8178]`}>
         Conversations may be reviewed to improve Tina. Don&apos;t include sensitive personal information.
       </p>
-      <div className="mt-4 flex flex-col gap-3 border-t border-[#E4DDD2] pt-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className={`${compact ? "mt-2 pt-2" : "mt-4 pt-3"} flex flex-col gap-3 border-t border-[#E4DDD2] sm:flex-row sm:items-center sm:justify-between`}>
         <div className="flex flex-wrap gap-2">
           {visibleChips.map((chip) => (
             <button
@@ -1203,33 +1205,42 @@ function isPermissionDenied(error: unknown) {
   return error instanceof DOMException && (error.name === "NotAllowedError" || error.name === "PermissionDeniedError");
 }
 
-function EmptyConversationNotes() {
+function EmptyConversationNotes({
+  onSubmit,
+  onActionClick,
+  isThinking
+}: {
+  onSubmit: (value: string) => void;
+  onActionClick: (label: string, prompt: string, source: ClickedActionLog["source"]) => void;
+  isThinking: boolean;
+}) {
   const notes = [
-    { label: "What changed?", body: "The moment that made this hire feel urgent.", tone: "green" },
-    { label: "What’s breaking?", body: "The work, decision, or handoff that keeps slipping.", tone: "coral" },
-    { label: "Who owns it now?", body: "The person carrying the load before the role exists.", tone: "blue" }
+    { label: "What changed?", prompt: "What changed that made this hire feel urgent?", tone: "green" },
+    { label: "What’s breaking?", prompt: "Help me figure out what is breaking before we define the role.", tone: "coral" },
+    { label: "Who owns it now?", prompt: "Help me think through who owns this work today and where the gap is.", tone: "blue" }
   ];
 
   return (
-    <div className="mx-auto mt-3 grid w-full max-w-2xl gap-3 sm:grid-cols-3">
+    <div className="mx-auto flex w-full max-w-xl flex-wrap justify-center gap-2">
       {notes.map((note) => (
-        <div
+        <button
           key={note.label}
-          className={`rounded-2xl border px-3.5 py-3 shadow-[0_10px_28px_rgba(23,23,23,0.035)] ${
+          type="button"
+          onClick={() => {
+            onActionClick(note.label, note.prompt, "empty_state");
+            onSubmit(note.prompt);
+          }}
+          disabled={isThinking}
+          className={`rounded-full border px-3.5 py-2 text-[11px] font-semibold uppercase tracking-[0.13em] shadow-[0_8px_18px_rgba(23,23,23,0.035)] transition hover:-translate-y-0.5 disabled:opacity-60 ${
             note.tone === "green"
-              ? "border-[#D6E9DD] bg-[#F3FBF6]"
+              ? "border-[#D6E9DD] bg-[#F3FBF6] text-[#168A5A] hover:bg-[#E7F7EF]"
               : note.tone === "coral"
-                ? "border-[#F0D4C8] bg-[#FFF0EA]"
-                : "border-[#D9E5EC] bg-[#EDF6FB]"
+                ? "border-[#F0D4C8] bg-[#FFF0EA] text-[#B85C3F] hover:bg-[#FFE8DD]"
+                : "border-[#D9E5EC] bg-[#EDF6FB] text-[#2F6F9F] hover:bg-[#E3F1F8]"
           }`}
         >
-          <p className={`text-[11px] font-semibold uppercase tracking-[0.13em] ${
-            note.tone === "green" ? "text-[#168A5A]" : note.tone === "coral" ? "text-[#B85C3F]" : "text-[#2F6F9F]"
-          }`}>
-            {note.label}
-          </p>
-          <p className="mt-2 text-xs font-medium leading-5 text-[#4B453F]">{note.body}</p>
-        </div>
+          {note.label}
+        </button>
       ))}
     </div>
   );
