@@ -2,6 +2,7 @@ import type { ProfileLead, SourcingBatchMetadata } from "@/lib/tina/profile-lead
 import type { CanonicalSearchState } from "@/lib/brain/canonicalSearchState";
 import type { SourcingReadiness } from "@/lib/tina/sourcing-readiness";
 import type { CurrentRead } from "@/lib/tina-mvp/current-read";
+import type { CurrentThesisMemory } from "@/lib/tina-mvp/current-thesis-memory";
 import type { HiringArtifact } from "@/lib/tina-mvp/hiring-artifacts";
 import type { WorkingThesis } from "@/lib/tina-mvp/working-thesis";
 import type { SignalMap } from "@/lib/tina-mvp/signal-map";
@@ -19,6 +20,8 @@ export type TinaMvpMessage = {
   sourcingReadiness?: SourcingReadiness;
   signalMap?: SignalMap;
   hiringArtifact?: HiringArtifact;
+  hiringArtifacts?: HiringArtifact[];
+  currentThesisMemory?: CurrentThesisMemory;
   referenceProfileInsight?: ReferenceProfileInsight;
   exampleShapes?: ExampleShapeSet;
   exampleShapeFeedback?: ExampleShapeFeedback;
@@ -45,6 +48,8 @@ export type TinaChatApiResponse = {
   signalMap?: SignalMap;
   clearSignalMap?: boolean;
   hiringArtifact?: HiringArtifact;
+  hiringArtifacts?: HiringArtifact[];
+  currentThesisMemory?: CurrentThesisMemory;
   referenceProfileInsight?: ReferenceProfileInsight;
   exampleShapes?: ExampleShapeSet;
   exampleShapeFeedback?: ExampleShapeFeedback;

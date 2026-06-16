@@ -85,17 +85,26 @@ type ArtifactProfile = {
 };
 
 export function inferHiringArtifactKind(message: string): HiringArtifactKind | undefined {
-  if (isSourcingStrategyArtifactRequest(message)) return "sourcing_strategy";
-  if (isMarketRealityArtifactRequest(message)) return "market_reality";
-  if (!isArtifactActionRequest(message)) return undefined;
-  if (/\b(scorecard|rubric|criteria)\b/i.test(message)) return "scorecard";
-  if (/\b(interview plan|interview loop)\b/i.test(message)) return "interview_plan";
-  if (/\b(candidate archetype|candidate profile|define archetype|best[-\s]?fit profile)\b/i.test(message)) return "candidate_archetype";
-  return undefined;
+  return inferHiringArtifactKinds(message)[0];
+}
+
+export function inferHiringArtifactKinds(message: string): HiringArtifactKind[] {
+  const kinds: HiringArtifactKind[] = [];
+  if (isSourcingStrategyArtifactRequest(message)) return ["sourcing_strategy"];
+  if (isMarketRealityArtifactRequest(message)) return ["market_reality"];
+  if (!isArtifactActionRequest(message) && !hasExplicitArtifactNoun(message)) return [];
+  if (/\b(scorecard|rubric|criteria)\b/i.test(message)) kinds.push("scorecard");
+  if (/\b(interview plan|interview loop)\b/i.test(message)) kinds.push("interview_plan");
+  if (/\b(candidate archetype|candidate profile|define archetype|best[-\s]?fit profile)\b/i.test(message)) kinds.push("candidate_archetype");
+  return uniqueArtifactKinds(kinds);
 }
 
 function isArtifactActionRequest(message: string) {
   return /\b(build|create|make|draft|generate|turn this into|define|write|give me|produce)\b/i.test(message);
+}
+
+function hasExplicitArtifactNoun(message: string) {
+  return /\b(scorecard|rubric|criteria|interview plan|interview loop|candidate archetype|candidate profile|best[-\s]?fit profile)\b/i.test(message);
 }
 
 export function isMarketRealityArtifactRequest(message: string) {
@@ -864,6 +873,12 @@ function uniqueStrings(values: string[]) {
   return [...new Set(values.filter(Boolean))];
 }
 
+function uniqueArtifactKinds(values: HiringArtifactKind[]) {
+  const order: HiringArtifactKind[] = ["scorecard", "interview_plan", "candidate_archetype", "market_reality", "sourcing_strategy"];
+  const set = new Set(values);
+  return order.filter((kind) => set.has(kind));
+}
+
 function buildGenericScorecardRows(signalMap: SignalMap): ScorecardRow[] {
   const mustProve = signalMap.mustProveSignals.slice(0, 4);
   const used = new Set<string>();
@@ -1064,6 +1079,74 @@ function artifactProfileFor(signalMap: SignalMap): ArtifactProfile | undefined {
         { label: "False positive", value: "Friendly support rep who only clears tickets." },
         { label: "Best source lane", value: "Support ops, implementation, or customer ops owners." },
         { label: "Risk to verify", value: "Can they fix the loop, not just staff it?" }
+      ]
+    };
+  }
+
+  if (thesis === "Founder Control / Product Delegation Gap") {
+    return {
+      scorecard: withRating([
+        {
+          competency: "Roadmap authority",
+          signal: "Owns roadmap calls without founder rescue.",
+          strongEvidence: "Took priority calls off a founder and improved pace.",
+          redFlag: "Reports options back instead of making calls."
+        },
+        {
+          competency: "Planning cadence",
+          signal: "Creates lightweight rhythm the founder trusts.",
+          strongEvidence: "Stabilized planning without adding process theater.",
+          redFlag: "Adds meetings before decisions get clearer."
+        },
+        {
+          competency: "PM coaching",
+          signal: "Raises existing PM judgment and pushback.",
+          strongEvidence: "Helped PMs challenge priorities with evidence.",
+          redFlag: "Works around PMs instead of upgrading them."
+        },
+        {
+          competency: "Founder trust transfer",
+          signal: "Earns authority while reducing founder centrality.",
+          strongEvidence: "Founder stepped back from routine product calls.",
+          redFlag: "Needs founder taste to validate every tradeoff."
+        }
+      ]),
+      interviewStages: [
+        {
+          stage: "Founder screen",
+          tests: "Roadmap authority.",
+          prompt: "Which roadmap call did you take off a founder's plate?",
+          evidence: "Decision, resistance, and what improved.",
+          interviewer: "Founder"
+        },
+        {
+          stage: "Planning exercise",
+          tests: "Lightweight product rhythm.",
+          prompt: "Design a two-week planning cadence for reactive priorities.",
+          evidence: "Fewer escalations without heavy process.",
+          interviewer: "Founder + PM"
+        },
+        {
+          stage: "PM coaching",
+          tests: "Raises existing product judgment.",
+          prompt: "How did you make PMs stronger, not bypass them?",
+          evidence: "PMs gained clearer decision muscle.",
+          interviewer: "Product peer"
+        },
+        {
+          stage: "Reference check",
+          tests: "Founder trust transfer.",
+          prompt: "What product decisions stopped coming back to the founder?",
+          evidence: "Former founder confirms real authority shift.",
+          interviewer: "Founder"
+        }
+      ],
+      archetype: [
+        { label: "Likely background", value: "Senior product operator who earned roadmap trust in founder-led teams." },
+        { label: "Scar tissue", value: "Has stabilized reactive planning with existing PMs in place." },
+        { label: "False positive", value: "Classic VP Product who needs clean authority before operating." },
+        { label: "Best source lane", value: "Interim product leaders or PM leads from founder-led startups." },
+        { label: "Risk to verify", value: "Can they take authority without adding product theater?" }
       ]
     };
   }

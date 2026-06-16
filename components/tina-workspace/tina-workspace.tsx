@@ -1280,7 +1280,13 @@ function ChatMessage({
           </div>
         ) : null}
         {message.signalMap ? <SignalMapBoard signalMap={message.signalMap} /> : null}
-        {message.hiringArtifact ? <HiringArtifactBoard artifact={message.hiringArtifact} /> : null}
+        {message.hiringArtifacts?.length
+          ? message.hiringArtifacts.map((artifact) => (
+              <HiringArtifactBoard key={`${message.id}-${artifact.kind}`} artifact={artifact} />
+            ))
+          : message.hiringArtifact
+            ? <HiringArtifactBoard artifact={message.hiringArtifact} />
+            : null}
         {message.exampleShapes ? <ExampleShapesBoard exampleShapes={message.exampleShapes} onReaction={onExampleShapeReaction} /> : null}
         {message.exampleShapeFeedback ? <ExampleShapeFeedbackBoard feedback={message.exampleShapeFeedback} /> : null}
         {message.profileLeads?.length ? <SourcingResultArtifact leads={message.profileLeads} sourcingBatch={message.sourcingBatch} /> : null}
@@ -1980,9 +1986,9 @@ function latestExampleShapeMessageIndex(messages: TinaMvpMessage[]) {
 function latestMarketEvidenceMessageIndex(messages: TinaMvpMessage[]) {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
+    const artifacts = message.hiringArtifacts?.length ? message.hiringArtifacts : message.hiringArtifact ? [message.hiringArtifact] : [];
     if (
-      message.hiringArtifact?.kind === "market_reality" ||
-      message.hiringArtifact?.kind === "sourcing_strategy" ||
+      artifacts.some((artifact) => artifact.kind === "market_reality" || artifact.kind === "sourcing_strategy") ||
       message.profileLeads?.length ||
       message.sourcingBatch
     ) {
@@ -2003,7 +2009,8 @@ function latestExampleShapeMode(messages: TinaMvpMessage[]) {
 
 function latestMessageHasMarketArtifact(messages: TinaMvpMessage[]) {
   const latestTina = [...messages].reverse().find((message) => message.role === "tina");
-  return latestTina?.hiringArtifact?.kind === "market_reality" || latestTina?.hiringArtifact?.kind === "sourcing_strategy";
+  const artifacts = latestTina?.hiringArtifacts?.length ? latestTina.hiringArtifacts : latestTina?.hiringArtifact ? [latestTina.hiringArtifact] : [];
+  return artifacts.some((artifact) => artifact.kind === "market_reality" || artifact.kind === "sourcing_strategy");
 }
 
 function latestMessageHasProfileEvidence(messages: TinaMvpMessage[]) {
@@ -2255,7 +2262,7 @@ function isSignalMapFresh(signalMap: SignalMap, currentRead?: CurrentRead) {
 }
 
 function collectHiringArtifacts(messages: TinaMvpMessage[]) {
-  return messages.flatMap((message) => message.hiringArtifact ? [message.hiringArtifact] : []);
+  return messages.flatMap((message) => message.hiringArtifacts?.length ? message.hiringArtifacts : message.hiringArtifact ? [message.hiringArtifact] : []);
 }
 
 function actionLabelFromPrompt(prompt: string) {
@@ -5219,9 +5226,9 @@ function deriveInlineSignals(messages: TinaMvpMessage[]) {
   const hasArtifactRequest = isPlanningArtifactRequest(latestFounder);
   const hasSourcingEvidence = messages.some((message) => Boolean(message.sourcingBatch) || Boolean(message.profileLeads?.length));
   const hasMarketRequest = isMarketRealityRequest(latestFounder);
-  const hasLocationEvidence = /\b(remote|hybrid|onsite|sf|san francisco|bay area|nyc|new york|peoria|chicago|austin|seattle|london|us|u\.s\.|usa|united states)\b/.test(text);
-  const hasCompEvidence = /\b(comp\b|compensation|salary|equity|\$\d|budget|pay range|cash)\b/.test(text);
-  const canShowMarketChip = hasSourcingEvidence || hasMarketRequest || hasLocationEvidence || hasCompEvidence;
+  const locationChip = explicitLocationSignalChip(text);
+  const hasCompEvidence = explicitCompSignal(text);
+  const canShowMarketChip = hasSourcingEvidence || hasMarketRequest;
   const signals: string[] = [];
 
   if (hasDecisionOwnership) {
@@ -5249,20 +5256,25 @@ function deriveInlineSignals(messages: TinaMvpMessage[]) {
   if (hasArtifactRequest && /\b(must[-\s]?have|signal map|candidate archetype|role shape|tradeoffs?)\b/i.test(latestFounder)) signals.push("Must-have signals");
   if (founderMessages.length >= 3) signals.push("Calibration read stabilizing");
 
-  if (canShowMarketChip) {
+  if (canShowMarketChip || locationChip || hasCompEvidence) {
     if (hasSourcingEvidence) signals.push("Example-shape evidence added");
-    if (hasLocationEvidence) signals.push(locationSignalChip(text));
+    if (locationChip) signals.push(locationChip);
     if (hasCompEvidence) signals.push("Comp constraint noted");
   }
 
   return Array.from(new Set(signals));
 }
 
-function locationSignalChip(text: string) {
+function explicitLocationSignalChip(text: string) {
   if (/\b(remote)\b/.test(text)) return "Remote constraint noted";
   if (/\b(sf|san francisco|bay area)\b/.test(text)) return "SF constraint noted";
   if (/\b(nyc|new york)\b/.test(text)) return "NYC constraint noted";
-  return "Location constraint noted";
+  if (/\b(peoria|chicago|austin|seattle|london)\b/.test(text)) return "Location constraint noted";
+  return "";
+}
+
+function explicitCompSignal(text: string) {
+  return /\$\d|\b(comp(?:ensation)?|salary|budget|pay range|cash comp)\b/.test(text);
 }
 
 function calibrationInterpretation(calibration: LiveCalibration) {

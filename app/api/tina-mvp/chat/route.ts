@@ -14,8 +14,9 @@ import {
   isExampleShapeFeedback,
   isExampleShapeRequest
 } from "@/lib/tina-mvp/example-shapes";
+import { buildCurrentThesisMemory, formatCurrentThesisMemoryForPrompt } from "@/lib/tina-mvp/current-thesis-memory";
 import { buildFounderModel, formatFounderModelForPrompt } from "@/lib/tina-mvp/founder-model";
-import { buildHiringArtifact, formatHiringArtifactForPrompt, inferHiringArtifactKind } from "@/lib/tina-mvp/hiring-artifacts";
+import { buildHiringArtifact, formatHiringArtifactForPrompt, inferHiringArtifactKinds } from "@/lib/tina-mvp/hiring-artifacts";
 import {
   buildReferenceProfileInsight,
   buildReferenceProfileResponse,
@@ -77,9 +78,12 @@ export async function POST(request: Request) {
     ? requestSignalMap
     : undefined;
   const signalMapText = formatSignalMapForPrompt(signalMap);
+  const currentThesisMemory = buildCurrentThesisMemory({ messages: cleanMessages, currentRead, canonicalSearchState, signalMap });
+  const currentThesisMemoryText = formatCurrentThesisMemoryForPrompt(currentThesisMemory);
   const referenceProfileInsight = buildReferenceProfileInsight(cleanMessages) || requestReferenceProfileInsight;
   const referenceProfileText = formatReferenceProfileInsightForPrompt(referenceProfileInsight);
-  const requestedHiringArtifactKind = latestUserMessage ? inferHiringArtifactKind(latestUserMessage.content) : undefined;
+  const requestedHiringArtifactKinds = latestUserMessage ? inferHiringArtifactKinds(latestUserMessage.content) : [];
+  const requestedHiringArtifactKind = requestedHiringArtifactKinds[0];
   const requestedHiringRead = latestUserMessage ? isHiringReadRequest(latestUserMessage.content) : false;
 
   if (!cleanMessages.length || !latestUserMessage) {
@@ -170,7 +174,7 @@ export async function POST(request: Request) {
     });
   }
 
-  if (!shouldRunProfileSearch && requestedHiringRead) {
+  if (!shouldRunProfileSearch && requestedHiringRead && !requestedHiringArtifactKinds.length) {
     const responseContent = buildHiringReadResponse(currentRead, canonicalSearchState, signalMap);
 
     return NextResponse.json({
@@ -241,27 +245,35 @@ export async function POST(request: Request) {
     }
 
     const nextSignalMap = signalMap || buildSignalMap(currentRead, canonicalSearchState);
-    const hiringArtifact = buildHiringArtifact(nextSignalMap, requestedHiringArtifactKind, canonicalSearchState);
+    const hiringArtifacts = requestedHiringArtifactKinds.map((kind) => buildHiringArtifact(nextSignalMap, kind, canonicalSearchState));
     const responseContent = [
+      requestedHiringRead ? buildHiringReadResponse(currentRead, canonicalSearchState, nextSignalMap) : "",
       signalMap ? "" : buildSignalMapResponse(nextSignalMap),
-      formatHiringArtifactForPrompt(hiringArtifact)
+      ...hiringArtifacts.map((artifact) => formatHiringArtifactForPrompt(artifact))
     ].filter(Boolean).join("\n\n");
+    const artifactTitles = hiringArtifacts.map((artifact) => artifact.title).join(" and ");
 
     return NextResponse.json({
       message: {
         id: `tina-hiring-artifact-${Date.now()}`,
         role: "tina",
-        content: signalMap
-          ? `${hiringArtifact.title} is ready. I’m deriving this from the Signal Map, not the title alone.`
-          : `Signal Map and ${hiringArtifact.title} are ready. I’m deriving this from the thesis, not the title alone.`,
+        content: requestedHiringRead
+          ? buildHiringReadResponse(currentRead, canonicalSearchState, nextSignalMap)
+          : signalMap
+            ? `${artifactTitles} ${hiringArtifacts.length === 1 ? "is" : "are"} ready. I’m deriving ${hiringArtifacts.length === 1 ? "this" : "these"} from the current thesis, not the title alone.`
+            : `Signal Map and ${artifactTitles} ${hiringArtifacts.length === 1 ? "is" : "are"} ready. I’m deriving ${hiringArtifacts.length === 1 ? "this" : "these"} from the current thesis, not the title alone.`,
         signalMap: signalMap ? undefined : nextSignalMap,
-        hiringArtifact
+        hiringArtifact: hiringArtifacts[0],
+        hiringArtifacts,
+        currentThesisMemory
       },
       canonicalSearchState,
       workingThesis: buildWorkingThesisWithAssistant(cleanMessages, responseContent, canonicalSearchState),
       currentRead,
+      currentThesisMemory,
       signalMap: nextSignalMap,
-      hiringArtifact,
+      hiringArtifact: hiringArtifacts[0],
+      hiringArtifacts,
       referenceProfileInsight,
       source: "local_conversation_move"
     });
@@ -466,6 +478,7 @@ export async function POST(request: Request) {
       founderModelText,
       workingThesisText,
       currentReadText,
+      currentThesisMemoryText,
       signalMapText,
       referenceProfileText,
       cleanMessages.map((message) => message.content).join("\n"),
@@ -525,6 +538,7 @@ export async function POST(request: Request) {
     founderModelText,
     workingThesisText,
     currentReadText,
+    currentThesisMemoryText,
     signalMapText,
     referenceProfileText,
     "The structured search state is the current internal truth. If it conflicts with older messages, trust that state and the founder's latest correction. Do not mention the state object. Do not describe a different role family, location, seniority, or market lane.",
@@ -707,6 +721,7 @@ export async function POST(request: Request) {
     canonicalSearchState,
     workingThesis: buildWorkingThesisWithAssistant(cleanMessages, advisorText, canonicalSearchState),
     currentRead,
+    currentThesisMemory,
     signalMap,
     referenceProfileInsight,
     source: "openai",
@@ -730,7 +745,7 @@ function buildAdaptiveModeInstruction(latestUserMessage: string, messages: TinaM
   const modeGuidance: Record<string, string> = {
     discovery: "Adaptive mode: Discovery. The founder is unsure or the root cause is unclear. Make one observation, explain why the premise needs diagnosis, and ask one sharp question about what is actually breaking. Do not source yet.",
     calibration: "Adaptive mode: Calibration. The role direction is plausible and Tina should now become more decisive. Interpret the founder's latest answer, then state the committed thesis, name the practical risk, and recommend one concrete next move. Ask at most one narrow question only if it directly changes that move. Do not ask broad discovery questions. Do not ask intake-field questions. If the founder gave role, domain/company, and geography, do not restart diagnosis; calibrate the search lane and move toward sourcing.",
-    execution: "Adaptive mode: Execution. The problem, role, and success criteria are clear enough. Stop diagnosing. Produce a compact role thesis, lightweight scorecard, and interview plan, then move toward candidate strategy or sourcing.",
+    execution: "Adaptive mode: Execution. The problem, role, and success criteria are clear enough. Stop diagnosing. Make a concise recommendation and offer the most useful next artifact buttons. Do not generate a scorecard, interview plan, Signal Map, Market Reality, candidate archetype, or sourcing strategy unless the founder explicitly asks for that artifact.",
     market_reality: "Adaptive mode: Market Reality. The issue is feasibility, pool size, compensation, timing, or an unusually difficult profile. Discuss market reality and tradeoffs. Do not over-diagnose the role.",
     sourcing: "Adaptive mode: Sourcing. The founder explicitly asked for candidates, profiles, people, or a list. Execute sourcing if possible. Do not restart discovery.",
     subjective_quality: "Adaptive mode: Calibration. The founder used subjective quality language like best, elite, top-tier, 10x, or world-class. Translate that into observable behavior before treating it as a requirement."
@@ -800,7 +815,7 @@ function isSignalMapRequest(message: string) {
 }
 
 function isHiringReadRequest(message: string) {
-  return /\b(hiring read|hiring brief|hiring report|turn this into (a )?(read|report|brief)|write (a )?(read|report|brief)|summari[sz]e this into (a )?(read|report|brief))\b/i.test(message);
+  return /\b(hiring read|hiring brief|hiring report|hiring thesis|turn this into (a )?(read|report|brief)|write (a )?(read|report|brief)|summari[sz]e this into (a )?(read|report|brief))\b/i.test(message);
 }
 
 function canGenerateSignalMap(currentRead: CurrentRead, canonicalSearchState?: CanonicalSearchState) {
@@ -895,7 +910,10 @@ function bestFitRoleShape(currentRead: CurrentRead, state: CanonicalSearchState)
   if (currentRead.thesisTitle === "Founder-Led Sales Transition") {
     return "First GTM builder who can turn founder-led selling into a repeatable motion.";
   }
-  if (currentRead.thesisTitle === "Product/Execution Ownership Gap" || currentRead.thesisTitle === "Founder Control / Product Delegation Gap") {
+  if (currentRead.thesisTitle === "Founder Control / Product Delegation Gap") {
+    return "Interim senior product operator or product rhythm setter trusted to take roadmap calls from the founder.";
+  }
+  if (currentRead.thesisTitle === "Product/Execution Ownership Gap") {
     return "Product owner who can take real decision authority, not just organize roadmap conversation.";
   }
   if (currentRead.thesisTitle === "Engineering Leadership Bottleneck") {
@@ -911,6 +929,7 @@ function hiringReadFalsePositive(currentRead: CurrentRead) {
   if (currentRead.thesisTitle === "Product/Support Loop") return "more support headcount if bugs, docs, or onboarding are creating repeat demand";
   if (currentRead.thesisTitle === "Hiring Process / Fractional Recruiter") return "a full-time recruiter before the hiring loop and bar are stable";
   if (currentRead.thesisTitle === "Role Compression / Generalist Hire") return "a magical generalist asked to solve three different jobs at once";
+  if (currentRead.thesisTitle === "Founder Control / Product Delegation Gap") return "a classic VP Product who needs clean authority, or a senior PM who keeps reporting options back to the founder";
   return "a title match that does not solve the actual operating problem";
 }
 

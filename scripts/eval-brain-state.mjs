@@ -5,9 +5,10 @@ import { buildExpandedPublicTalentSearchQueries, buildPublicTalentSearchQueries 
 import { actionButtonsForCurrentRead, buildCurrentRead, buildCurrentReadResponseSketch, currentReadTitle } from "../.tmp/eval-brain-state/lib/tina-mvp/current-read.js";
 import { buildExampleShapeFeedback, buildExampleShapes, isExampleShapeRequest } from "../.tmp/eval-brain-state/lib/tina-mvp/example-shapes.js";
 import { buildFounderModel, buildFounderModelResponseSketch } from "../.tmp/eval-brain-state/lib/tina-mvp/founder-model.js";
-import { buildHiringArtifact, inferHiringArtifactKind } from "../.tmp/eval-brain-state/lib/tina-mvp/hiring-artifacts.js";
+import { buildHiringArtifact, inferHiringArtifactKind, inferHiringArtifactKinds } from "../.tmp/eval-brain-state/lib/tina-mvp/hiring-artifacts.js";
 import { buildReferenceProfileInsightFromText, buildReferenceProfileResponse, formatReferenceProfileInsightForPrompt, isReferenceProfileRequest } from "../.tmp/eval-brain-state/lib/tina-mvp/reference-profiles.js";
 import { buildSignalMap, buildSignalMapResponse } from "../.tmp/eval-brain-state/lib/tina-mvp/signal-map.js";
+import { buildCurrentThesisMemory } from "../.tmp/eval-brain-state/lib/tina-mvp/current-thesis-memory.js";
 import { buildWorkingThesis, buildWorkingThesisResponseSketch, formatWorkingThesisForPrompt } from "../.tmp/eval-brain-state/lib/tina-mvp/working-thesis.js";
 import { TINA_SYSTEM_PROMPT } from "../.tmp/eval-brain-state/lib/tina-mvp/system-prompt.js";
 
@@ -746,6 +747,39 @@ expectNotIncludes(
 expectNotIncludes(customerOpsSignalMap.interviewProbes, /\.\.\.|^(How|What|Tell)\s*$/i, "support load probes should be complete questions");
 expectNotIncludes([customerOpsSignalMap.bestCandidateArchetype], /\.\.\./i, "signal map best profile should not be truncated");
 console.log("PASS signal map cleanup checks");
+
+const longVpProductMessages = [
+  { role: "founder", content: "I think I need a VP Product." },
+  { role: "founder", content: "I still own the roadmap and priorities keep changing." },
+  { role: "founder", content: "We already have 2 PMs, but they do not push back." },
+  { role: "founder", content: "Planning is reactive and I need someone I trust with product judgment." }
+];
+const longVpProductState = buildCanonicalSearchState({ messages: longVpProductMessages });
+const longVpProductRead = buildCurrentRead({ messages: longVpProductMessages, canonicalSearchState: longVpProductState });
+const longVpProductSignalMap = buildSignalMap(longVpProductRead, longVpProductState);
+const longVpProductMemory = buildCurrentThesisMemory({
+  messages: longVpProductMessages,
+  currentRead: longVpProductRead,
+  canonicalSearchState: longVpProductState,
+  signalMap: longVpProductSignalMap
+});
+const longVpProductScorecard = buildHiringArtifact(longVpProductSignalMap, "scorecard");
+
+expectEqual(longVpProductRead.thesisTitle, "Founder Control / Product Delegation Gap", "long VP Product conversation should shift to founder/product delegation");
+expectIncludes([longVpProductMemory.roleShapeBeingConsidered], /product rhythm|roadmap|operator/i, "thesis memory should preserve updated role shape");
+expectIncludes(longVpProductMemory.changedFromOriginalRequest, /founder-owned roadmap|priority|delegation|shifted/i, "thesis memory should record what changed from original title");
+expectIncludes(longVpProductSignalMap.mustProveSignals, /roadmap|planning cadence|priority churn|founder/i, "VP Product signal map should use delegated-product evidence");
+expectNotIncludes(longVpProductScorecard.rows.flatMap((row) => [row.competency, row.signal, row.strongEvidence, row.redFlag]), /\bExecutive\b|VP Product; Executive|generic role keyword/i, "VP Product scorecard should not fall back to generic title keywords");
+expectIncludes(longVpProductScorecard.rows.flatMap((row) => [row.competency, row.signal, row.strongEvidence, row.redFlag]), /roadmap|planning|PM|founder/i, "VP Product scorecard should be thesis-derived");
+
+const multiArtifactKinds = inferHiringArtifactKinds("Turn this into a short Hiring Read and scorecard");
+expectIncludes(multiArtifactKinds, /scorecard/i, "multi-artifact request should include scorecard");
+const scorecardAndInterviewKinds = inferHiringArtifactKinds("Give me a scorecard and interview plan");
+expectIncludes(scorecardAndInterviewKinds, /scorecard/i, "scorecard + interview request should include scorecard");
+expectIncludes(scorecardAndInterviewKinds, /interview_plan/i, "scorecard + interview request should include interview plan");
+const thesisSignalsArchetypeKinds = inferHiringArtifactKinds("Hiring thesis, must-have signals, and candidate archetype");
+expectIncludes(thesisSignalsArchetypeKinds, /candidate_archetype/i, "candidate archetype should be detected in multi-artifact language");
+console.log("PASS long-conversation thesis memory and multi-artifact parsing");
 
 const artifactScenarios = [
   { name: "VP Sales", signalMap: buildSignalMap(buildCurrentRead({ messages: currentReadScenarios[0].messages })), expected: /sales motion|founder|repeatable|customer/i },
