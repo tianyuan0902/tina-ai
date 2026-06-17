@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 
 import { buildCanonicalSearchState, formatCanonicalSearchStateForPrompt, type CanonicalSearchState } from "@/lib/brain/canonicalSearchState";
 import { retrieveBrainContext } from "@/lib/brain/retrieveBrainContext";
@@ -35,6 +37,9 @@ export const dynamic = "force-dynamic";
 const USER_FACING_ERROR = "Tina lost context for a second. Try again.";
 const FALLBACK_MODEL = "gpt-4.1-mini";
 const CALIBRATION_PROFILE_BATCH_SIZE = 3;
+const DIAGNOSTIC_PLAYBOOK_PATH = path.join(process.cwd(), "knowledge_base", "principles", "tina_diagnostic_playbook.md");
+
+let cachedDiagnosticPlaybook: string | undefined;
 
 type OpenAIInputMessage = {
   role: "user" | "assistant";
@@ -244,25 +249,28 @@ export async function POST(request: Request) {
       });
     }
 
+    const hadExistingSignalMap = Boolean(signalMap);
     const nextSignalMap = signalMap || buildSignalMap(currentRead, canonicalSearchState);
     const hiringArtifacts = requestedHiringArtifactKinds.map((kind) => buildHiringArtifact(nextSignalMap, kind, canonicalSearchState));
     const responseContent = [
       requestedHiringRead ? buildHiringReadResponse(currentRead, canonicalSearchState, nextSignalMap) : "",
-      signalMap ? "" : buildSignalMapResponse(nextSignalMap),
       ...hiringArtifacts.map((artifact) => formatHiringArtifactForPrompt(artifact))
     ].filter(Boolean).join("\n\n");
     const artifactTitles = hiringArtifacts.map((artifact) => artifact.title).join(" and ");
+    const chatContent = [
+      requestedHiringRead ? buildHiringReadResponse(currentRead, canonicalSearchState, nextSignalMap) : "",
+      !requestedHiringRead
+        ? hadExistingSignalMap
+          ? `${artifactTitles} ${hiringArtifacts.length === 1 ? "is" : "are"} ready. I’m deriving ${hiringArtifacts.length === 1 ? "this" : "these"} from the current thesis, not the title alone.`
+          : `${artifactTitles} ${hiringArtifacts.length === 1 ? "is" : "are"} ready. I built the signal map internally first, but I’m only showing the artifact you asked for.`
+        : ""
+    ].filter(Boolean).join("\n\n");
 
     return NextResponse.json({
       message: {
         id: `tina-hiring-artifact-${Date.now()}`,
         role: "tina",
-        content: requestedHiringRead
-          ? buildHiringReadResponse(currentRead, canonicalSearchState, nextSignalMap)
-          : signalMap
-            ? `${artifactTitles} ${hiringArtifacts.length === 1 ? "is" : "are"} ready. I’m deriving ${hiringArtifacts.length === 1 ? "this" : "these"} from the current thesis, not the title alone.`
-            : `Signal Map and ${artifactTitles} ${hiringArtifacts.length === 1 ? "is" : "are"} ready. I’m deriving ${hiringArtifacts.length === 1 ? "this" : "these"} from the current thesis, not the title alone.`,
-        signalMap: signalMap ? undefined : nextSignalMap,
+        content: chatContent,
         hiringArtifact: hiringArtifacts[0],
         hiringArtifacts,
         currentThesisMemory
@@ -280,7 +288,7 @@ export async function POST(request: Request) {
   }
 
   if (!shouldRunProfileSearch && isFounderUncertain(latestUserMessage.content) && !isSignalMapRequest(latestUserMessage.content)) {
-    const responseContent = buildFounderUncertainResponse(canonicalSearchState, latestUserMessage.content);
+    const responseContent = buildFounderUncertainResponse(canonicalSearchState, latestUserMessage.content, currentRead);
     return NextResponse.json({
       message: {
         id: `tina-uncertain-${Date.now()}`,
@@ -526,10 +534,12 @@ export async function POST(request: Request) {
   const brainContext = retrieveBrainContext(latestUserMessage.content);
   const companyContext = await retrieveCompanyContext(latestUserMessage.content);
   const formattedCompanyContext = formatCompanyContext(companyContext);
+  const diagnosticPlaybookText = getDiagnosticPlaybookText();
   const liveJdRequest = isLiveJdRequest(latestUserMessage.content);
   const adaptiveModeInstruction = buildAdaptiveModeInstruction(latestUserMessage.content, cleanMessages);
   const instructions = [
     TINA_SYSTEM_PROMPT,
+    diagnosticPlaybookText,
     "If the founder gives company or product context, treat it as hiring calibration input. Infer what kinds of candidates may fit the company, product surface, customer environment, and operating stage. Do not ask why the company context matters.",
     "If the founder shares LinkedIn URLs, GitHub URLs, profile text, or people they admire, treat it as reference-profile signal. Do not promise you can read private LinkedIn pages. Use public links as breadcrumbs and pasted profile text as evidence. Diagnose the people DNA: what this person proves, what culture/operating signal the founder may be drawn to, what false positives would look similar, and how to translate subjective admiration into searchable criteria.",
     "Use example shapes to calibrate the hiring thesis before any named-profile sourcing. Natural founder requests like 'show me a few people,' 'what good looks like,' 'people-ish examples,' 'someone like this,' or 'I need to see it' mean: show archetype shapes, not named people, and ask the founder to react. Do not call public profile search or promise named profiles for those requests. Public/LinkedIn profile search is experimental and should happen only when the founder explicitly asks for real public profiles, LinkedIn profiles, or experimental sourcing. For a founding recruiter request, first pressure-test recruiting load and system readiness: hiring volume, priority roles, location/remote, whether JDs exist, and whether founders/hiring managers can make fast decisions. If public sourcing is thin, offer a LinkedIn search pack or a Codex Cloud sourcing-agent prompt as a next step; do not pretend the app can complete an infinite pipeline.",
@@ -873,6 +883,23 @@ function shouldUseRequestCanonicalState(
   return provided.roleFamily !== "other" && provided.roleTitle !== "Role forming";
 }
 
+function getDiagnosticPlaybookText() {
+  if (cachedDiagnosticPlaybook !== undefined) return cachedDiagnosticPlaybook;
+
+  try {
+    const playbook = readFileSync(DIAGNOSTIC_PLAYBOOK_PATH, "utf8").trim();
+    cachedDiagnosticPlaybook = [
+      "Tina Diagnostic Playbook:",
+      "Use this as judgment guidance. Do not quote it verbatim unless the founder asks for Tina's principles.",
+      playbook
+    ].join("\n\n");
+  } catch {
+    cachedDiagnosticPlaybook = "";
+  }
+
+  return cachedDiagnosticPlaybook;
+}
+
 function shouldUseRequestWorkingThesis(
   latestUserMessage: string,
   computed: WorkingThesis,
@@ -885,22 +912,28 @@ function shouldUseRequestWorkingThesis(
 
 function buildHiringReadResponse(currentRead: CurrentRead, state: CanonicalSearchState, signalMap?: SignalMap) {
   const roleShape = bestFitRoleShape(currentRead, state);
-  const falsePositive = signalMap?.falsePositives?.[0] || hiringReadFalsePositive(currentRead);
-  const exampleShape = signalMap?.bestCandidateArchetype || roleShape;
+  const falsePositives = (signalMap?.falsePositives?.length ? signalMap.falsePositives : [hiringReadFalsePositive(currentRead)])
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 3);
   const mustProve = (signalMap?.mustProveSignals?.length ? signalMap.mustProveSignals : currentRead.calibratedScope)
     .filter(Boolean)
+    .filter((item) => !isGenericHiringReadSignal(item))
     .slice(0, 3);
   const mustProveLine = mustProve.length ? mustProve.join("; ") : currentRead.nextBestMove;
 
   return [
     `Here’s the Hiring Read.`,
     `What I think is really happening: ${currentRead.hypothesis}`,
-    `What this is probably not: ${falsePositive}`,
+    `What this is probably not: ${falsePositives.join("; ")}`,
     `Best-fit role shape: ${roleShape}`,
-    `Example shapes / false positives: ${exampleShape}`,
     `Must-prove signals: ${mustProveLine}`,
     `Next move: ${currentRead.nextBestMove}`
   ].join("\n\n");
+}
+
+function isGenericHiringReadSignal(signal: string) {
+  return /^(vp product|executive|senior|strategic|collaborative|high agency|product judgment|customer signal|regulated environment)$/i.test(signal.trim());
 }
 
 function bestFitRoleShape(currentRead: CurrentRead, state: CanonicalSearchState) {
@@ -1376,12 +1409,21 @@ function buildOverbroadAnswerResponse(state: CanonicalSearchState) {
   ].join("\n\n");
 }
 
-function buildFounderUncertainResponse(state: CanonicalSearchState, latestMessage = "") {
+function buildFounderUncertainResponse(state: CanonicalSearchState, latestMessage = "", currentRead?: CurrentRead) {
   const role = readableRole(state);
   const location = state.location !== "Location forming" ? ` in ${state.location}` : "";
   const proof = state.mustHaveSignals[0] || state.niceToHaveSignals[0] || "evidence they have done the hard part before";
+  const combined = `${latestMessage} ${state.roleTitle} ${state.mustHaveSignals.join(" ")} ${state.niceToHaveSignals.join(" ")} ${currentRead?.thesisTitle || ""}`;
 
-  if (/\b(engineer|technical|cto|v1|ship|build|prototype|possible)\b/i.test(`${latestMessage} ${state.roleTitle} ${state.mustHaveSignals.join(" ")} ${state.niceToHaveSignals.join(" ")}`)) {
+  if (/\b(recruiter|recruiting|head of talent|talent partner|talent advisor|hiring process|hiring plan|hiring loop|interview feedback|scorecards?|candidate flow|fractional talent|fractional recruiter)\b/i.test(combined)) {
+    return [
+      `That uncertainty is the signal.`,
+      `A recruiter may help, but only if they own more than candidate flow: role clarity, interview calibration, founder response time, and the decision rhythm. Otherwise you still do the hard thinking and they just add activity.`,
+      `I’d pressure test the role as a fractional talent partner who builds the hiring system and owns the urgent sprint before you commit to a full-time Head of Talent.`
+    ].join("\n\n");
+  }
+
+  if (/\b(engineer|technical|cto|v1|ship|build|prototype|possible)\b/i.test(combined)) {
     return [
       `That sounds less like a polished CTO search and more like a first technical ownership decision.`,
       `The risk is mixing three different shapes: a technical cofounder who helps decide what should exist, a founding engineer who can ship v1, and an agency/studio that can prove the concept without becoming the company’s technical center.`,

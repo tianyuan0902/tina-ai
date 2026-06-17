@@ -568,21 +568,21 @@ function inferArchetype(
   hireDecisionType: HireDecisionType
 ): CurrentReadArchetype {
   if (isCapitalAllocationSignal(text)) return "Capital Allocation Diagnosis";
-  if (hireDecisionType === "cofounder_vs_hire") return "Technical Ownership / First Builder Decision";
-  if (hireDecisionType === "first_builder" && (roleFamily === "engineering" || /\b(cto|technical|engineer|build|prototype|product)\b/i.test(text))) return "Technical Ownership / First Builder Decision";
-  if (operatingState === "no_team" && /\b(cto|head of eng|head of engineering|vp engineering|engineering leader|technical leader)\b/i.test(text)) return "Technical Ownership / First Builder Decision";
   if (isHiringProcessFractionalRecruiter(text)) return "Hiring Process / Fractional Recruiter";
+  if (isRecruitingTalentContext(text)) return "Recruiting System Before Recruiter";
+  if (hireDecisionType === "cofounder_vs_hire" && hasExplicitTechnicalBuildContext(text)) return "Technical Ownership / First Builder Decision";
+  if (hireDecisionType === "first_builder" && hasExplicitTechnicalBuildContext(text)) return "Technical Ownership / First Builder Decision";
+  if (operatingState === "no_team" && /\b(cto|head of eng|head of engineering|vp engineering|engineering leader|technical leader)\b/i.test(text)) return "Technical Ownership / First Builder Decision";
   if (isProductSupportLoop(text)) return "Product/Support Loop";
   if (isWorkflowBeforeAiHire(text)) return "Workflow Ownership Before AI Hire";
   if (isManagerEnablementGap(text)) return "Manager Enablement / Feedback Cadence Gap";
   if (isFounderControlProductGap(text)) return "Founder Control / Product Delegation Gap";
   if (isOperatingCadenceFounderDelegationGap(text)) return "Operating Cadence / Founder Delegation Gap";
   if (isProductOpsGeneralistArchetype(text)) return "Product/Ops Generalist Archetype";
-  if (/\b(recruiter|recruiting|sourcer|talent acquisition)\b/i.test(text)) return "Recruiting System Before Recruiter";
   if (/\b(vp marketing|head of marketing|marketing leader|growth is slow|positioning|icp|acquisition channel|demand gen)\b/i.test(text)) return "Marketing Positioning Gap";
   if (/\b(ai team|build an ai|ai roadmap|customers.*ai|existing roadmap|shiny object)\b/i.test(text)) return "AI Prioritization Gap";
   if (/\b(vp sales|head of sales|sales leader|ae\b|account executive|gtm|revenue)\b/i.test(text) || roleFamily === "gtm") return "Founder-Led Sales Transition";
-  if (hasNoExistingTeamSignal(text) && (roleFamily === "engineering" || /\b(engineering|engineer|technical|head of eng|vp engineering|cto)\b/i.test(text))) return "Technical Ownership / First Builder Decision";
+  if (hasNoExistingTeamSignal(text) && (roleFamily === "engineering" || /\b(engineering|engineer|technical|head of eng|vp engineering|cto)\b/i.test(text)) && !isRecruitingTalentContext(text)) return "Technical Ownership / First Builder Decision";
   if (/\b(head of eng|head of engineering|engineering manager|eng leader|engineering leadership|cto|vp engineering)\b/i.test(text)) return "Engineering Leadership Bottleneck";
   if (/\b(staff engineer|tech lead|technical lead|existing technical|promote|promotion|level up|clarify.*technical|internal.*technical)\b/i.test(text) && /\b(existing|already|internal|promote|team|lead)\b/i.test(text)) return "Internal Technical Leadership Gap";
   if (/\b(more senior|senior person|adult in the room|experienced|too junior|not senior enough|run themselves|autonomy|independent)\b/i.test(text)) return "Senior Ownership Gap";
@@ -590,7 +590,7 @@ function inferArchetype(
   if (/\b(customer ops|implementation|support|support reps?|success|onboarding|customer success|deployment|tickets?|queue|handoffs?)\b/i.test(text)) return "Support Load Root Cause";
   if (/\b(vp product|chief product|cpo|pm|product manager|head of product|product lead|priorities|prioritization|alignment|product execution|ship)\b/i.test(text) || roleFamily === "product") return "Product/Execution Ownership Gap";
   if (/\b(urgent|asap|fast|yesterday|panic|lost|left|need now|quickly)\b/i.test(text) || /\b(urgent|asap|fast|panic|need now|quickly)\b/i.test(latestText)) return "Urgent Hiring Triage";
-  if (roleFamily === "engineering") return hasNoExistingTeamSignal(text) ? "Technical Ownership / First Builder Decision" : "Engineering Leadership Bottleneck";
+  if (roleFamily === "engineering" && !isRecruitingTalentContext(text)) return hasNoExistingTeamSignal(text) ? "Technical Ownership / First Builder Decision" : "Engineering Leadership Bottleneck";
   return "Unknown / Needs Clarification";
 }
 
@@ -616,10 +616,11 @@ function inferOperatingState(text: string, latestText: string): OperatingState {
 function inferHireDecisionType(text: string, latestText: string, roleFamily: string, operatingState: OperatingState): HireDecisionType {
   const combined = `${text} ${latestText}`;
 
-  if (/\b(co[-\s]?founder|first engineer|first builder|dev shop|studio|contractor)\b/i.test(combined) && /\b(vs|versus|or|between|choose|compare)\b/i.test(combined)) return "cofounder_vs_hire";
-  if (/\bagency\b/i.test(combined) && !/\bhigh[-\s]?agency\b/i.test(combined) && /\b(vs|versus|or|between|choose|compare)\b/i.test(combined)) return "cofounder_vs_hire";
-  if (operatingState === "no_team" && (roleFamily === "engineering" || /\b(cto|technical|engineer|build|prototype)\b/i.test(combined))) return "first_builder";
   if (isHiringProcessFractionalRecruiter(combined)) return "agency_vs_internal";
+  if (isRecruitingTalentContext(combined)) return "not_hiring_yet";
+  if (/\b(co[-\s]?founder|first engineer|first builder|dev shop|studio|contractor)\b/i.test(combined) && /\b(vs|versus|or|between|choose|compare)\b/i.test(combined) && hasExplicitTechnicalBuildContext(combined)) return "cofounder_vs_hire";
+  if (/\bagency\b/i.test(combined) && !/\bhigh[-\s]?agency\b/i.test(combined) && /\b(vs|versus|or|between|choose|compare)\b/i.test(combined) && hasExplicitTechnicalBuildContext(combined)) return "cofounder_vs_hire";
+  if (operatingState === "no_team" && (roleFamily === "engineering" || /\b(cto|technical|engineer|build|prototype)\b/i.test(combined))) return "first_builder";
   if (isProductSupportLoop(combined)) return "not_hiring_yet";
   if (/\b(founder|mostly me|my plate|less dependent|run themselves|autonomy|independent|delegate|delegation|approval|decision rights?|still closes|still own|i own)\b/i.test(combined)) return "founder_delegation_gap";
   if (/\b(generalist|chief of staff|founder.?s office|operator|wear many hats|do everything|all of it)\b/i.test(combined)) return "role_compression";
@@ -634,11 +635,19 @@ function hasNoExistingTeamSignal(text: string) {
 }
 
 function isHiringProcessFractionalRecruiter(text: string) {
-  return /\b(recruiter|recruiting|sourcer|talent acquisition)\b/i.test(text) &&
+  return isRecruitingTalentContext(text) &&
     (
       /\b(4|four|few|couple|only .*roles?|not many hires?|low volume|no process|no hiring process|interviews? are slow|uncalibrated|changing what good looks like|no calibration)\b/i.test(text) ||
       (/\b(no process|interviews? are slow|uncalibrated|calibration|feedback loop|hiring loop)\b/i.test(text) && !/\b(20|twenty|dozens?|per month|every month|pipeline volume)\b/i.test(text))
     );
+}
+
+function isRecruitingTalentContext(text: string) {
+  return /\b(head of talent|talent partner|talent advisor|talent acquisition|recruiter|recruiting|sourcer|hiring plan|hiring process|hiring loop|interview loop|interview feedback|scorecards?|candidate flow|candidate pipeline|agency sends random|agencies send random|fractional recruiter|fractional talent)\b/i.test(text);
+}
+
+function hasExplicitTechnicalBuildContext(text: string) {
+  return /\b(cto|technical co[-\s]?founder|technical founder|first engineer|founding engineer|first builder|technical owner|technical ownership|dev shop|build v1|ship v1|prototype|rough prototype|architecture|engineering team|eng team|engineers? can build|technical decisions?|what is technically possible)\b/i.test(text);
 }
 
 function isProductSupportLoop(text: string) {
@@ -705,6 +714,7 @@ function doesOperatingContextInvalidate(
   latestText: string
 ) {
   if (!hasConcreteOperatingSignal(latestText)) return false;
+  if (isRecruitingRead(previousRead.thesisTitle) && !hasExplicitTechnicalBuildContext(latestText)) return false;
   const previousOperatingState = previousRead.operatingState || "unknown";
   const previousHireDecisionType = previousRead.hireDecisionType || "not_hiring_yet";
 
@@ -715,7 +725,12 @@ function doesOperatingContextInvalidate(
 }
 
 function hasConcreteOperatingSignal(text: string) {
-  return /\b(no team|no engineers?|first engineer|co[-\s]?founder|agency|dev shop|contractor|team of\s+\d+|\d+\s+(engineers?|people|reps?|hires?)|existing team|already have|replace|backfill|left|lost|no process|few hires?|support tickets?|bugs?|docs?|same questions?|founder still|i still|mostly me|still closes)\b/i.test(text);
+  return /\b(no team|no engineers?|first engineer|co[-\s]?founder|dev shop|contractor|team of\s+\d+|\d+\s+(engineers?|people|reps?|hires?)|existing team|already have|replace|backfill|left|lost|no process|few hires?|support tickets?|bugs?|docs?|same questions?|founder still|i still|mostly me|still closes)\b/i.test(text) ||
+    (/\bagency\b/i.test(text) && !isRecruitingTalentContext(text));
+}
+
+function isRecruitingRead(archetype: CurrentReadArchetype) {
+  return archetype === "Recruiting System Before Recruiter" || archetype === "Hiring Process / Fractional Recruiter";
 }
 
 function isExplicitCorrection(text: string) {

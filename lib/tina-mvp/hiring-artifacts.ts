@@ -84,6 +84,13 @@ type ArtifactProfile = {
   archetype: CandidateArchetypeItem[];
 };
 
+const DIAGNOSTIC_PLAYBOOK_ARTIFACT_RULES = {
+  falsePositiveDefinition: "Looks right on paper but fails the actual problem.",
+  mustProveDefinition: "Evidence this person has solved the specific operating tension before.",
+  scorecardEvidencePrompt: "What did they do, under what conditions, what tradeoff did they make, what did they own, and what changed because of them?",
+  genericSignalsToAvoid: ["strategic", "collaborative", "high agency", "senior", "executive"]
+};
+
 export function inferHiringArtifactKind(message: string): HiringArtifactKind | undefined {
   return inferHiringArtifactKinds(message)[0];
 }
@@ -880,9 +887,12 @@ function uniqueArtifactKinds(values: HiringArtifactKind[]) {
 }
 
 function buildGenericScorecardRows(signalMap: SignalMap): ScorecardRow[] {
-  const mustProve = signalMap.mustProveSignals.slice(0, 4);
+  const mustProve = signalMap.mustProveSignals
+    .filter((signal) => !isGenericArtifactSignal(signal))
+    .slice(0, 4);
+  const signals = mustProve.length ? mustProve : [DIAGNOSTIC_PLAYBOOK_ARTIFACT_RULES.mustProveDefinition];
   const used = new Set<string>();
-  return mustProve.map((signal, index) => {
+  return signals.map((signal, index) => {
     const competency = uniqueCompetency(competencyLabel(signal), used);
     const redFlagSource = signalMap.falsePositives[index] || signalMap.weakSignals[index] || "Looks right on paper but cannot carry the actual problem.";
     return {
@@ -893,6 +903,12 @@ function buildGenericScorecardRows(signalMap: SignalMap): ScorecardRow[] {
       ratingScale: "1 = no proof, 3 = partial proof, 5 = owned it"
     };
   });
+}
+
+function isGenericArtifactSignal(signal: string) {
+  const normalized = signal.trim().toLowerCase();
+  return DIAGNOSTIC_PLAYBOOK_ARTIFACT_RULES.genericSignalsToAvoid.some((term) => normalized === term) ||
+    /^(vp product|product judgment|customer signal|regulated environment)$/i.test(normalized);
 }
 
 function buildGenericArchetypeItems(signalMap: SignalMap): CandidateArchetypeItem[] {
@@ -922,6 +938,142 @@ function buildGenericArchetypeItems(signalMap: SignalMap): CandidateArchetypeIte
 
 function artifactProfileFor(signalMap: SignalMap): ArtifactProfile | undefined {
   const thesis = signalMap.derivedFromThesisTitle;
+  if (thesis === "Recruiting System Before Recruiter" || thesis === "Hiring Process / Fractional Recruiter") {
+    return {
+      scorecard: withRating([
+        {
+          competency: "Hiring loop ownership",
+          signal: "Builds the system before adding candidate volume.",
+          strongEvidence: "Created role intake, scorecards, feedback cadence, and decision rhythm.",
+          redFlag: "Only coordinates interviews or sends resumes."
+        },
+        {
+          competency: "Founder decision speed",
+          signal: "Keeps founder feedback and candidate momentum moving.",
+          strongEvidence: "Reduced founder delays and improved close speed.",
+          redFlag: "Accepts slow founder responses as unavoidable."
+        },
+        {
+          competency: "Role clarity",
+          signal: "Forces unclear roles into searchable criteria.",
+          strongEvidence: "Pushed back on fuzzy roles before sourcing.",
+          redFlag: "Starts sourcing before the role is shaped."
+        },
+        {
+          competency: "Calibration discipline",
+          signal: "Turns interview vibes into evidence.",
+          strongEvidence: "Aligned interviewers around must-prove signals.",
+          redFlag: "Lets interview debriefs stay subjective."
+        }
+      ]),
+      interviewStages: [
+        {
+          stage: "Founder screen",
+          tests: "Whether they can challenge unclear hiring needs.",
+          prompt: "Tell me about a founder-led hiring loop you had to clean up before sourcing worked.",
+          evidence: "Names role clarity, decision speed, and founder behavior.",
+          interviewer: "Founder"
+        },
+        {
+          stage: "Hiring loop exercise",
+          tests: "System building, not just recruiting activity.",
+          prompt: "Design the next 30 days for four hires, one urgent role, and no scorecards.",
+          evidence: "Prioritizes loop quality and urgent coverage.",
+          interviewer: "Founder + hiring manager"
+        },
+        {
+          stage: "Calibration deep dive",
+          tests: "Ability to turn vibes into evidence.",
+          prompt: "Show how you would calibrate interviewers who disagree after every loop.",
+          evidence: "Clear must-prove signals and decision rules.",
+          interviewer: "Hiring manager"
+        },
+        {
+          stage: "Reference check",
+          tests: "Whether they owned outcomes beyond candidate flow.",
+          prompt: "What changed in hiring speed and decision quality because of them?",
+          evidence: "Former founder confirms less hiring chaos.",
+          interviewer: "Founder"
+        }
+      ],
+      archetype: [
+        { label: "Likely background", value: "Fractional talent partner or early recruiting operator for seed-stage teams." },
+        { label: "Scar tissue", value: "Has built hiring loops where founders were still the bottleneck." },
+        { label: "False positive", value: "Agency recruiter who sends volume into an unclear process." },
+        { label: "Best source lane", value: "Fractional recruiting partners, early talent leads, or recruiting operators who own calibration." },
+        { label: "Risk to verify", value: "Can they own outcomes, not just candidate flow?" }
+      ]
+    };
+  }
+
+  if (thesis === "Founder Control / Product Delegation Gap") {
+    return {
+      scorecard: withRating([
+        {
+          competency: "Roadmap authority",
+          signal: "Owns roadmap calls without founder rescue.",
+          strongEvidence: "Took priority calls off a founder and improved pace.",
+          redFlag: "Reports options back instead of making calls."
+        },
+        {
+          competency: "Planning cadence",
+          signal: "Creates lightweight rhythm the founder trusts.",
+          strongEvidence: "Stabilized planning without adding process theater.",
+          redFlag: "Adds meetings before decisions get clearer."
+        },
+        {
+          competency: "PM coaching",
+          signal: "Raises existing PM judgment and pushback.",
+          strongEvidence: "Helped PMs challenge priorities with evidence.",
+          redFlag: "Works around PMs instead of upgrading them."
+        },
+        {
+          competency: "Founder trust transfer",
+          signal: "Earns authority while reducing founder centrality.",
+          strongEvidence: "Founder stepped back from routine product calls.",
+          redFlag: "Needs founder taste to validate every tradeoff."
+        }
+      ]),
+      interviewStages: [
+        {
+          stage: "Founder screen",
+          tests: "Whether the founder can trust their product judgment.",
+          prompt: "Tell me about a roadmap decision you took off a founder's plate.",
+          evidence: "Specific decision, tradeoff, resistance, and outcome.",
+          interviewer: "Founder"
+        },
+        {
+          stage: "Product judgment deep dive",
+          tests: "Tradeoff quality under messy customer and sales pressure.",
+          prompt: "Walk through a time customers, sales, and engineering wanted different things.",
+          evidence: "Clear decision logic, not stakeholder theater.",
+          interviewer: "Founder + PM"
+        },
+        {
+          stage: "Operating rhythm exercise",
+          tests: "Lightweight cadence without process drag.",
+          prompt: "Design the first 30 days of product planning for a seed team with reactive priorities.",
+          evidence: "Creates clarity without slowing shipping.",
+          interviewer: "Founder + engineering lead"
+        },
+        {
+          stage: "Reference check",
+          tests: "Whether trust transfer happened in real life.",
+          prompt: "What decisions stopped escalating to the founder?",
+          evidence: "Former founder confirms reduced dependency.",
+          interviewer: "Founder"
+        }
+      ],
+      archetype: [
+        { label: "Likely background", value: "Senior product operator or interim product lead from a founder-led startup." },
+        { label: "Scar tissue", value: "Has converted reactive founder roadmap churn into trusted product rhythm." },
+        { label: "False positive", value: "Polished VP Product who needs a cleaner org than this one." },
+        { label: "Best source lane", value: "Founder-adjacent PMs, product operators, or interim product leaders with real decision rights." },
+        { label: "Risk to verify", value: "Can they earn authority without becoming another advisor layer?" }
+      ]
+    };
+  }
+
   if (thesis === "Engineering Leadership Bottleneck") {
     return {
       scorecard: withRating([

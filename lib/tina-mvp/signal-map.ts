@@ -331,6 +331,31 @@ function buildRawSignalMap(currentRead?: CurrentRead, canonicalSearchState?: Can
         ],
         bestCandidateArchetype: "Fractional or early recruiting partner who can build the hiring system before scaling candidate volume."
       };
+    case "Hiring Process / Fractional Recruiter":
+      return {
+        derivedFromThesisTitle: thesisTitle,
+        mustProveSignals: [
+          "Can build a hiring loop before scaling candidate volume.",
+          "Can own an urgent role without letting founder decisions stall.",
+          "Can calibrate scorecards and feedback so interviews stop being vibes."
+        ],
+        weakSignals: [
+          "Has recruited at high volume inside a mature hiring machine.",
+          "Has a broad candidate network but no process ownership.",
+          "Can coordinate interviews but cannot push role clarity."
+        ],
+        falsePositives: [
+          "Full-time Head of Talent before hiring volume justifies it.",
+          "Agency recruiter who sends candidates into an unclear loop.",
+          "Fractional recruiter who sources but does not own calibration."
+        ],
+        interviewProbes: [
+          "How did you build a hiring process for a founder who was still the bottleneck?",
+          "Tell me about a role you forced a team to clarify before sourcing.",
+          "How did you keep candidate momentum when founders were slow?"
+        ],
+        bestCandidateArchetype: "Fractional talent partner who can build the hiring system and own the urgent sprint without becoming only a sourcing vendor."
+      };
     default:
       return {
         derivedFromThesisTitle: thesisTitle,
