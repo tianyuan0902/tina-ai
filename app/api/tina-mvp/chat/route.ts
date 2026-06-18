@@ -287,6 +287,44 @@ export async function POST(request: Request) {
     });
   }
 
+  if (!shouldRunProfileSearch && isRecruitingSystemBlankSignal(cleanMessages)) {
+    const responseContent = buildRecruitingSystemBlankResponse();
+
+    return NextResponse.json({
+      message: {
+        id: `tina-recruiting-system-${Date.now()}`,
+        role: "tina",
+        content: responseContent
+      },
+      canonicalSearchState,
+      workingThesis: buildWorkingThesisWithAssistant(cleanMessages, responseContent, canonicalSearchState),
+      currentRead,
+      currentThesisMemory,
+      clearSignalMap: true,
+      referenceProfileInsight,
+      source: "local_conversation_move"
+    });
+  }
+
+  if (!shouldRunProfileSearch && isRecruitingClarityPushback(cleanMessages)) {
+    const responseContent = buildRecruitingClarityResponse();
+
+    return NextResponse.json({
+      message: {
+        id: `tina-recruiting-clarity-${Date.now()}`,
+        role: "tina",
+        content: responseContent
+      },
+      canonicalSearchState,
+      workingThesis: buildWorkingThesisWithAssistant(cleanMessages, responseContent, canonicalSearchState),
+      currentRead,
+      currentThesisMemory,
+      clearSignalMap: true,
+      referenceProfileInsight,
+      source: "local_conversation_move"
+    });
+  }
+
   if (!shouldRunProfileSearch && isFounderUncertain(latestUserMessage.content) && !isSignalMapRequest(latestUserMessage.content)) {
     const responseContent = buildFounderUncertainResponse(canonicalSearchState, latestUserMessage.content, currentRead);
     return NextResponse.json({
@@ -542,7 +580,7 @@ export async function POST(request: Request) {
     diagnosticPlaybookText,
     "If the founder gives company or product context, treat it as hiring calibration input. Infer what kinds of candidates may fit the company, product surface, customer environment, and operating stage. Do not ask why the company context matters.",
     "If the founder shares LinkedIn URLs, GitHub URLs, profile text, or people they admire, treat it as reference-profile signal. Do not promise you can read private LinkedIn pages. Use public links as breadcrumbs and pasted profile text as evidence. Diagnose the people DNA: what this person proves, what culture/operating signal the founder may be drawn to, what false positives would look similar, and how to translate subjective admiration into searchable criteria.",
-    "Use example shapes to calibrate the hiring thesis before any named-profile sourcing. Natural founder requests like 'show me a few people,' 'what good looks like,' 'people-ish examples,' 'someone like this,' or 'I need to see it' mean: show archetype shapes, not named people, and ask the founder to react. Do not call public profile search or promise named profiles for those requests. Public/LinkedIn profile search is experimental and should happen only when the founder explicitly asks for real public profiles, LinkedIn profiles, or experimental sourcing. For a founding recruiter request, first pressure-test recruiting load and system readiness: hiring volume, priority roles, location/remote, whether JDs exist, and whether founders/hiring managers can make fast decisions. If public sourcing is thin, offer a LinkedIn search pack or a Codex Cloud sourcing-agent prompt as a next step; do not pretend the app can complete an infinite pipeline.",
+    "Use example shapes to calibrate the hiring thesis before any named-profile sourcing. Natural founder requests like 'show me a few people,' 'what good looks like,' 'people-ish examples,' 'someone like this,' or 'I need to see it' mean: show archetype shapes, not named people, and ask the founder to react. Do not call public profile search or promise named profiles for those requests. Public/LinkedIn profile search is experimental and should happen only when the founder explicitly asks for real public profiles, LinkedIn profiles, or experimental sourcing. For a founding recruiter request, first pressure-test recruiting load and system readiness: hiring volume, priority roles, location/remote, whether JDs exist, and whether founders/hiring managers can make fast decisions. If the founder says they have nothing, no process, no pipeline, or that this is why they need a recruiter, treat that as the answer: recommend a recruiting-system builder or fractional recruiting lead shape and ask only for hiring volume or timeline next. Do not repeat the first recruiter question. If public sourcing is thin, offer a LinkedIn search pack or a Codex Cloud sourcing-agent prompt as a next step; do not pretend the app can complete an infinite pipeline.",
     "For normal chat, keep the answer compact, complete, and human. Chat is the short bridge; structured artifacts carry the detail. Do not narrate Tina's whole thought process when a Signal Map, scorecard, interview plan, candidate archetype, Market Reality, or sourcing strategy can hold the detail. Sound like you are thinking with the founder in real time. Use contractions. Avoid stiff phrases like 'there are three key dimensions' or 'the optimal approach'. Tina is a Hiring Decision Engine: first diagnose the business problem, organizational context, and whether hiring is actually the right intervention. Your goal is to help the founder think; the task is secondary. Every response needs at least one observation the founder is unlikely to have articulated themselves. Do not merely summarize. On every follow-up, interpret the founder's latest answer before moving the workflow forward: what did it reveal, what ambiguity remains, what tradeoff was exposed, and what assumption surfaced? Once a meaningful signal has been extracted, do not keep rephrasing it; update the working hypothesis and produce a new observation. If the founder names a role but has not asked for candidates yet, do not jump to sourcing or intake fields. Ask one earned diagnostic question such as what changed, what is breaking, who owns the work now, or what fails if nobody is hired. If the current read is committed, explicitly hold the diagnosis even when the founder repeats the original request: say “I no longer think this is mainly a [stated role] problem; I think it is a [root problem] problem.” If the founder asks for VP Product and later reveals founder-owned roadmap, existing PMs, priority churn, or low delegation trust, commit to product/founder-delegation and planning cadence, not title search. If the founder says they need a recruiter, diagnose hiring volume, hiring plan, and interview calibration before suggesting full-time recruiting; after low volume or uncalibrated interviews, recommend process/fractional help first. If the founder asks for more support reps but reveals repeated tickets, product bugs, or missing docs, hold the product/support root-cause diagnosis even if they repeat urgency. If the founder asks for a Staff Engineer but reveals a trusted existing senior engineer and no technical leadership structure, compare clarifying/promoting the internal owner before assuming an external hire. If the founder asks for VP Marketing while ICP, positioning, or channels are unproven, challenge the leadership hire and diagnose positioning/PMF first. If the founder asks for an AI team without roadmap or customer pull, challenge the team build and diagnose prioritization before role design. If the founder gives enough signal for useful guidance, make the recommendation instead of asking more questions. Once the current read is high-confidence or in execution mode, stop asking broad questions and make a concise conversational recommendation. Only produce a planning artifact when the founder explicitly asks for one by name, such as hiring thesis, must-have signals, signal map, scorecard, candidate archetype, interview plan, criteria, rubric, role shape, or tradeoffs. Those artifact requests are not sourcing requests. A short confirmation is conversational agreement, not permission to generate an artifact. Normal founder uncertainty should produce only a conversational read, one earned clarifying question, or an offer to show Example Shapes. Never auto-generate Signal Map, Market Reality, source lanes, comp notes, missing inputs, or market constraints unless the founder explicitly asks. Natural requests like 'show me people', 'people-ish examples', or 'what good looks like' mean Example Shapes by default; only treat it as public sourcing when the founder explicitly asks for real public profiles, LinkedIn profiles, or experimental sourcing. Agreement is not permission to switch into process or artifacts. If the thesis is stable, agreement should advance the conversation with a sharper recommendation or offer artifact buttons, not generate Signal Map, Market Reality, scorecard, interview plan, candidate archetype, or sourcing strategy. Use 'I have enough for a first pass,' 'I’ll make a working assumption,' and 'I’ll filter hard' only when the tradeoff is clear enough. Do not say 'How is this relevant?', 'I’m missing role outcome', 'must-have signals are required', 'please provide', 'source lanes', 'calibration status', or 'canonical state'. Avoid 'Sounds like you need', 'The practical implication is', and 'This implies'. Do not ask location, level, compensation, company lanes, or must-have skills unless the answer materially changes the recommendation. Do not say you are pulling, sharing, or preparing a candidate list later unless actual profile leads are included in this response.",
     adaptiveModeInstruction,
     founderModelText,
@@ -1239,6 +1277,46 @@ function buildSourcingReadinessResponse(
   ].join("\n\n");
 }
 
+function hasRecruiterContext(messages: TinaMvpMessage[]) {
+  return messages.some((message) =>
+    /\b(found(?:ing)? recruiter|first recruiter|recruiter|recruiting|head of talent|talent partner|talent acquisition|candidate pipeline|hiring pipeline|hiring process|hiring system)\b/i.test(message.content)
+  );
+}
+
+function getLatestFounderText(messages: TinaMvpMessage[]) {
+  return [...messages].reverse().find((message) => message.role === "founder")?.content || "";
+}
+
+function isRecruitingSystemBlankSignal(messages: TinaMvpMessage[]) {
+  if (!hasRecruiterContext(messages)) return false;
+
+  const latest = getLatestFounderText(messages).toLowerCase();
+  return /\b(i have nothing|we have nothing|have nothing|no system|no process|no pipeline|no hiring process|no recruiting process|from scratch|zero|nothing yet|that'?s why i need (?:a )?recruiter|need (?:a )?recruiter to help)\b/i.test(latest);
+}
+
+function isRecruitingClarityPushback(messages: TinaMvpMessage[]) {
+  if (!hasRecruiterContext(messages)) return false;
+
+  const latest = getLatestFounderText(messages).toLowerCase();
+  return /\b(it'?s very clear|this is clear|it is clear|clear enough|i already told you|that'?s obvious)\b/i.test(latest);
+}
+
+function buildRecruitingSystemBlankResponse() {
+  return [
+    "Yeah, that is the signal. You are not asking for a recruiter to run a clean process; you are asking for someone to build the hiring system from zero.",
+    "I would shape this as a founding recruiting operator or fractional recruiting lead first: clarify the first roles, build the pipeline, set the interview loop, and force fast founder feedback. A pure sourcer will just hand you more noise.",
+    "The one thing I would pin down now: how many hires are you trying to make in the next 3-6 months?"
+  ].join("\n\n");
+}
+
+function buildRecruitingClarityResponse() {
+  return [
+    "Fair. Then I would stop asking the broad question and make the call: this is a recruiting-system build, not a pure sourcing hire.",
+    "The first version should own the hiring plan, candidate pipeline, interview loop, and weekly founder feedback cadence. I would avoid a big-company recruiter who needs clean reqs handed to them.",
+    "Next move: define the first two roles and the weekly hiring loop before deciding full-time versus fractional."
+  ].join("\n\n");
+}
+
 function identifyAmbiguousFocalPoint(message: string, state: CanonicalSearchState) {
   const text = message.toLowerCase();
   const role = readableRole(state);
@@ -1273,6 +1351,14 @@ function identifyAmbiguousFocalPoint(message: string, state: CanonicalSearchStat
       observation: `“${role}” could mean several different building lanes.`,
       risk: `Title-matching too early can pull people who look technical but have not done the specific kind of building you need.`,
       question: `Which proof matters most: shipped product, infrastructure depth, technical ownership, or domain experience?`
+    };
+  }
+
+  if (/\brecruiter|recruiting|head of talent|talent partner|talent acquisition\b/.test(text)) {
+    return {
+      observation: `A founding recruiter is not one job until the hiring loop exists.`,
+      risk: `If there is no process or pipeline, a pure sourcer will just expose the mess faster.`,
+      question: `Are you hiring several people from a clear plan, or trying to build the hiring loop from zero?`
     };
   }
 

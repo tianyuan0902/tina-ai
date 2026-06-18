@@ -504,6 +504,16 @@ const longFounderReadCases = [
     nextMove: /hiring plan|interview process|fractional recruiting/i
   },
   {
+    name: "Founding recruiter with nothing means system build",
+    messages: [
+      { id: "recruiter-blank-1", role: "founder", content: "I need a founding recruiter." },
+      { id: "recruiter-blank-2", role: "founder", content: "I have nothing, that is why I need a recruiter to help me." },
+      { id: "recruiter-blank-3", role: "founder", content: "No hiring process, no candidate pipeline, and no interview loop yet." }
+    ],
+    expected: "Hiring Process / Fractional Recruiter",
+    nextMove: /hiring plan|hiring loop|recruiting system|fractional recruiting/i
+  },
+  {
     name: "Recruiter next-step language does not become capital allocation",
     messages: [
       { id: "recruiter-next-1", role: "founder", content: "I think we need our first recruiter." },
