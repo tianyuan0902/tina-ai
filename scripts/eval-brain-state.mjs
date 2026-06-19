@@ -4,6 +4,7 @@ import { evaluateSourcingReadiness } from "../.tmp/eval-brain-state/lib/tina/sou
 import { buildExpandedPublicTalentSearchQueries, buildPublicTalentSearchQueries } from "../.tmp/eval-brain-state/lib/tina/search-query-builder.js";
 import { actionButtonsForCurrentRead, buildCurrentRead, buildCurrentReadResponseSketch, currentReadTitle } from "../.tmp/eval-brain-state/lib/tina-mvp/current-read.js";
 import { buildExampleShapeFeedback, buildExampleShapes, isExampleShapeRequest } from "../.tmp/eval-brain-state/lib/tina-mvp/example-shapes.js";
+import { applyFounderLanguageAdapter, formatFounderLanguageInterpretationForPrompt, interpretFounderLanguage } from "../.tmp/eval-brain-state/lib/tina-mvp/founder-language-adapter.js";
 import { buildFounderModel, buildFounderModelResponseSketch } from "../.tmp/eval-brain-state/lib/tina-mvp/founder-model.js";
 import { buildHiringArtifact, inferHiringArtifactKind, inferHiringArtifactKinds } from "../.tmp/eval-brain-state/lib/tina-mvp/hiring-artifacts.js";
 import { buildReferenceProfileInsightFromText, buildReferenceProfileResponse, formatReferenceProfileInsightForPrompt, isReferenceProfileRequest } from "../.tmp/eval-brain-state/lib/tina-mvp/reference-profiles.js";
@@ -431,6 +432,48 @@ const founderUncertaintyRead = buildCurrentRead({
 expectNotIncludes([founderUncertaintyRead.mode], /^execution$|^sourcing$/, "founder uncertainty should stay in Current Read, not Market Reality or sourcing");
 expectIncludes([founderUncertaintyRead.nextBestMove], /clarify|compare|decision|technical|builder|first/i, "technical uncertainty should move toward one question or comparison shapes");
 console.log("PASS founder uncertainty stays in Current Read");
+
+const misheardRecruiter = interpretFounderLanguage("I need a funded recorder.");
+expectIncludes([misheardRecruiter.normalizedText], /founding recruiter/i, "adapter should normalize funded recorder to founding recruiter");
+expectIncludes([formatFounderLanguageInterpretationForPrompt(misheardRecruiter)], /Possible mishearing: founding recruiter/i, "adapter prompt should preserve mishearing context");
+
+const messyRecruiterMessages = applyFounderLanguageAdapter([
+  { id: "messy-recruiter-1", role: "founder", content: "I need a funded recorder." },
+  { id: "messy-recruiter-2", role: "founder", content: "I have nothing, thats why I need recruiter to help me." }
+]);
+const messyRecruiterState = buildCanonicalSearchState({ messages: messyRecruiterMessages });
+const messyRecruiterRead = buildCurrentRead({ messages: messyRecruiterMessages, canonicalSearchState: messyRecruiterState });
+expectIncludes([messyRecruiterState.roleTitle], /recruit|talent|hiring/i, "adapter should let canonical state recover recruiting role from voice typo");
+expectIncludes([messyRecruiterRead.thesisTitle], /Recruiting System|Hiring Process/i, "adapter should route no-system recruiter language to recruiting-system diagnosis");
+
+const messySalesCorrection = interpretFounderLanguage("Ugh no, not people hire. Sales person. Maybe SF or remote, I don't care that much.");
+expectIncludes([messySalesCorrection.normalizedText], /sales\/GTM/i, "adapter should preserve founder correction from people to sales");
+expectIncludes([messySalesCorrection.normalizedText], /Remote US.*Bay Area/i, "adapter should preserve loose SF or remote constraint");
+expectIncludes(messySalesCorrection.stateCorrections, /sales\/GTM/i, "adapter should emit sales state correction");
+
+const messyExampleRequest = interpretFounderLanguage("Can you show me a few people-ish examples? I need to see it.");
+expectEqual(messyExampleRequest.likelyIntent, "example_shapes", "messy example language should route to example shapes");
+
+const overbuildPushback = interpretFounderLanguage("I don't want this to be that complicated. I don't need a platform. I just need an agent on Codex.");
+expectEqual(overbuildPushback.likelyIntent, "scope_pushback", "overbuild pushback should route to scope simplification");
+expectIncludes(overbuildPushback.stateCorrections, /reduce architecture|smallest useful/i, "overbuild pushback should tell Tina to simplify immediately");
+
+const decisionEngineCorrection = interpretFounderLanguage("So far on MVP, I have launched Pass 6. I think we need to go back to pass 1 to look at decisions. Engine right?");
+expectEqual(decisionEngineCorrection.likelyIntent, "product_strategy_correction", "pass 1 / decision engine language should route to product strategy correction");
+expectIncludes(decisionEngineCorrection.stateCorrections, /core diagnosis|decision read/i, "decision engine correction should recenter on the core read");
+
+const scaledScoringQuestion = interpretFounderLanguage("The answers are too binary. What if we do 0 to 5 strongly disagree to strongly agree, but how do we rate people in the middle?");
+expectEqual(scaledScoringQuestion.likelyIntent, "product_logic", "scale scoring question should route to product logic");
+expectIncludes([scaledScoringQuestion.normalizedText], /scaled answers map to axes/i, "scale scoring question should normalize to axis/confidence logic");
+
+const conceptTranslation = interpretFounderLanguage("what is: Add a commit after enough evidence threshold");
+expectEqual(conceptTranslation.likelyIntent, "concept_translation", "abstract product phrase should route to concept translation");
+expectIncludes([conceptTranslation.normalizedText], /translated into practical product behavior/i, "concept translation should ask for behavior, not jargon");
+
+const mvpScopeConcern = interpretFounderLanguage("I fear that it's making MVP too complicated and too perfect");
+expectEqual(mvpScopeConcern.likelyIntent, "scope_pushback", "MVP perfection concern should route to scope pushback");
+expectIncludes(mvpScopeConcern.stateCorrections, /long-term vision from MVP proof point/i, "MVP scope concern should separate vision from proof point");
+console.log("PASS messy founder language adapter");
 
 const longFounderReadCases = [
   {

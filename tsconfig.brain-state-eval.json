@@ -19,6 +19,7 @@
     "lib/tina-mvp/founder-model.ts",
     "lib/tina-mvp/current-read.ts",
     "lib/tina-mvp/example-shapes.ts",
+    "lib/tina-mvp/founder-language-adapter.ts",
     "lib/tina-mvp/hiring-artifacts.ts",
     "lib/tina-mvp/reference-profiles.ts",
     "lib/tina-mvp/signal-map.ts",

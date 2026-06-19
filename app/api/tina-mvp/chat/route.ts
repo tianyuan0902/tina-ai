@@ -18,6 +18,7 @@ import {
 } from "@/lib/tina-mvp/example-shapes";
 import { buildCurrentThesisMemory, formatCurrentThesisMemoryForPrompt } from "@/lib/tina-mvp/current-thesis-memory";
 import { buildFounderModel, formatFounderModelForPrompt } from "@/lib/tina-mvp/founder-model";
+import { applyFounderLanguageAdapter, formatFounderLanguageInterpretationForPrompt, interpretFounderLanguage } from "@/lib/tina-mvp/founder-language-adapter";
 import { buildHiringArtifact, formatHiringArtifactForPrompt, inferHiringArtifactKinds } from "@/lib/tina-mvp/hiring-artifacts";
 import {
   buildReferenceProfileInsight,
@@ -58,23 +59,26 @@ export async function POST(request: Request) {
   };
   const cleanMessages = normalizeMessages(messages);
   const latestUserMessage = [...cleanMessages].reverse().find((message) => message.role === "founder");
+  const founderLanguageInterpretation = latestUserMessage ? interpretFounderLanguage(latestUserMessage.content, cleanMessages) : undefined;
+  const founderLanguageInterpretationText = formatFounderLanguageInterpretationForPrompt(founderLanguageInterpretation);
+  const stateMessages = applyFounderLanguageAdapter(cleanMessages);
   const refinementSummary = typeof sourcingRefinementSummary === "string" ? sourcingRefinementSummary.trim() : "";
   const computedCanonicalSearchState = buildCanonicalSearchState({
-    messages: cleanMessages,
-    profileLeads: cleanMessages.flatMap((message) => message.profileLeads || [])
+    messages: stateMessages,
+    profileLeads: stateMessages.flatMap((message) => message.profileLeads || [])
   });
   const canonicalSearchState = shouldUseRequestCanonicalState(latestUserMessage?.content || "", computedCanonicalSearchState, requestCanonicalSearchState)
     ? requestCanonicalSearchState!
     : computedCanonicalSearchState;
   const canonicalSearchStateText = formatCanonicalSearchStateForPrompt(canonicalSearchState);
-  const founderModel = buildFounderModel(cleanMessages, canonicalSearchState);
+  const founderModel = buildFounderModel(stateMessages, canonicalSearchState);
   const founderModelText = formatFounderModelForPrompt(founderModel);
-  const computedWorkingThesis = buildWorkingThesis(cleanMessages, canonicalSearchState);
+  const computedWorkingThesis = buildWorkingThesis(stateMessages, canonicalSearchState);
   const workingThesis = shouldUseRequestWorkingThesis(latestUserMessage?.content || "", computedWorkingThesis, requestWorkingThesis)
     ? requestWorkingThesis!
     : computedWorkingThesis;
   const workingThesisText = formatWorkingThesisForPrompt(workingThesis);
-  const computedCurrentRead = buildCurrentRead({ messages: cleanMessages, canonicalSearchState, workingThesis, previousRead: requestCurrentRead });
+  const computedCurrentRead = buildCurrentRead({ messages: stateMessages, canonicalSearchState, workingThesis, previousRead: requestCurrentRead });
   const currentRead = shouldUseRequestCurrentRead(latestUserMessage?.content || "", computedCurrentRead, requestCurrentRead)
     ? requestCurrentRead!
     : computedCurrentRead;
@@ -83,7 +87,7 @@ export async function POST(request: Request) {
     ? requestSignalMap
     : undefined;
   const signalMapText = formatSignalMapForPrompt(signalMap);
-  const currentThesisMemory = buildCurrentThesisMemory({ messages: cleanMessages, currentRead, canonicalSearchState, signalMap });
+  const currentThesisMemory = buildCurrentThesisMemory({ messages: stateMessages, currentRead, canonicalSearchState, signalMap });
   const currentThesisMemoryText = formatCurrentThesisMemoryForPrompt(currentThesisMemory);
   const referenceProfileInsight = buildReferenceProfileInsight(cleanMessages) || requestReferenceProfileInsight;
   const referenceProfileText = formatReferenceProfileInsightForPrompt(referenceProfileInsight);
@@ -102,6 +106,24 @@ export async function POST(request: Request) {
   const planningArtifactRequest = isPlanningArtifactRequest(latestUserMessage.content);
   const exampleShapeRequest = isExampleShapeRequest(latestUserMessage.content);
   const shouldRunProfileSearch = !planningArtifactRequest && !exampleShapeRequest && (isPublicProfileSearchRequest(latestUserMessage.content) || shouldRunPromisedSourcing || shouldRunAdjacentLane || shouldContinueSourcing);
+
+  if (!shouldRunProfileSearch && founderLanguageInterpretation && isTinaProductFeedbackIntent(founderLanguageInterpretation.likelyIntent)) {
+    const responseContent = buildTinaProductFeedbackResponse(founderLanguageInterpretation.rawText);
+
+    return NextResponse.json({
+      message: {
+        id: `tina-product-feedback-${Date.now()}`,
+        role: "tina",
+        content: responseContent
+      },
+      canonicalSearchState,
+      workingThesis,
+      currentRead,
+      signalMap,
+      referenceProfileInsight,
+      source: "local_product_feedback"
+    });
+  }
 
   if (!shouldRunProfileSearch && isClearlyOffTopic(latestUserMessage.content)) {
     return NextResponse.json({
@@ -579,6 +601,7 @@ export async function POST(request: Request) {
     TINA_SYSTEM_PROMPT,
     diagnosticPlaybookText,
     "If the founder gives company or product context, treat it as hiring calibration input. Infer what kinds of candidates may fit the company, product surface, customer environment, and operating stage. Do not ask why the company context matters.",
+    founderLanguageInterpretationText,
     "If the founder shares LinkedIn URLs, GitHub URLs, profile text, or people they admire, treat it as reference-profile signal. Do not promise you can read private LinkedIn pages. Use public links as breadcrumbs and pasted profile text as evidence. Diagnose the people DNA: what this person proves, what culture/operating signal the founder may be drawn to, what false positives would look similar, and how to translate subjective admiration into searchable criteria.",
     "Use example shapes to calibrate the hiring thesis before any named-profile sourcing. Natural founder requests like 'show me a few people,' 'what good looks like,' 'people-ish examples,' 'someone like this,' or 'I need to see it' mean: show archetype shapes, not named people, and ask the founder to react. Do not call public profile search or promise named profiles for those requests. Public/LinkedIn profile search is experimental and should happen only when the founder explicitly asks for real public profiles, LinkedIn profiles, or experimental sourcing. For a founding recruiter request, first pressure-test recruiting load and system readiness: hiring volume, priority roles, location/remote, whether JDs exist, and whether founders/hiring managers can make fast decisions. If the founder says they have nothing, no process, no pipeline, or that this is why they need a recruiter, treat that as the answer: recommend a recruiting-system builder or fractional recruiting lead shape and ask only for hiring volume or timeline next. Do not repeat the first recruiter question. If public sourcing is thin, offer a LinkedIn search pack or a Codex Cloud sourcing-agent prompt as a next step; do not pretend the app can complete an infinite pipeline.",
     "For normal chat, keep the answer compact, complete, and human. Chat is the short bridge; structured artifacts carry the detail. Do not narrate Tina's whole thought process when a Signal Map, scorecard, interview plan, candidate archetype, Market Reality, or sourcing strategy can hold the detail. Sound like you are thinking with the founder in real time. Use contractions. Avoid stiff phrases like 'there are three key dimensions' or 'the optimal approach'. Tina is a Hiring Decision Engine: first diagnose the business problem, organizational context, and whether hiring is actually the right intervention. Your goal is to help the founder think; the task is secondary. Every response needs at least one observation the founder is unlikely to have articulated themselves. Do not merely summarize. On every follow-up, interpret the founder's latest answer before moving the workflow forward: what did it reveal, what ambiguity remains, what tradeoff was exposed, and what assumption surfaced? Once a meaningful signal has been extracted, do not keep rephrasing it; update the working hypothesis and produce a new observation. If the founder names a role but has not asked for candidates yet, do not jump to sourcing or intake fields. Ask one earned diagnostic question such as what changed, what is breaking, who owns the work now, or what fails if nobody is hired. If the current read is committed, explicitly hold the diagnosis even when the founder repeats the original request: say “I no longer think this is mainly a [stated role] problem; I think it is a [root problem] problem.” If the founder asks for VP Product and later reveals founder-owned roadmap, existing PMs, priority churn, or low delegation trust, commit to product/founder-delegation and planning cadence, not title search. If the founder says they need a recruiter, diagnose hiring volume, hiring plan, and interview calibration before suggesting full-time recruiting; after low volume or uncalibrated interviews, recommend process/fractional help first. If the founder asks for more support reps but reveals repeated tickets, product bugs, or missing docs, hold the product/support root-cause diagnosis even if they repeat urgency. If the founder asks for a Staff Engineer but reveals a trusted existing senior engineer and no technical leadership structure, compare clarifying/promoting the internal owner before assuming an external hire. If the founder asks for VP Marketing while ICP, positioning, or channels are unproven, challenge the leadership hire and diagnose positioning/PMF first. If the founder asks for an AI team without roadmap or customer pull, challenge the team build and diagnose prioritization before role design. If the founder gives enough signal for useful guidance, make the recommendation instead of asking more questions. Once the current read is high-confidence or in execution mode, stop asking broad questions and make a concise conversational recommendation. Only produce a planning artifact when the founder explicitly asks for one by name, such as hiring thesis, must-have signals, signal map, scorecard, candidate archetype, interview plan, criteria, rubric, role shape, or tradeoffs. Those artifact requests are not sourcing requests. A short confirmation is conversational agreement, not permission to generate an artifact. Normal founder uncertainty should produce only a conversational read, one earned clarifying question, or an offer to show Example Shapes. Never auto-generate Signal Map, Market Reality, source lanes, comp notes, missing inputs, or market constraints unless the founder explicitly asks. Natural requests like 'show me people', 'people-ish examples', or 'what good looks like' mean Example Shapes by default; only treat it as public sourcing when the founder explicitly asks for real public profiles, LinkedIn profiles, or experimental sourcing. Agreement is not permission to switch into process or artifacts. If the thesis is stable, agreement should advance the conversation with a sharper recommendation or offer artifact buttons, not generate Signal Map, Market Reality, scorecard, interview plan, candidate archetype, or sourcing strategy. Use 'I have enough for a first pass,' 'I’ll make a working assumption,' and 'I’ll filter hard' only when the tradeoff is clear enough. Do not say 'How is this relevant?', 'I’m missing role outcome', 'must-have signals are required', 'please provide', 'source lanes', 'calibration status', or 'canonical state'. Avoid 'Sounds like you need', 'The practical implication is', and 'This implies'. Do not ask location, level, compensation, company lanes, or must-have skills unless the answer materially changes the recommendation. Do not say you are pulling, sharing, or preparing a candidate list later unless actual profile leads are included in this response.",
@@ -1966,6 +1989,58 @@ function normalizeMessages(messages?: TinaMvpMessage[]) {
   );
 }
 
+function isTinaProductFeedbackIntent(intent: string) {
+  return intent === "scope_pushback" ||
+    intent === "product_strategy_correction" ||
+    intent === "concept_translation" ||
+    intent === "product_logic";
+}
+
+function buildTinaProductFeedbackResponse(message: string) {
+  const text = message.toLowerCase();
+
+  if (/\b(when (?:the )?founder says?|i don['’]?t know|help them think|should not act dumb)\b/i.test(text)) {
+    return [
+      "Yes. “I don’t know” should be treated as signal, not failure.",
+      "Tina should make a light read, offer 2-3 working assumptions, and ask one plain question that helps the founder choose between them.",
+      "So the response pattern is: “That’s okay. I’ll start with a few assumptions, and you can tell me what feels wrong.”"
+    ].join("\n\n");
+  }
+
+  if (/\b(0\s*(?:-|to)\s*5|binary|scale|middle|scoring|rate)\b/i.test(text)) {
+    return [
+      "Agree. A 0-5 scale is better than binary if each point maps to judgment, not vibes.",
+      "I’d use it as confidence: 0 = wrong lane, 3 = useful but unresolved, 5 = strong evidence. The important part is forcing Tina to say why something is a 3 instead of pretending it is a yes/no."
+    ].join("\n\n");
+  }
+
+  if (/\b(overbuild|overbuilt|too complex|too much|platform|codex agent|mvp)\b/i.test(text)) {
+    return [
+      "I agree with the push. The MVP should prove the decision engine, not the whole platform.",
+      "I’d cut anything that does not improve one loop: messy founder input → sharper hiring read → useful next artifact. Everything else can wait."
+    ].join("\n\n");
+  }
+
+  if (/\b(pass 1|decision engine|core product|product drift|go back)\b/i.test(text)) {
+    return [
+      "Yes. If Pass 1 is weak, later layers just make the product look busy.",
+      "The priority should be: can Tina hold a stable thesis, update it when evidence changes, and produce a useful next move without turning into a form? That is the core product."
+    ].join("\n\n");
+  }
+
+  if (/\b(threshold|working thesis|current read|signal map|market reality|commit)\b/i.test(text)) {
+    return [
+      "I’d define it as an evidence threshold, not a turn count.",
+      "Tina should commit when she has a clear root problem, at least two supporting signals, one named risk, and a next move that is more specific than “clarify more.”"
+    ].join("\n\n");
+  }
+
+  return [
+    "Yes, that is useful product feedback.",
+    "I’d treat it as a behavior rule for Tina: stay brief in chat, make a real judgment, and only move into structured artifacts when the founder explicitly asks."
+  ].join("\n\n");
+}
+
 function toOpenAIInputMessage(message: TinaMvpMessage): OpenAIInputMessage {
   return {
     role: message.role === "founder" ? "user" : "assistant",
@@ -1979,7 +2054,7 @@ function isClearlyOffTopic(message: string) {
   if (isPublicProfileSearchRequest(message)) return false;
 
   const hiringSignal =
-    /\b(hire|hiring|recruit|recruiting|candidate|candidates|talent|people|team|founder|startup|role|job|interview|sourcing|source|comp|compensation|salary|equity|offer|operator|engineer|eng|designer|pm|product manager|sales|gtm|exec|executive|manager|leadership|org|organization|culture|market map|calibration|profile|profiles|archetype|resume|background|company|customer|market|industry)\b/.test(text);
+    /\b(hire|hiring|recruit|recruiting|candidate|candidates|talent|people|team|founder|startup|role|job|interview|sourcing|source|comp|compensation|salary|equity|offer|operator|engineer|eng|designer|pm|product manager|sales|gtm|exec|executive|manager|leadership|org|organization|culture|market map|calibration|profile|profiles|archetype|resume|background|company|customer|market|industry|mvp|platform|agent|codex|decision engine|pass 1|signal map|current read|working thesis|scorecard|product logic|scoring)\b/.test(text);
 
   if (hiringSignal) return false;
 

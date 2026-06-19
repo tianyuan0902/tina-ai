@@ -122,6 +122,7 @@ export function formatCanonicalSearchStateForPrompt(state: CanonicalSearchState)
 
 function classifyRoleFamily(value: string): CanonicalRoleFamily {
   const text = value.toLowerCase();
+  if (isTinaProductFeedbackText(text)) return "other";
   if (/\bnot people hire\b/.test(text) && /\b(sales|gtm|account executive|ae\b|revenue)\b/.test(text)) return "gtm";
   if (/\b(people-ish|peopleish|people who feel|people.*right shape|show me.*people|people.*examples?|react to something)\b/.test(text)) return "other";
   if (/\b(plant manager|plant|factory|manufacturing|production manager|quality operations|fda|iso|medical device|pharma|regulated manufacturing)\b/.test(text)) return "manufacturing operations";
@@ -161,6 +162,8 @@ function locationMatchesLead(text: string, location: string) {
 }
 
 function inferCanonicalRoleTitle(founderText: string, latestFounder: string, family: CanonicalRoleFamily) {
+  if (isTinaProductFeedbackText(`${founderText} ${latestFounder}`.toLowerCase())) return "Product Feedback";
+
   const latestTitle = inferExplicitRoleTitle(latestFounder);
   if (latestTitle) return latestTitle;
 
@@ -216,6 +219,10 @@ function inferExplicitRoleTitle(value: string) {
   if (/\bfounding pm\b/.test(lower)) return "Founding PM";
   if (/\bproduct manager\b/.test(lower)) return "Product Manager";
   return "";
+}
+
+function isTinaProductFeedbackText(text: string) {
+  return /\b(signal:\s*founder is (?:pushing back on overbuilding|worried the product drifted|asking for product logic|asking for the concept translated|giving product feedback)|product\/tone feedback about tina|decision engine|core product|product drift|codex agent|0\s*(?:-|to)\s*5|scoring logic|rate people|overbuilt|overbuild|don['’]?t need (?:a )?platform|mvp too complicated|too perfect|when (?:the )?founder says?|tina should|bot should|chat should|conversation should|tone should|should not act)\b/i.test(text);
 }
 
 function inferCanonicalLocation(value: string) {
