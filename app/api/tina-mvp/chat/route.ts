@@ -720,7 +720,10 @@ export async function POST(request: Request) {
     });
   }
 
-  const advisorText = enforceAdvisorTone(text, canonicalSearchState);
+  const advisorText = sanitizeUnsupportedProfilePromise(
+    enforceAdvisorTone(text, canonicalSearchState),
+    shouldRunProfileSearch || isPublicProfileSearchRequest(latestUserMessage.content)
+  );
 
   if (!planningArtifactRequest && isPublicProfileSearchRequest(latestUserMessage.content) && isAssistantPromisingProfileList(advisorText)) {
     const readiness = evaluateSourcingReadiness(cleanMessages);
@@ -803,12 +806,26 @@ export async function POST(request: Request) {
 function isAssistantPromisingProfileList(message: string) {
   const text = message.toLowerCase();
   const promiseLanguage =
-    /\b(i['’]?m pulling|i am pulling|i['’]?ll pull|i will pull|i['’]?ll get you|i will get you|i['’]?ll share|i will share|give me a moment)\b/.test(text);
+    /\b(i['’]?m pulling|i am pulling|i['’]?m going to (pull|send|share|show|find|source)|i am going to (pull|send|share|show|find|source)|i['’]?ll (pull|send|share|show|find|source)|i will (pull|send|share|show|find|source)|i['’]?ll get you|i will get you|give me a moment)\b/.test(text);
   const listLanguage = /\b(shortlist|candidate list|profile list|list of|profiles?|candidates?|people|leads?|batch)\b/.test(text);
   const onlyOffering = /\b(want me to|would you like me to|should i)\b.*\b(pull|source|find|build|create)\b/.test(text) &&
     !/\b(i['’]?m pulling|i am pulling)\b/.test(text);
 
   return promiseLanguage && listLanguage && !onlyOffering;
+}
+
+function sanitizeUnsupportedProfilePromise(message: string, allowProfileSearch: boolean) {
+  if (allowProfileSearch || !isAssistantPromisingProfileList(message)) return message;
+
+  const paragraphs = message
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+  const safeParagraphs = paragraphs.filter((paragraph) => !isAssistantPromisingProfileList(paragraph));
+  const fallback =
+    "I won’t pretend I’m pulling real profiles in the background. If you want something tangible next, I can show example shapes or turn this into a sourcing brief.";
+
+  return [...safeParagraphs, fallback].join("\n\n");
 }
 
 function buildAdaptiveModeInstruction(latestUserMessage: string, messages: TinaMvpMessage[]) {
@@ -831,7 +848,7 @@ function inferAdaptiveMode(latestUserMessage: string, messages: TinaMvpMessage[]
   if (isOverbroadFounderAnswer(latestUserMessage)) return "calibration";
   if (isExampleShapeRequest(latestUserMessage)) return "calibration";
   if (isPlanningArtifactRequest(latestUserMessage)) return "execution";
-  if (isPublicProfileSearchRequest(latestUserMessage) || (!isOperatingPullPhrase(latestUserMessage) && /\b(show|pull|source|find|get|build)\b.*\b(profiles?|candidates?|people|leads?|list)\b/i.test(latestUserMessage))) return "sourcing";
+  if (isPublicProfileSearchRequest(latestUserMessage)) return "sourcing";
   if (/\b(best|world[-\s]?class|elite|top[-\s]?tier|10x|rockstar)\b/i.test(latestUserMessage)) return "subjective_quality";
   if (isExplicitMarketRealityQuestion(latestUserMessage)) return "market_reality";
   if (hasRoleSignal(text) && (hasDomainOrCompanySignal(text) || hasGeographySignal(text))) return "calibration";
@@ -856,7 +873,15 @@ function hasGeographySignal(text: string) {
 
 function isPlanningArtifactRequest(message: string) {
   const text = message.toLowerCase();
-  return /\b(hiring read|hiring brief|hiring report|turn this into a read|turn this into a report|turn this into a brief|hiring thesis|must[-\s]?have signals?|signal map|map the profile|map this profile|profile map|what to look for|how to evaluate|interview criteria|evaluation criteria|scorecard|candidate archetype|interview plan|criteria|rubric|role shape|tradeoffs?|pressure[-\s]?test market|market reality|source lanes|sourcing strategy|search strategy|sourcing plan|search plan|time[-\s]?to[-\s]?fill|ttf)\b/.test(text);
+  const explicitRead = /\b(hiring read|hiring brief|hiring report|turn this into a read|turn this into a report|turn this into a brief|hiring thesis)\b/.test(text);
+  const explicitSignalMap = isSignalMapRequest(message);
+  const explicitScorecard = /\b(build|create|make|draft|generate|turn this into|write|give me|produce)\b[\s\S]{0,40}\b(scorecard|rubric|criteria)\b/.test(text);
+  const explicitInterview = /\b(build|create|make|draft|generate|turn this into|write|give me|produce)\b[\s\S]{0,40}\b(interview plan|interview loop)\b/.test(text);
+  const explicitArchetype = /\b(build|create|make|draft|generate|turn this into|define|write|give me|produce)\b[\s\S]{0,50}\b(candidate archetype|candidate profile|best[-\s]?fit profile)\b/.test(text);
+  const explicitMarket = isExplicitMarketRealityQuestion(message);
+  const explicitSourcingBrief = /\b(build|create|make|draft|generate)\b[\s\S]{0,40}\b(sourcing strategy|search strategy|sourcing plan|search plan|sourcing brief)\b/.test(text);
+
+  return explicitRead || explicitSignalMap || explicitScorecard || explicitInterview || explicitArchetype || explicitMarket || explicitSourcingBrief;
 }
 
 function isExplicitMarketRealityQuestion(message: string) {
@@ -882,7 +907,11 @@ function buildCapitalAllocationDiagnosticResponse() {
 }
 
 function isSignalMapRequest(message: string) {
-  return /\b(signal map|build signal map|map the profile|map this profile|profile map|what to look for|how to evaluate|interview criteria|evaluation criteria|must[-\s]?prove signals?|must[-\s]?have signals?)\b/i.test(message);
+  const text = message.toLowerCase();
+  return /\b(build|create|make|show|draft|generate|turn this into|give me)\b[\s\S]{0,50}\b(signal map|evidence map)\b/.test(text) ||
+    /\bwhat (should|does) this hire (need to )?prove\b/.test(text) ||
+    /\bhow should (we|i) evaluate\b/.test(text) ||
+    /\b(interview criteria|evaluation criteria)\b/.test(text);
 }
 
 function isHiringReadRequest(message: string) {
@@ -1675,8 +1704,14 @@ function isSourcingConfirmationRequest(messages: TinaMvpMessage[]) {
   }
 
   const promised = getPromisedSourcingMessage(messages);
+  const latestFounderIndex = messages.map((message, index) => ({ message, index })).reverse().find((item) => item.message.role === "founder")?.index;
+  const priorMessages = typeof latestFounderIndex === "number" ? messages.slice(0, latestFounderIndex) : messages;
+  const recentExplicitPublicSearch = priorMessages
+    .filter((message) => message.role === "founder")
+    .slice(-4)
+    .some((message) => isPublicProfileSearchRequest(message.content));
 
-  return Boolean(promised);
+  return Boolean(promised && recentExplicitPublicSearch);
 }
 
 function isAdjacentLaneConfirmationRequest(messages: TinaMvpMessage[]) {
@@ -1687,7 +1722,14 @@ function isAdjacentLaneConfirmationRequest(messages: TinaMvpMessage[]) {
 
   const previous = getPreviousTinaMessage(messages).toLowerCase();
   if (/\bi found public results\b|\brole-fit validation\b|\bfiltered out \d+ false/i.test(previous)) return false;
-  return /\b(better next option|adjacent title|nearby markets|surface constraint|driving range|exact title and widen geography|operations director|manufacturing manager|quality operations)\b/.test(previous);
+  const latestFounderIndex = messages.map((message, index) => ({ message, index })).reverse().find((item) => item.message.role === "founder")?.index;
+  const priorMessages = typeof latestFounderIndex === "number" ? messages.slice(0, latestFounderIndex) : messages;
+  const recentExplicitPublicSearch = priorMessages
+    .filter((message) => message.role === "founder")
+    .slice(-4)
+    .some((message) => isPublicProfileSearchRequest(message.content));
+
+  return recentExplicitPublicSearch && /\b(better next option|adjacent title|nearby markets|surface constraint|driving range|exact title and widen geography|operations director|manufacturing manager|quality operations)\b/.test(previous);
 }
 
 function isSourcingContinuationRequest(messages: TinaMvpMessage[]) {
