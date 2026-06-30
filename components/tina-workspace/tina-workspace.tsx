@@ -816,66 +816,68 @@ function HomeCommandCenter({
           )}
         </header>
 
-        <div className={`grid min-h-0 gap-3 overflow-hidden ${hasConversation ? "flex-1 grid-rows-[minmax(0,1fr)]" : "shrink-0"}`}>
-        <div className={`mx-auto flex w-full flex-col overflow-hidden rounded-2xl border border-[#E4DDD2] bg-white shadow-[0_24px_80px_rgba(23,23,23,0.06)] ${hasConversation ? "min-h-0 max-w-[1120px]" : "max-w-[1160px]"}`}>
-          <div className="shrink-0 border-b border-[#E4DDD2] bg-white px-4 py-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-[13px] font-semibold">Tina</p>
-                  <p className="mt-0.5 text-xs text-[#6F675E]">Chat first. Artifacts appear here when you ask.</p>
-              </div>
-              {hasCandidateResults && hiddenMessageCount > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => setShowFullConversation((current) => !current)}
-                  className="shrink-0 rounded-md border border-[#E3DED7] bg-white px-2.5 py-1.5 text-xs font-medium text-[#625A52] transition hover:bg-[#F7F4EF]"
-                >
-                  {showFullConversation ? "Hide conversation" : `Show conversation (${hiddenMessageCount})`}
-                </button>
-              ) : null}
-            </div>
+        {!hasConversation ? (
+          <div className="mx-auto flex w-full max-w-[920px] flex-1 flex-col justify-center gap-5 pb-[10vh]">
+            <EmptyConversationNotes onSubmit={sendMessage} onActionClick={recordClickedAction} isThinking={isThinking} />
+            <CommandInput onSubmit={sendMessage} onActionClick={recordClickedAction} isThinking={isThinking} currentRead={currentRead} hasSignalMap={Boolean(signalMap)} />
           </div>
-
-          {hasConversation ? <SessionReadStrip currentRead={currentRead} /> : null}
-
-          <div className={`${hasConversation ? "min-h-0 flex-1 overflow-y-auto" : "overflow-visible"} bg-white px-4 ${hasCandidateResults ? "py-3" : hasConversation ? "py-5" : "py-6"}`}>
-            <div className={`mx-auto grid w-full gap-4 ${hasConversation ? "max-w-[940px]" : "max-w-[920px]"}`}>
-              {hasCandidateResults ? (
-                <SourcingResultArtifact leads={(currentLatestProfileLeadItems.length ? currentLatestProfileLeadItems : visibleProfileLeadItems).map((item) => item.lead)} sourcingBatch={latestSourcingBatch} />
-              ) : null}
-              {displayedMessages.map((message) => (
-                <ChatMessage
-                  key={message.id}
-                  message={message}
-                  signals={message.role === "tina" ? deriveInlineSignals(messages.slice(0, messages.findIndex((item) => item.id === message.id) + 1)) : []}
-                  animate={message.role === "tina" && message.id === latestTinaMessageId && hasConversation}
-                  onExampleShapeReaction={sendMessage}
-                />
-              ))}
-              {isThinking ? (
-                <div className="flex gap-3">
-                  <TinaMark />
-                  <div>
-                    <p className="text-sm font-semibold">Tina</p>
-                    <TypingStatus label={pendingActionText} />
-                    <InlineSignalRows signals={[pendingActionText || "Current Read updating", "Thesis tightening"]} />
+        ) : (
+          <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] gap-3 overflow-hidden">
+            <div className="mx-auto flex min-h-0 w-full max-w-[1120px] flex-col overflow-hidden rounded-2xl border border-[#E4DDD2] bg-white shadow-[0_24px_80px_rgba(23,23,23,0.06)]">
+              <div className="shrink-0 border-b border-[#E4DDD2] bg-white px-4 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[13px] font-semibold">Tina</p>
+                    <p className="mt-0.5 text-xs text-[#6F675E]">Chat first. Artifacts appear here when you ask.</p>
                   </div>
+                  {hasCandidateResults && hiddenMessageCount > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowFullConversation((current) => !current)}
+                      className="shrink-0 rounded-md border border-[#E3DED7] bg-white px-2.5 py-1.5 text-xs font-medium text-[#625A52] transition hover:bg-[#F7F4EF]"
+                    >
+                      {showFullConversation ? "Hide conversation" : `Show conversation (${hiddenMessageCount})`}
+                    </button>
+                  ) : null}
                 </div>
-              ) : null}
-              {!hasConversation ? (
-                <div className="flex items-start justify-center">
-                  <EmptyConversationNotes onSubmit={sendMessage} onActionClick={recordClickedAction} isThinking={isThinking} />
+              </div>
+
+              <SessionReadStrip currentRead={currentRead} />
+
+              <div className={`min-h-0 flex-1 overflow-y-auto bg-white px-4 ${hasCandidateResults ? "py-3" : "py-5"}`}>
+                <div className="mx-auto grid w-full max-w-[940px] gap-4">
+                  {hasCandidateResults ? (
+                    <SourcingResultArtifact leads={(currentLatestProfileLeadItems.length ? currentLatestProfileLeadItems : visibleProfileLeadItems).map((item) => item.lead)} sourcingBatch={latestSourcingBatch} />
+                  ) : null}
+                  {displayedMessages.map((message) => (
+                    <ChatMessage
+                      key={message.id}
+                      message={message}
+                      signals={message.role === "tina" ? deriveInlineSignals(messages.slice(0, messages.findIndex((item) => item.id === message.id) + 1)) : []}
+                      animate={message.role === "tina" && message.id === latestTinaMessageId}
+                      onExampleShapeReaction={sendMessage}
+                    />
+                  ))}
+                  {isThinking ? (
+                    <div className="flex gap-3">
+                      <TinaMark />
+                      <div>
+                        <p className="text-sm font-semibold">Tina</p>
+                        <TypingStatus label={pendingActionText} />
+                        <InlineSignalRows signals={[pendingActionText || "Current Read updating", "Thesis tightening"]} />
+                      </div>
+                    </div>
+                  ) : null}
+                  <div ref={transcriptEndRef} />
                 </div>
-              ) : null}
-              <div ref={transcriptEndRef} />
+              </div>
+
+              <div className="shrink-0 border-t border-[#E4DDD2] bg-[#F7F4EF] p-2">
+                <CommandInput onSubmit={sendMessage} onActionClick={recordClickedAction} isThinking={isThinking} currentRead={currentRead} hasSignalMap={Boolean(signalMap)} compact />
+              </div>
             </div>
           </div>
-
-          <div className={`shrink-0 border-t border-[#E4DDD2] bg-[#F7F4EF] ${hasConversation ? "p-2" : "p-3"}`}>
-            <CommandInput onSubmit={sendMessage} onActionClick={recordClickedAction} isThinking={isThinking} currentRead={currentRead} hasSignalMap={Boolean(signalMap)} compact />
-          </div>
-        </div>
-        </div>
+        )}
       </section>
 
     </div>
@@ -1103,13 +1105,13 @@ function CommandInput({
   }
 
   return (
-    <form onSubmit={submit} className={`rounded-2xl border border-[#E4DDD2] bg-white shadow-[0_18px_48px_rgba(23,23,23,0.07)] transition focus-within:border-[#CFC4FF] focus-within:shadow-[0_22px_60px_rgba(124,103,216,0.11)] ${compact ? "p-2.5" : "p-4"}`}>
+    <form onSubmit={submit} className={`rounded-2xl border border-[#E4DDD2] bg-white shadow-[0_18px_48px_rgba(23,23,23,0.07)] transition focus-within:border-[#CFC4FF] focus-within:shadow-[0_22px_60px_rgba(124,103,216,0.11)] ${compact ? "p-2.5" : "p-5"}`}>
       <textarea
         value={value}
         onChange={(event) => updateDraft(event.target.value)}
         onKeyDown={sendOnEnter}
         placeholder="Tell Tina what feels messy about this hire..."
-        className={`${compact ? "min-h-10" : "min-h-20"} w-full resize-none bg-transparent text-[14px] leading-6 text-[#171717] outline-none placeholder:text-[#9B9289]`}
+        className={`${compact ? "min-h-10" : "min-h-[150px]"} w-full resize-none bg-transparent text-[14px] leading-6 text-[#171717] outline-none placeholder:text-[#9B9289]`}
       />
       {isRecording ? (
         <div className="mt-2 rounded-lg border border-[#E7D8CB] bg-[#FFF8F1] px-3 py-2">
